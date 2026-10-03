@@ -34,12 +34,12 @@ watch(
       type="text"
       spellcheck="false"
       placeholder="搜尋目前資料夾"
-      class="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-faint focus:outline-none"
+      class="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
     />
     <button
       v-if="keyword"
       type="button"
-      class="rounded p-0.5 text-ink-faint hover:bg-surface-hover hover:text-ink"
+      class="rounded p-0.5 text-ink-faint hover:bg-surface-hover active:bg-pressed hover:text-ink"
       title="清除搜尋"
       @click="keyword = ''"
     >

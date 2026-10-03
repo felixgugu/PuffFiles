@@ -28,14 +28,28 @@ onMounted(async () => {
   <div class="relative flex h-full flex-col bg-canvas text-ink">
     <WindowChrome />
 
-    <!-- 設定是整頁模式：蓋掉工具列與內容，但保留標題列與視窗控制。 -->
-    <SettingsView v-if="ui.settingsOpen" />
-    <template v-else>
+    <div class="relative flex min-h-0 flex-1 flex-col">
       <!-- 每個分頁只有一條路徑功能列，永遠指向焦點窗格。 -->
       <TabToolbar />
       <WorkspaceView />
       <StatusBar />
-    </template>
+
+      <!--
+        設定是整頁模式：浮在工作區之上（工作區保持掛載，捲動位置與窗格不會重來）。
+        進出用淡入 + 微縮放，原點錨定在右上角的齒輪按鈕，符合「從哪裡出現就從哪裡消失」。
+      -->
+      <Transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="scale-[0.99] opacity-0"
+        leave-active-class="transition duration-150 ease-in"
+        leave-to-class="scale-[0.99] opacity-0"
+      >
+        <SettingsView
+          v-if="ui.settingsOpen"
+          class="absolute inset-0 z-30 origin-top-right"
+        />
+      </Transition>
+    </div>
 
     <NoticeToast />
     <ConfirmDialog />

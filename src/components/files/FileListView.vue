@@ -140,17 +140,230 @@ function isChrome(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && !!target.closest("[data-row], [data-header]");
 }
 
-function onBlankClick(event: MouseEvent) {
-  if (isChrome(event.target)) {
-    return;
-  }
-  explorer.clearSelection(props.paneId);
+/* ---------------------------------------------------------------------------
+ * 選取：對齊檔案總管 —— 按下即選取、拖曳延伸範圍、空白處框選、到邊緣自動捲動。
+ * ------------------------------------------------------------------------- */
+
+/** 遲滯：超過這個距離才算拖曳，否則只當成點擊。 */
+const DRAG_THRESHOLD = 4;
+/** 拖到距離上下邊緣這麼近就開始自動捲動。 */
+const EDGE_ZONE = 24;
+const EDGE_SPEED = 18;
+
+interface RowDrag {
+  mode: "rows" | "marquee";
+  /** 列模式：起點列索引。 */
+  anchor: number;
+  additive: boolean;
+  moved: boolean;
+  /** 按在已選取項目上時，放開且沒拖曳才收斂成單選。 */
+  collapseTo: string | null;
+  startX: number;
+  startY: number;
+  /** 相對於「列容器」的起點（已扣掉表頭高度）。 */
+  startContent: { x: number; y: number };
+  lastClientX: number;
+  lastClientY: number;
 }
 
-function onRowSelect(entry: FileEntry, event: MouseEvent) {
+let drag: RowDrag | null = null;
+let autoScrollFrame = 0;
+const marquee = ref<{ left: number; top: number; width: number; height: number } | null>(null);
+
+/** 把指標位置換算成「列容器」座標：垂直已扣掉表頭，水平已計入捲動。 */
+function toContentPoint(clientX: number, clientY: number) {
+  const element = scrollEl.value;
+  if (!element) {
+    return { x: 0, y: 0 };
+  }
+  const rect = element.getBoundingClientRect();
+  return {
+    x: clientX - rect.left + element.scrollLeft,
+    y: clientY - rect.top + element.scrollTop - HEADER_HEIGHT,
+  };
+}
+
+function indexAt(contentY: number, clamp = false): number {
+  const raw = Math.floor(contentY / ROW_HEIGHT);
+  if (clamp) {
+    return Math.min(Math.max(raw, 0), Math.max(rows.value.length - 1, 0));
+  }
+  return raw < 0 || raw >= rows.value.length ? -1 : raw;
+}
+
+function onPointerDown(event: PointerEvent) {
+  const element = scrollEl.value;
+  if (event.button !== 0 || !element) {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("[data-header]")) {
+    return;
+  }
+  // 拖到捲軸上不該開始框選。
+  const rect = element.getBoundingClientRect();
+  if (event.clientX > rect.right - 14 || event.clientY > rect.bottom - 14) {
+    return;
+  }
+
   tabs.setActivePane(props.paneId);
-  const mode = event.ctrlKey || event.metaKey ? "toggle" : event.shiftKey ? "range" : "replace";
-  explorer.select(props.paneId, entry.path, mode);
+
+  const rowElement = target?.closest<HTMLElement>("[data-row]") ?? null;
+  const index = rowElement ? Number(rowElement.dataset.index ?? "0") : -1;
+
+  drag = {
+    mode: rowElement ? "rows" : "marquee",
+    anchor: index,
+    additive: event.ctrlKey || event.metaKey,
+    moved: false,
+    collapseTo: null,
+    startX: event.clientX,
+    startY: event.clientY,
+    startContent: toContentPoint(event.clientX, event.clientY),
+    lastClientX: event.clientX,
+    lastClientY: event.clientY,
+  };
+
+  if (rowElement) {
+    const path = rows.value[index]?.path;
+    if (!path) {
+      drag = null;
+      return;
+    }
+    if (event.shiftKey) {
+      explorer.selectRange(props.paneId, pane.value.focusedIndex, index);
+    } else if (drag.additive) {
+      explorer.select(props.paneId, path, "toggle");
+    } else if (!pane.value.selected.includes(path)) {
+      // 按下即選取：不等放開。
+      explorer.select(props.paneId, path, "replace");
+    } else {
+      // 已經選取：先不動，這樣才拖得動一整組選取。
+      drag.collapseTo = path;
+    }
+  }
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp, { once: true });
+  window.addEventListener("pointercancel", onPointerUp, { once: true });
+}
+
+function onPointerMove(event: PointerEvent) {
+  const state = drag;
+  if (!state) {
+    return;
+  }
+
+  const dx = event.clientX - state.startX;
+  const dy = event.clientY - state.startY;
+  if (!state.moved && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+    return;
+  }
+  state.moved = true;
+  state.lastClientX = event.clientX;
+  state.lastClientY = event.clientY;
+
+  if (state.mode === "rows") {
+    extendRowSelection(event.clientY);
+  } else {
+    updateMarquee(event.clientX, event.clientY);
+  }
+  updateAutoScroll(event.clientY);
+}
+
+function extendRowSelection(clientY: number) {
+  const state = drag;
+  if (!state) {
+    return;
+  }
+  const to = indexAt(toContentPoint(state.lastClientX, clientY).y, true);
+  explorer.selectRange(props.paneId, state.anchor, to, state.additive);
+}
+
+function updateMarquee(clientX: number, clientY: number) {
+  const state = drag;
+  if (!state) {
+    return;
+  }
+  const point = toContentPoint(clientX, clientY);
+  const left = Math.min(state.startContent.x, point.x);
+  const top = Math.min(state.startContent.y, point.y);
+  marquee.value = {
+    left,
+    top,
+    width: Math.abs(point.x - state.startContent.x),
+    height: Math.abs(point.y - state.startContent.y),
+  };
+
+  const from = indexAt(top, true);
+  const to = indexAt(top + marquee.value.height, true);
+  explorer.selectRange(props.paneId, from, to);
+}
+
+/** 指標靠近上下邊緣時持續捲動，並在捲動中延伸選取。 */
+function updateAutoScroll(clientY: number) {
+  const element = scrollEl.value;
+  if (!element || !drag) {
+    stopAutoScroll();
+    return;
+  }
+  const rect = element.getBoundingClientRect();
+  const delta =
+    clientY < rect.top + EDGE_ZONE ? -EDGE_SPEED : clientY > rect.bottom - EDGE_ZONE ? EDGE_SPEED : 0;
+
+  if (delta === 0) {
+    stopAutoScroll();
+    return;
+  }
+  if (autoScrollFrame) {
+    return;
+  }
+
+  const step = () => {
+    const state = drag;
+    const target = scrollEl.value;
+    if (!state || !target) {
+      stopAutoScroll();
+      return;
+    }
+    target.scrollTop += delta;
+    if (state.mode === "rows") {
+      extendRowSelection(state.lastClientY);
+    } else {
+      updateMarquee(state.lastClientX, state.lastClientY);
+    }
+    autoScrollFrame = requestAnimationFrame(step);
+  };
+  autoScrollFrame = requestAnimationFrame(step);
+}
+
+function stopAutoScroll() {
+  if (autoScrollFrame) {
+    cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = 0;
+  }
+}
+
+function onPointerUp() {
+  const state = drag;
+  drag = null;
+  window.removeEventListener("pointermove", onPointerMove);
+  stopAutoScroll();
+  marquee.value = null;
+
+  if (!state) {
+    return;
+  }
+  if (state.mode === "rows") {
+    // 按在已選取的項目上、而且沒有拖曳 → 收斂成只選它。
+    if (!state.moved && state.collapseTo) {
+      explorer.select(props.paneId, state.collapseTo, "replace");
+    }
+    return;
+  }
+  if (!state.moved) {
+    explorer.clearSelection(props.paneId);
+  }
 }
 
 /** 鍵盤移動焦點時，把目標列捲進可視範圍（虛擬清單不能靠 scrollIntoView）。 */
@@ -238,13 +451,13 @@ function sortBy(column: ColumnId) {
       ref="scroll"
       class="scroll-area min-h-0 flex-1 overflow-auto bg-canvas"
       @scroll="onScroll"
-      @click="onBlankClick"
+      @pointerdown="onPointerDown"
       @contextmenu.prevent="openBlankMenu"
     >
       <!-- 表頭跟內容共用同一個捲動容器：水平捲動時一起移動，垂直捲動時固定在頂端。 -->
       <div
         data-header
-        class="file-grid sticky top-0 z-10 h-7 border-b border-line bg-surface pr-3 pl-2.5 text-[12px] text-ink-muted"
+        class="file-grid sticky top-0 z-10 h-7 border-b border-line bg-surface pr-3 pl-2.5 text-sm text-ink-muted"
         :style="contentWidthStyle"
       >
         <div
@@ -255,7 +468,7 @@ function sortBy(column: ColumnId) {
         >
           <button
             type="button"
-            class="flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left transition-colors duration-75 enabled:hover:text-ink disabled:cursor-default"
+            class="flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left pressable enabled:hover:text-ink disabled:cursor-default"
             :class="column === 'size' ? 'justify-end' : ''"
             :disabled="!SORTABLE.includes(column)"
             @click="sortBy(column)"
@@ -276,7 +489,7 @@ function sortBy(column: ColumnId) {
             底色提示（w-2 / -right-1），只表達「這裡可以抓」與「這欄改過」。
           -->
           <div
-            class="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize transition-colors duration-100"
+            class="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize pressable"
             :class="
               resizing === column
                 ? 'bg-accent/50'
@@ -290,6 +503,17 @@ function sortBy(column: ColumnId) {
       </div>
 
       <div class="relative" :style="{ height: `${totalHeight}px` }">
+        <!-- 空白處拖曳的框選矩形；座標是「列容器」座標，所以會隨捲動一起移動。 -->
+        <div
+          v-if="marquee"
+          class="pointer-events-none absolute z-20 rounded-sm border border-accent bg-accent/15"
+          :style="{
+            left: `${marquee.left}px`,
+            top: `${marquee.top}px`,
+            width: `${marquee.width}px`,
+            height: `${marquee.height}px`,
+          }"
+        />
         <div
           class="absolute top-0 left-0"
           :style="[contentWidthStyle, { transform: `translateY(${offsetY}px)` }]"
@@ -302,7 +526,7 @@ function sortBy(column: ColumnId) {
             :selected="pane.selected.includes(entry.path)"
             :focused="pane.focusedIndex === start + index"
             :cut="clipboard.isCut(entry.path)"
-            @select="onRowSelect(entry, $event)"
+            :data-index="start + index"
             @activate="explorer.activate(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"
           />
@@ -312,13 +536,13 @@ function sortBy(column: ColumnId) {
       <EmptyState v-if="isEmpty" :title="emptyTitle" :description="emptyDescription" />
 
       <div v-if="pane.status === 'loading' && !rows.length" class="px-4 py-6 text-center">
-        <p class="text-xs text-ink-faint">正在讀取…</p>
+        <p class="text-sm text-ink-faint">正在讀取…</p>
       </div>
     </div>
 
     <div
       v-if="pane.truncated"
-      class="shrink-0 border-t border-line bg-surface-muted px-3 py-1.5 text-[11px] text-ink-muted"
+      class="shrink-0 border-t border-line bg-surface-muted px-3 py-1.5 text-xs text-ink-muted"
     >
       項目過多，僅顯示前 {{ formatCount(rows.length) }} 筆。
     </div>

@@ -36,14 +36,14 @@ watch(
       @click.self="ui.resolveConfirm(false)"
     >
       <div class="w-[24rem] rounded-xl border border-line bg-surface p-4 shadow-2xl">
-        <h2 class="text-[13px] font-semibold text-ink">{{ ui.confirmState.title }}</h2>
-        <p class="mt-2 text-[12px] leading-relaxed break-words text-ink-muted">
+        <h2 class="text-base font-semibold text-ink">{{ ui.confirmState.title }}</h2>
+        <p class="mt-2 text-sm leading-relaxed break-words text-ink-muted">
           {{ ui.confirmState.message }}
         </p>
         <div class="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            class="h-8 rounded-md border border-line px-3 text-[13px] text-ink transition-colors duration-75 hover:bg-surface-hover"
+            class="h-8 rounded-md border border-line px-3 text-base text-ink pressable hover:bg-surface-hover active:bg-pressed"
             @click="ui.resolveConfirm(false)"
           >
             {{ ui.confirmState.cancelText ?? "取消" }}
@@ -51,7 +51,7 @@ watch(
           <button
             ref="confirmButton"
             type="button"
-            class="h-8 rounded-md bg-accent px-3 text-[13px] font-medium text-accent-ink transition-opacity duration-75 hover:opacity-90"
+            class="h-8 rounded-md bg-accent px-3 text-base font-medium text-accent-ink transition-opacity duration-75 hover:opacity-90"
             @click="ui.resolveConfirm(true)"
           >
             {{ ui.confirmState.confirmText ?? "確定" }}

@@ -59,20 +59,20 @@ const rows = computed<StatusRow[]>(() => {
 </script>
 
 <template>
-  <footer class="flex shrink-0 flex-col border-t border-line bg-chrome text-[11px] text-ink-muted">
+  <footer class="flex shrink-0 flex-col border-t border-line bg-chrome text-xs text-ink-muted">
     <!-- 分割：一個窗格一行 -->
     <template v-if="isSplit">
       <button
         v-for="(row, index) in rows"
         :key="row.id"
         type="button"
-        class="flex h-[22px] w-full items-center gap-2 px-3 text-left transition-colors duration-75 hover:bg-surface-hover"
+        class="flex h-[22px] w-full items-center gap-2 px-3 text-left pressable hover:bg-surface-hover active:bg-pressed"
         :class="row.active ? 'text-ink' : 'text-ink-faint'"
         :title="row.path"
         @click="tabs.setActivePane(row.id)"
       >
         <span
-          class="shrink-0 rounded px-1.5 text-[10px]"
+          class="shrink-0 rounded px-1.5 text-2xs"
           :class="row.active ? 'bg-accent-soft text-accent' : 'bg-surface-muted'"
         >
           {{ row.label }}

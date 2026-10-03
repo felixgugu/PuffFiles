@@ -41,6 +41,8 @@ export const useTabsStore = defineStore("tabs", () => {
 
   const tabs = ref<TabState[]>([]);
   const activeTabId = ref<string>("");
+  /** 收合分割的動畫進行中：窗格先留著，等動畫跑完才真的收掉。 */
+  const collapsing = ref(false);
   let sequence = 0;
 
   const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? null);
@@ -158,9 +160,22 @@ export const useTabsStore = defineStore("tabs", () => {
     }
   }
 
-  /** 收起分割：關閉非焦點的窗格，保留使用者正在操作的那一個。 */
+  /**
+   * 收起分割。真正的銷毀延後到動畫結束（`finishUnsplit`），
+   * 這樣關閉的窗格才能平滑縮回去，而不是瞬間消失。
+   */
   function unsplit() {
     const tab = activeTab.value;
+    if (!tab || tab.paneIds.length < 2) {
+      return;
+    }
+    collapsing.value = true;
+  }
+
+  /** 動畫結束後真正關掉非焦點的窗格。 */
+  function finishUnsplit() {
+    const tab = activeTab.value;
+    collapsing.value = false;
     if (!tab || tab.paneIds.length < 2) {
       return;
     }
@@ -362,6 +377,8 @@ export const useTabsStore = defineStore("tabs", () => {
     setActivePane,
     split,
     unsplit,
+    finishUnsplit,
+    collapsing,
     closePane,
     setRatio,
     otherPaneId,

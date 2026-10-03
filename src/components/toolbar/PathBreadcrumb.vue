@@ -51,7 +51,7 @@ function commit() {
       v-model="draft"
       type="text"
       spellcheck="false"
-      class="h-7 w-full rounded-md border border-accent bg-surface px-2.5 text-[13px] text-ink focus:outline-none"
+      class="h-7 w-full rounded-md border border-accent bg-surface px-2.5 text-base text-ink focus:outline-none"
       @keydown.enter.prevent="commit"
       @keydown.esc.prevent="isEditing = false"
       @blur="isEditing = false"
@@ -67,11 +67,11 @@ function commit() {
         <AppIcon v-if="index > 0" name="chevronRight" :size="12" class="shrink-0 text-ink-faint" />
         <button
           type="button"
-          class="h-6 shrink-0 rounded px-1.5 text-[13px] whitespace-nowrap transition-colors duration-75"
+          class="h-6 shrink-0 rounded px-1.5 text-base whitespace-nowrap pressable"
           :class="
             index === segments.length - 1
               ? 'font-medium text-ink'
-              : 'text-ink-muted hover:bg-surface-hover hover:text-ink'
+              : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
           "
           @click="explorer.navigate(props.paneId, segment.path)"
         >

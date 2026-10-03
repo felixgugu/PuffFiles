@@ -4,6 +4,7 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import ContextMenu from "@/components/overlays/ContextMenu.vue";
 import FolderTreeNode from "./FolderTreeNode.vue";
 import { useDragGesture } from "@/composables/useDragGesture";
+import { useSpringValue } from "@/composables/useSpringValue";
 import { usePathMenu } from "@/composables/usePathMenu";
 import * as api from "@/services/api";
 import { isDesktopRuntime } from "@/services/api";
@@ -14,6 +15,8 @@ import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import type { FileEntry } from "@/types/fs";
+import { rubberband, SPRINGS } from "@/utils/spring";
+import { TREE_MAX_WIDTH, TREE_MIN_WIDTH } from "@/stores/settings";
 
 /**
  * 整個分頁共用一份資料夾樹。
@@ -35,16 +38,33 @@ const menu = ref<{ x: number; y: number; path: string } | null>(null);
 const treeScroll = useTemplateRef<HTMLElement>("treeScroll");
 
 let widthAtDragStart = 0;
+const widthSpring = useSpringValue(settings.treeWidth, SPRINGS.panel);
+
+// 回彈時由彈簧驅動寬度，維持「放手後仍連續」。
+watch(widthSpring.value, (value) => {
+  settings.setTreeWidth(value, false);
+});
 
 const widthDrag = useDragGesture({
   onStart: () => {
+    widthSpring.stop();
     widthAtDragStart = settings.treeWidth;
   },
   onMove: (state) => {
-    settings.setTreeWidth(widthAtDragStart + state.dx);
+    // 橡皮筋：越過最小／最大寬度時漸進抵抗，而不是硬停。
+    const raw = widthAtDragStart + state.dx;
+    const next =
+      raw < TREE_MIN_WIDTH
+        ? TREE_MIN_WIDTH - rubberband(TREE_MIN_WIDTH - raw, TREE_MIN_WIDTH)
+        : raw > TREE_MAX_WIDTH
+          ? TREE_MAX_WIDTH + rubberband(raw - TREE_MAX_WIDTH, TREE_MAX_WIDTH)
+          : raw;
+    settings.setTreeWidth(next, false);
   },
-  onEnd: () => {
-    /* 1:1 跟手，放開後維持使用者選定的寬度。 */
+  onEnd: (state) => {
+    const clamped = Math.min(Math.max(settings.treeWidth, TREE_MIN_WIDTH), TREE_MAX_WIDTH);
+    widthSpring.jump(settings.treeWidth);
+    widthSpring.set(clamped, state.velocityX);
   },
 });
 
@@ -169,7 +189,7 @@ async function onMenuSelect(id: string) {
     <div class="flex h-9 shrink-0 items-center gap-0.5 border-b border-line px-1.5">
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="加入資料夾"
         @click="addFolder()"
       >
@@ -177,7 +197,7 @@ async function onMenuSelect(id: string) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="移除資料夾"
         @click="removeFolder()"
       >
@@ -186,7 +206,7 @@ async function onMenuSelect(id: string) {
       <span class="flex-1" />
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="定位到清單中選取的資料夾（選到檔案時定位其父目錄）"
         @click="locate()"
       >
@@ -194,7 +214,7 @@ async function onMenuSelect(id: string) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="收合全部"
         @click="folders.collapseAll()"
       >
@@ -202,7 +222,7 @@ async function onMenuSelect(id: string) {
       </button>
       <button
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="收合側欄 (F6)"
         @click="settings.toggleTree()"
       >
@@ -235,13 +255,13 @@ async function onMenuSelect(id: string) {
         <div class="flex size-10 items-center justify-center rounded-full bg-surface-muted text-ink-faint">
           <AppIcon name="folderOpen" :size="20" />
         </div>
-        <p class="text-[13px] font-medium text-ink">還沒有加入資料夾</p>
-        <p class="text-[11px] leading-relaxed text-ink-muted">
+        <p class="text-base font-medium text-ink">還沒有加入資料夾</p>
+        <p class="text-xs leading-relaxed text-ink-muted">
           把工作上常用的資料夾加進來，<br />之後就能一鍵回到這裡。
         </p>
         <button
           type="button"
-          class="mt-1 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-accent-ink transition-opacity duration-100 hover:opacity-90"
+          class="mt-1 h-7 rounded-md bg-accent px-3 text-sm font-medium text-accent-ink transition-opacity duration-100 hover:opacity-90"
           @click="addFolder()"
         >
           加入資料夾

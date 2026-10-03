@@ -24,6 +24,7 @@ const active = computed(() => tabs.activePaneId === props.paneId);
 <template>
   <section
     class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas"
+    :class="active ? '' : 'pane-inactive'"
     @pointerdown="tabs.setActivePane(paneId)"
   >
     <ErrorBanner
@@ -34,14 +35,5 @@ const active = computed(() => tabs.activePaneId === props.paneId);
     />
 
     <FileListView :pane-id="paneId" />
-
-    <!--
-      未使用中的窗格：整片覆上與底色同色的薄幕，顏色明顯變淺、對比降低，
-      但仍讀得到內容。用純色遮罩而非模糊或濾鏡，捲動時沒有額外成本。
-    -->
-    <div
-      v-if="!active"
-      class="pointer-events-none absolute inset-0 z-30 bg-canvas/55"
-    />
   </section>
 </template>

@@ -277,9 +277,15 @@ export const useSettingsStore = defineStore("settings", () => {
     columnWidths.value = { ...COLUMN_DEFAULTS };
   }
 
-  /** 資料夾樹是整個分頁共用的一份，寬度與收合狀態因此也是全域的。 */
-  function setTreeWidth(width: number) {
-    treeWidth.value = Math.min(Math.max(Math.round(width), TREE_MIN_WIDTH), TREE_MAX_WIDTH);
+  /**
+   * 資料夾樹是整個分頁共用的一份，寬度與收合狀態因此也是全域的。
+   * `clamp = false` 供拖曳中使用：允許短暫越界，讓呼叫端做橡皮筋與回彈。
+   */
+  function setTreeWidth(width: number, clamp = true) {
+    const rounded = Math.round(width);
+    treeWidth.value = clamp
+      ? Math.min(Math.max(rounded, TREE_MIN_WIDTH), TREE_MAX_WIDTH)
+      : rounded;
   }
 
   function toggleTree() {

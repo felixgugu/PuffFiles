@@ -19,14 +19,14 @@ function runAction() {
   >
     <div
       v-if="ui.notice"
-      class="material-menu absolute bottom-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3.5 text-xs text-ink"
+      class="material-menu absolute bottom-9 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3.5 text-sm text-ink"
     >
       <AppIcon name="info" :size="14" class="text-accent" />
       <span>{{ ui.notice }}</span>
       <button
         v-if="ui.noticeAction"
         type="button"
-        class="rounded-full px-2 py-0.5 text-[12px] font-medium text-accent transition-colors duration-75 hover:bg-accent-soft"
+        class="rounded-full px-2 py-0.5 text-sm font-medium text-accent pressable hover:bg-accent-soft"
         @click="runAction()"
       >
         {{ ui.noticeAction.label }}

@@ -24,6 +24,8 @@ export const SPRINGS = {
   tree: { damping: 1, response: 0.3 },
   /** 窗格分割與收合。 */
   pane: { damping: 1, response: 0.35 },
+  /** 面板／窗格展開收合：比分割線再快一點。 */
+  panel: { damping: 1, response: 0.32 },
   /** 分頁切換。 */
   tab: { damping: 1, response: 0.25 },
   /** 拖曳放開後的吸附。 */

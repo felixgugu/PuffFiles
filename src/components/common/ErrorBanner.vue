@@ -17,19 +17,19 @@ defineEmits<{
   >
     <AppIcon name="alert" :size="18" class="mt-0.5 text-danger" />
     <div class="min-w-0 flex-1">
-      <p class="text-[13px] font-medium text-ink">{{ error.title }}</p>
-      <p class="mt-0.5 text-xs break-words text-ink-muted">{{ error.message }}</p>
+      <p class="text-base font-medium text-ink">{{ error.title }}</p>
+      <p class="mt-0.5 text-sm break-words text-ink-muted">{{ error.message }}</p>
     </div>
     <button
       type="button"
-      class="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
+      class="rounded px-2 py-1 text-sm text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink"
       @click="$emit('retry')"
     >
       重試
     </button>
     <button
       type="button"
-      class="rounded p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
+      class="rounded p-1 text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink"
       title="關閉"
       @click="$emit('dismiss')"
     >

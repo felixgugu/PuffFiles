@@ -465,6 +465,32 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
+  /**
+   * 以索引範圍選取（拖曳選取與框選用）。
+   * `additive` 為 true 時併入現有選取（Ctrl 拖曳）。
+   */
+  function selectRange(id: PaneId, fromIndex: number, toIndex: number, additive = false) {
+    const pane = panes[id];
+    if (!pane) {
+      return;
+    }
+    const visible = visibleRef(id).value;
+    if (visible.length === 0) {
+      return;
+    }
+
+    const [from, to] =
+      fromIndex <= toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+    const range = visible
+      .slice(Math.max(0, from), Math.min(visible.length - 1, to) + 1)
+      .map((item) => item.path);
+
+    pane.selected = additive
+      ? [...new Set([...pane.selected, ...range])]
+      : range;
+    pane.focusedIndex = Math.min(Math.max(toIndex, 0), visible.length - 1);
+  }
+
   function clearSelection(id: PaneId) {
     const pane = panes[id];
     if (pane) {
@@ -656,6 +682,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     applySort,
     select,
     selectAll,
+    selectRange,
     clearSelection,
     focusAt,
     moveFocus,

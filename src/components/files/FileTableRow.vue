@@ -15,7 +15,6 @@ const props = defineProps<{
 }>();
 
 defineEmits<{
-  select: [event: MouseEvent];
   activate: [];
   contextmenu: [event: MouseEvent];
 }>();
@@ -59,13 +58,12 @@ function cellText(column: ColumnId): string {
     data-row
     role="option"
     :aria-selected="selected"
-    class="file-grid h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-[13px] transition-colors duration-75"
+    class="file-grid h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-base pressable"
     :class="[
       cut ? 'opacity-45' : '',
-      selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover',
+      selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover active:bg-pressed',
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
     ]"
-    @click="$emit('select', $event)"
     @dblclick="$emit('activate')"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
@@ -83,11 +81,11 @@ function cellText(column: ColumnId): string {
       ]"
     >
       <div v-if="column === 'name'" class="flex min-w-0 flex-1 items-center gap-2">
-        <AppIcon :name="iconFor(entry)" :size="15" :class="colorFor(entry)" />
+        <AppIcon :name="iconFor(entry)" :size="15" class="file-icon" :class="colorFor(entry)" />
         <span class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>
         <span
           v-if="entry.isSymlink"
-          class="shrink-0 rounded bg-surface-muted px-1 text-[10px] text-ink-faint"
+          class="shrink-0 rounded bg-surface-muted px-1 text-2xs text-ink-faint"
           title="符號連結"
         >
           連結

@@ -82,10 +82,10 @@ function open(entry: HistoryEntry, event: MouseEvent) {
           type="text"
           spellcheck="false"
           placeholder="搜尋瀏覽紀錄"
-          class="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-faint focus:outline-none"
+          class="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
           @keydown.esc.prevent="ui.historyOpen = false"
         />
-        <span class="shrink-0 text-[11px] text-ink-faint">{{ history.items.length }}/100</span>
+        <span class="shrink-0 text-xs text-ink-faint">{{ history.items.length }}/100</span>
       </div>
 
       <div class="scroll-area min-h-0 flex-1 overflow-y-auto py-1">
@@ -93,7 +93,7 @@ function open(entry: HistoryEntry, event: MouseEvent) {
           v-for="item in filtered"
           :key="item.paths.join('\u0000')"
           type="button"
-          class="group flex w-full items-start gap-2.5 px-3 py-1.5 text-left transition-colors duration-75 hover:bg-surface-hover"
+          class="group flex w-full items-start gap-2.5 px-3 py-1.5 text-left pressable hover:bg-surface-hover active:bg-pressed"
           :title="item.paths.join('\n')"
           @click="open(item, $event)"
         >
@@ -102,14 +102,14 @@ function open(entry: HistoryEntry, event: MouseEvent) {
             <span
               v-for="(path, index) in item.paths"
               :key="path"
-              class="block truncate text-[12px]"
+              class="block truncate text-sm"
               :class="index === 0 ? 'text-ink' : 'text-ink-muted'"
             >
               {{ path }}
             </span>
           </span>
           <span
-            class="shrink-0 rounded px-1 text-[11px] text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-ink"
+            class="shrink-0 rounded px-1 text-xs text-ink-faint opacity-40 transition-opacity hover:text-ink group-hover:opacity-100 group-focus-within:opacity-100"
             title="從紀錄移除"
             @click.stop="history.remove(item)"
           >
@@ -117,18 +117,18 @@ function open(entry: HistoryEntry, event: MouseEvent) {
           </span>
         </button>
 
-        <p v-if="!filtered.length" class="px-3 py-6 text-center text-xs text-ink-faint">
+        <p v-if="!filtered.length" class="px-3 py-6 text-center text-sm text-ink-faint">
           {{ history.items.length ? "沒有符合的紀錄" : "還沒有瀏覽紀錄" }}
         </p>
       </div>
 
       <div v-if="history.items.length" class="flex shrink-0 items-center justify-between border-t border-line px-3 py-1.5">
-        <span class="text-[11px] text-ink-faint">
+        <span class="text-xs text-ink-faint">
           兩行的紀錄是分割版面（第一行左／上、第二行右／下），點一下整組還原；Alt+點擊單一路徑可在另一窗格開啟
         </span>
         <button
           type="button"
-          class="rounded px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-hover hover:text-ink"
+          class="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink"
           @click="history.clear()"
         >
           清空紀錄

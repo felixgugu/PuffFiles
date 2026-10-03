@@ -137,7 +137,7 @@ function revealCurrent() {
     >
       <span
         v-if="slotLabel"
-        class="shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent"
+        class="shrink-0 rounded bg-accent-soft px-1.5 py-0.5 text-2xs font-medium text-accent"
         title="這條路徑屬於焦點窗格"
       >
         {{ slotLabel }}
@@ -149,7 +149,7 @@ function revealCurrent() {
         v-for="button in navButtons"
         :key="button.title"
         type="button"
-        class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 enabled:hover:bg-surface-hover enabled:hover:text-ink disabled:opacity-30"
+        class="flex size-7 active:scale-95 items-center justify-center rounded-md text-ink-muted pressable enabled:hover:bg-surface-hover enabled:hover:text-ink enabled:active:bg-pressed disabled:opacity-30"
         :title="button.title"
         :disabled="!button.enabled"
         @click="button.run()"
@@ -169,7 +169,7 @@ function revealCurrent() {
     <div class="flex shrink-0 items-center gap-0.5">
       <button
         type="button"
-        class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="在檔案總管中顯示"
         @click="revealCurrent"
       >
@@ -181,12 +181,12 @@ function revealCurrent() {
           v-for="option in layoutOptions"
           :key="option.id"
           type="button"
-          class="flex size-6 items-center justify-center rounded-md transition-colors duration-75"
+          class="flex size-6 active:scale-95 items-center justify-center rounded-md pressable"
           :class="
             option.current
               ? 'bg-accent-soft text-accent'
               : option.enabled
-                ? 'text-ink-muted hover:bg-surface-hover hover:text-ink'
+                ? 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
                 : 'cursor-default text-ink-faint opacity-30'
           "
           :aria-disabled="option.current || !option.enabled"
@@ -201,10 +201,10 @@ function revealCurrent() {
       <div class="ml-0.5 flex items-center gap-0.5 border-l border-line pl-1.5">
         <button
           type="button"
-          class="flex size-7 items-center justify-center rounded-md transition-colors duration-75"
+          class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable"
           :class="
             canTransfer
-              ? 'text-ink-muted hover:bg-surface-hover hover:text-ink'
+              ? 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
               : 'cursor-default text-ink-faint opacity-30'
           "
           :aria-disabled="!canTransfer"
@@ -219,10 +219,10 @@ function revealCurrent() {
         </button>
         <button
           type="button"
-          class="flex size-7 items-center justify-center rounded-md transition-colors duration-75"
+          class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable"
           :class="
             canTransfer
-              ? 'text-ink-muted hover:bg-surface-hover hover:text-ink'
+              ? 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
               : 'cursor-default text-ink-faint opacity-30'
           "
           :aria-disabled="!canTransfer"

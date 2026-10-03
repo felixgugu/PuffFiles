@@ -108,12 +108,12 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
       v-for="(tab, index) in tabs.tabs"
       :key="tab.id"
       :data-tab-index="index"
-      class="group flex h-7 min-w-[112px] max-w-[210px] shrink-0 cursor-default items-center gap-2 rounded-md pr-1 pl-2.5 transition-colors duration-100"
+      class="group flex h-7 min-w-[112px] max-w-[210px] shrink-0 cursor-default items-center gap-2 rounded-md pr-1 pl-2.5 pressable"
       :class="[
         tab.id === tabs.activeTabId
           ? 'bg-surface text-ink shadow-sm'
-          : 'text-ink-muted hover:bg-surface-hover hover:text-ink',
-        draggingIndex === index ? 'opacity-70' : '',
+          : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink',
+        draggingIndex === index ? 'z-10 scale-[1.04] opacity-90 shadow-md' : '',
       ]"
       :title="`${pathOf(tab.activePaneId)}　·　${layoutLabel(tab)}`"
       @pointerdown="onPointerDown($event, index)"
@@ -128,11 +128,14 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
         class="shrink-0"
         :class="tab.id === tabs.activeTabId ? 'text-accent' : 'text-ink-faint'"
       />
-      <span class="min-w-0 flex-1 truncate text-[12px]">{{ titleOf(tab.id, tab.activePaneId) }}</span>
+      <span class="min-w-0 flex-1 truncate text-sm">{{ titleOf(tab.id, tab.activePaneId) }}</span>
       <button
         data-tab-close
         type="button"
-        class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-hover hover:text-ink"
+        class="flex size-5 active:scale-95 shrink-0 items-center justify-center rounded text-ink-faint transition-opacity duration-150 hover:bg-surface-hover active:bg-pressed hover:text-ink focus-visible:opacity-100"
+        :class="
+          tab.id === tabs.activeTabId ? 'opacity-55 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'
+        "
         title="關閉分頁 (Ctrl+W)"
         @click.stop="tabs.closeTab(tab.id)"
       >
@@ -142,7 +145,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
 
     <button
       type="button"
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-100 hover:bg-surface-hover hover:text-ink"
+      class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
       title="新增分頁 (Ctrl+T)"
       @click="tabs.newTab()"
     >

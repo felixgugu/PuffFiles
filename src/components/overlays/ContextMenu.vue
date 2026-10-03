@@ -76,7 +76,7 @@ onBeforeUnmount(() => {
         <div v-if="item.separatorBefore" class="my-1 h-px bg-line" />
         <button
           type="button"
-          class="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left text-[13px] transition-colors duration-75 disabled:opacity-40"
+          class="flex w-full items-center gap-2.5 px-2.5 py-1.5 text-left text-base pressable disabled:opacity-40"
           :class="
             item.disabled
               ? 'text-ink-faint'
@@ -87,7 +87,7 @@ onBeforeUnmount(() => {
         >
           <AppIcon v-if="item.icon" :name="item.icon" :size="14" class="shrink-0 opacity-80" />
           <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
-          <span v-if="item.shortcut" class="shrink-0 text-[11px] opacity-60">{{ item.shortcut }}</span>
+          <span v-if="item.shortcut" class="shrink-0 text-xs opacity-60">{{ item.shortcut }}</span>
         </button>
       </template>
     </div>

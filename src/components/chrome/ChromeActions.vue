@@ -45,8 +45,8 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onWindowPointerD
   <div ref="root" class="relative flex shrink-0 items-center gap-0.5 self-stretch" data-tauri-drag-region>
     <button
       type="button"
-      class="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors duration-100"
-      :class="ui.historyOpen ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-surface-hover hover:text-ink'"
+      class="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-sm pressable"
+      :class="ui.historyOpen ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'"
       title="資料夾瀏覽紀錄"
       @click="ui.historyOpen = !ui.historyOpen"
     >
@@ -55,8 +55,8 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onWindowPointerD
     </button>
     <button
       type="button"
-      class="flex size-7 items-center justify-center rounded-md transition-colors duration-100"
-      :class="ui.settingsOpen ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-surface-hover hover:text-ink'"
+      class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable"
+      :class="ui.settingsOpen ? 'bg-surface text-ink shadow-sm' : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'"
       title="設定"
       @click="toggleSettings()"
     >

@@ -63,7 +63,7 @@ const tooCramped = computed(() => {
 
 const showTree = computed(() => !settings.treeCollapsed && !tooCramped.value);
 
-const ratioSpring = useSpringValue(0.5, SPRINGS.settle);
+const ratioSpring = useSpringValue(0.5, SPRINGS.panel);
 
 // 回彈時由彈簧驅動比例，維持「放手後仍連續」的手感。
 watch(ratioSpring.value, (value) => {
@@ -71,7 +71,45 @@ watch(ratioSpring.value, (value) => {
   if (tab) {
     tab.ratio = Math.min(Math.max(value, 0.02), 0.98);
   }
+  // 收合動畫走到終點才真的把窗格收掉。
+  if (tabs.collapsing && value >= 0.97) {
+    ratioSpring.stop();
+    tabs.finishUnsplit();
+  }
 });
+
+/** 分割：新窗格從邊緣長出來（比例由接近全滿彈到對半）。 */
+watch(
+  () => tabs.activeTab?.paneIds.length ?? 0,
+  (count, previous) => {
+    const tab = tabs.activeTab;
+    if (!tab || count <= (previous ?? 0) || count < 2 || settings.reduceMotion) {
+      return;
+    }
+    // 同步寫入，第一個畫格就是「幾乎全滿」，不會先閃一下對半。
+    tab.ratio = 0.985;
+    ratioSpring.jump(0.985);
+    ratioSpring.set(0.5);
+  },
+  { flush: "sync" },
+);
+
+/** 收合：比例彈回接近全滿，動畫結束才真的銷毀。 */
+watch(
+  () => tabs.collapsing,
+  (collapsing) => {
+    const tab = tabs.activeTab;
+    if (!collapsing || !tab) {
+      return;
+    }
+    if (settings.reduceMotion) {
+      tabs.finishUnsplit();
+      return;
+    }
+    ratioSpring.jump(tab.ratio);
+    ratioSpring.set(0.985);
+  },
+);
 
 let bounds = { left: 0, top: 0, width: 0, height: 0 };
 
@@ -81,6 +119,8 @@ function axisSize(): number {
 
 const drag = useDragGesture({
   onStart: () => {
+    // 動畫途中抓住分割線 → 立刻停掉彈簧，從當下值接手。
+    ratioSpring.stop();
     const rect = paneArea.value?.getBoundingClientRect();
     if (rect) {
       bounds = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
@@ -130,7 +170,7 @@ function resetRatio() {
     <div v-else class="flex w-9 shrink-0 flex-col items-center border-r border-line bg-rail pt-2">
       <button
         type="button"
-        class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+        class="flex size-7 active:scale-95 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="展開資料夾清單 (F6)"
         @click="settings.toggleTree()"
       >
@@ -163,7 +203,7 @@ function resetRatio() {
           @dblclick="resetRatio()"
         >
           <div
-            class="transition-colors duration-100 group-hover:bg-accent"
+            class="pressable group-hover:bg-accent"
             :class="[
               direction === 'row' ? 'h-full w-px' : 'h-px w-full',
               drag.dragging.value ? 'bg-accent' : 'bg-line',

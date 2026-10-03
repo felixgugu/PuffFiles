@@ -20,7 +20,7 @@ onBeforeUnmount(() => dispose?.());
   <div class="ml-1 flex h-full items-stretch">
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-ink-muted transition-colors duration-100 hover:bg-surface-hover hover:text-ink active:bg-surface-hover"
+      class="flex w-11 items-center justify-center text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink active:bg-surface-hover"
       title="最小化"
       @click="minimizeWindow()"
     >
@@ -28,7 +28,7 @@ onBeforeUnmount(() => dispose?.());
     </button>
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-ink-muted transition-colors duration-100 hover:bg-surface-hover hover:text-ink active:bg-surface-hover"
+      class="flex w-11 items-center justify-center text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink active:bg-surface-hover"
       :title="maximized ? '還原' : '放大'"
       @click="toggleMaximizeWindow()"
     >
@@ -36,7 +36,7 @@ onBeforeUnmount(() => dispose?.());
     </button>
     <button
       type="button"
-      class="flex w-11 items-center justify-center text-ink-muted transition-colors duration-100 hover:bg-danger hover:text-white active:bg-danger"
+      class="flex w-11 items-center justify-center text-ink-muted pressable hover:bg-danger hover:text-white active:bg-danger"
       title="關閉"
       @click="closeWindow()"
     >

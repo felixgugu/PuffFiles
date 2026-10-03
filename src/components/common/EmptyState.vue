@@ -17,8 +17,8 @@ withDefaults(
     <div class="flex size-11 items-center justify-center rounded-full bg-surface-muted text-ink-faint">
       <AppIcon :name="icon" :size="22" />
     </div>
-    <p class="text-sm font-medium text-ink">{{ title }}</p>
-    <p v-if="description" class="max-w-sm text-xs leading-relaxed text-ink-muted">{{ description }}</p>
+    <p class="text-base font-medium text-ink">{{ title }}</p>
+    <p v-if="description" class="max-w-sm text-sm leading-relaxed text-ink-muted">{{ description }}</p>
     <slot />
   </div>
 </template>
