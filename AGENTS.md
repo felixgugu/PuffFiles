@@ -1,11 +1,16 @@
 # PuffFile 專案架構地圖 (AGENTS.md)
 
 ## 1. 專案簡介與技術棧
-- **用途**：極致輕量、現代高效的 檔案總管。
+
+- **用途**：極致輕量、現代高效的 Windows 檔案總管。定位**不是**取代檔案總管，而是解決
+  「每天工作時不斷反覆進出同幾個資料夾」——左側「我的資料夾」、分頁與分割、可自訂的右鍵選單。
 - **核心架構**：Tauri v2 雙層解耦架構（Rust 原生後端核心 + WebView2 前端 UI）。
-- **前端技術棧**：Vue 3 (Composition API / `<script setup>`)、TypeScript 6、Vite 8、Tailwind CSS。
-- **前端核心庫**：Pinia 3 (狀態管理)。
-- **後端技術棧**：Rust 2021、Tokio (非同步執行期)。
+- **前端技術棧**：Vue 3.5（Composition API / `<script setup>`）、TypeScript 6、Vite 8（Rolldown）、
+  Tailwind CSS 4（CSS-first `@theme`）。
+- **前端核心庫**：Pinia 4 setup stores（狀態管理）。
+- **後端技術棧**：Rust edition 2024、Tokio、thiserror 2、sysinfo、windows-rs（Shell／剪貼簿／目錄監控）。
+- **打包**：`npm run build:portable`（＝ `tauri build --no-bundle`）或 `build-portable.ps1`，
+  產出單檔免安裝的 `dist-portable\PuffFile.exe`。
 
 ## 2. 目錄結構與職責
 
@@ -14,28 +19,47 @@ PuffFiles/
 ├─ index.html                  # Vite 進入點
 ├─ vite.config.ts              # Vue + Tailwind 4（CSS-first）外掛、@ 別名、Tauri 專用 server 設定
 ├─ tsconfig.json               # TS 6 strict；路徑別名 @/* -> src/*
+├─ build-portable.ps1          # 單檔免安裝版打包（UTF-8 with BOM）
 ├─ src/                        # 前端（Vue 3.5 + TypeScript）
 │  ├─ main.ts                  # 建立 App、掛載 Pinia、載入全域樣式
 │  ├─ App.vue                  # 只負責掛上 AppShell
 │  ├─ assets/styles/main.css   # Tailwind 4 進入點：@theme 設計權杖、.dark 覆寫、@utility
-│  ├─ types/fs.ts              # 與 Rust model.rs 一對一的前端型別
+│  ├─ types/                   # fs.ts（與 Rust model.rs 對應）、menu.ts（選單列）、tools.ts（外部工具）
 │  ├─ services/                # 唯一 IPC 邊界
 │  │  ├─ api.ts                # invoke/Channel 封裝；無 Tauri 時自動降級 Mock
 │  │  ├─ mock.ts               # 瀏覽器開發用的假檔案系統（事件順序同 Rust 端）
 │  │  ├─ errors.ts             # BackendError 與 normalizeBackendError
-│  │  └─ clipboard.ts          # 剪貼簿（含 WebView 相容降級）
+│  │  ├─ storage.ts            # localStorage 的唯一存取點（readJson / writeJson）
+│  │  ├─ clipboard.ts          # 文字剪貼簿（含 WebView 相容降級）
+│  │  └─ window.ts             # 無邊框視窗控制
 │  ├─ stores/                  # Pinia 4 setup stores（狀態唯一真實來源）
-│  │  ├─ explorer.ts           # 路徑、項目、選取、排序、瀏覽歷史
-│  │  ├─ system.ts             # 磁碟機、快速存取位置
-│  │  └─ ui.ts                 # 主題、通知、跨組件焦點請求
-│  ├─ composables/             # 可重用行為（useKeyboardShortcuts）
+│  │  ├─ explorer.ts           # 每個窗格的路徑、項目、選取、排序、欄寬、瀏覽歷史
+│  │  ├─ tabs.ts               # 分頁與分割版面、窗格生命週期、工作階段還原
+│  │  ├─ folders.ts            # 左側「我的資料夾」清單（含虛擬目錄、順序、展開狀態）
+│  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除、送到另一窗格、忙碌狀態
+│  │  ├─ history.ts            # 瀏覽紀錄（MRU，含分割版面）
+│  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
+│  │  ├─ system.ts             # 磁碟機、快速存取位置（只用於啟動時的起始路徑）
+│  │  └─ ui.ts                 # 通知、確認／輸入對話框、焦點請求、浮層開關
+│  ├─ composables/
+│  │  ├─ useKeyboardShortcuts.ts # 全域快速鍵（分頁、分割、剪貼簿、檔案操作）
+│  │  ├─ usePathMenu.ts        # 右鍵選單的內容與動作（依選取情境分流、外部工具篩選）
+│  │  ├─ useDragGesture.ts     # 通用拖曳手勢（含速度取樣，交給彈簧接手）
+│  │  ├─ useSpringValue.ts     # 以自製彈簧驅動的數值
+│  │  └─ useRefreshView.ts     # 重新整理（清單＋資料夾樹）
 │  ├─ components/
-│  │  ├─ layout/               # AppShell、AppHeader、StatusBar
-│  │  ├─ sidebar/              # SidebarNav（快速存取 + 磁碟機）
-│  │  ├─ toolbar/              # NavToolbar、PathBreadcrumb
-│  │  ├─ files/                # FileTable、FileTableRow
-│  │  └─ common/               # AppIcon、SearchField、PromptDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind）
+│  │  ├─ chrome/               # 無邊框標題列：WindowChrome、TabStrip、ChromeActions、WindowControls
+│  │  ├─ layout/               # AppShell、StatusBar
+│  │  ├─ workspace/            # WorkspaceView、BrowserPane（單／雙窗格版面）
+│  │  ├─ tree/                 # FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
+│  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
+│  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
+│  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
+│  │  ├─ overlays/             # ContextMenu、HistoryPanel
+│  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / layout / spring / tools / toolVars）
+├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
+├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
    ├─ tauri.conf.json          # 視窗、bundle、圖示設定
    ├─ capabilities/default.json # 權限（core:default、opener:default）
@@ -44,17 +68,23 @@ PuffFiles/
       ├─ lib.rs                # Builder、外掛註冊、invoke_handler 清單
       ├─ error.rs              # AppError（thiserror）+ 自訂 Serialize 為 {kind,message,path}
       ├─ model.rs              # FileEntry / DirListing / DirEvent / DriveInfo / QuickLocation
-      ├─ core/dir.rs           # 不依賴 Tauri 的目錄列舉核心（含單元測試）
+      ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
+      │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
+      │  ├─ shell.rs           # IFileOperation 檔案操作、CF_HDROP 剪貼簿
+      │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
+      │  └─ oplog.rs           # 檔案操作紀錄（%LOCALAPPDATA%\PuffFile\logs）
       └─ commands/
-         ├─ fs.rs              # list_dir_stream、create_folder、open_path、reveal_path
+         ├─ fs.rs              # list_dir_stream、list_subdirs、建立資料夾／檔案、外部工具、reveal
+         ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除、操作紀錄
+         ├─ watch.rs           # 目錄監控的啟動／停止
          └─ system.rs          # list_drives、quick_locations
 ```
 
 - **邊界規則**：`commands/` 只做參數驗證與呼叫 `core/`；與 WebView 無關的邏輯放在 `core/`，才能獨立測試。
 
-## 3. 核心資料流向
+## 3. 核心資料模型與流向
 
-**載入資料夾（串流）**
+### 3.1 載入資料夾（串流）
 
 1. 使用者在 UI 觸發導覽 → `stores/explorer.ts` 的 `load()`（會先中止前一個請求）。
 2. `services/api.ts` 建立 `Channel<DirStreamEvent>` 並 `invoke("list_dir_stream")`。
@@ -63,17 +93,65 @@ PuffFiles/
 5. store 收到 `batch` 時以 `shallowRef` + `triggerRef` 更新，避免大量項目建立響應式代理。
 6. `visibleEntries` 依搜尋字串、隱藏項目與排序條件計算出畫面資料；元件只讀不寫。
 
-**錯誤流**
+目錄變更由 `core/watch.rs`（ReadDirectoryChangesW）推送，前端以**增量**套用（插入／移除／就地更新），
+不重讀整份清單；只有通知溢位時才退回整份重讀。
 
-Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError()` → `normalizeBackendError()` → store 的 `error` → `ErrorBanner` 顯示。
+### 3.2 我的資料夾（含虛擬目錄）
 
-**為什麼用 Channel 而不是一次回傳整個陣列**
+`stores/folders.ts` 是左側清單的唯一真實來源，資料形狀：
 
-超大資料夾若等掃描完才回傳，UI 會長時間空白；串流讓項目邊讀邊出現，也讓前端能在換路徑時中止過期請求（AbortController 停止接收事件）。
+```ts
+interface FolderNode {
+  id: string;
+  label: string;
+  kind: "folder" | "group"; // group＝虛擬目錄，純分組、沒有實體路徑
+  path?: string;            // 只有 folder 有
+  children?: FolderNode[];  // 只有 group 有，內容只能是 folder
+}
+```
+
+- **只允許兩層**：第一層可混搭虛擬目錄與真實資料夾，虛擬目錄裡只能是真實資料夾。
+- **容器（container）以 id 識別**：第一層是 `TREE_ROOT_CONTAINER`（空字串），其餘是群組的節點 id。
+- **拖曳只在同一個容器內排序**（`moveNode(containerId, from, to)`）；搬進虛擬目錄走右鍵
+  「移動到虛擬目錄…」→ `moveNodeToGroup(nodeId, groupId)`。
+- **排序範圍＝選取節點所在的那一層**（`sortNodes(containerId)`），用
+  `Intl.Collator("zh-Hant", { numeric: true })`。沒有選取時退回焦點窗格路徑所屬的那一層。
+- **展開狀態分開存**：真實資料夾存路徑（`expanded`），虛擬目錄存節點 id（`expandedGroups`）。
+  `reveal(path)` 會先展開所在的群組再展開沿路資料夾；`collapseAll()` 兩者都清。
+- **選取以節點 id 為準**（`activeId`，因為群組沒有路徑）；檔案系統的子資料夾不在清單上，
+  用路徑當鍵，`selectedNode()` 對它們會回 `null`（呼叫端再用 `folderNodeFor(path)` 回推）。
+- **全樹去重**：同一個實體路徑只會出現一次（`addFolder` 會擋，大小寫不敏感）。
+- 持久化於 `pufffile:folders`（`{ roots, expanded, expandedGroups }`）；舊格式（沒有 `kind`／`id`）
+  讀取時自動補齊，不需要遷移程式。
+
+### 3.3 錯誤流
+
+Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError()` →
+`normalizeBackendError()` → store 的 `error` → `ErrorBanner`／通知顯示。
+
+**為什麼用 Channel 而不是一次回傳整個陣列**：超大資料夾若等掃描完才回傳，UI 會長時間空白；
+串流讓項目邊讀邊出現，也讓前端能在換路徑時中止過期請求（AbortController 停止接收事件）。
+
+### 3.4 右鍵選單
+
+內容集中在 `composables/usePathMenu.ts`：`menuFor(request)` 依「選取情境」決定項目
+（清單空白處／單一資料夾／單一檔案／多選），`run(id, request)` 負責執行。
+`request.target` 是右鍵的那一項，`request.targets` 是這次真正會作用的項目。
+外部工具依 `toolMatches()`（顯示於檔案／資料夾、副檔名篩選）過濾；樹的節點選單另外由
+`FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
 
 ## 4. 開發與修改規範
-- **模組職責與行數控制**：單一程式碼檔案行數建議控制在 400 行以內；若邏輯膨脹應拆分為 Composables、子組件或 Utils 工具函數。
-- **IPC 隔離與 Web 相容**：UI 組件嚴禁直接呼叫 `@tauri-apps/api` 的 `invoke`，一律經由 `services/` 封裝；所有 IPC 呼叫需在 `api.ts` 提供 Mock 降級以支援瀏覽器開發。
-- **統一錯誤處理規範**：後端統一採用 `AppError`（基於 `thiserror`）列舉型別回傳；前端一律透過 `normalizeBackendError` 統一轉譯，嚴禁未捕獲的 Promise 拋錯或靜默吞沒異常。
-- **狀態單一真實來源 (SSOT)**：視窗層與跨組件狀態必須由 Pinia Stores（`stores/`）統一管理，禁止跨組件任意深層 Prop Drilling 或直接修改外部非自身負責之狀態。
-- **無副作用與模組邊界**：`utils/` 必須維持無副作用的純函數，不依賴 Vue 響應式狀態或後端 IPC；後端 `drivers/` 專注 TDS 通訊協定，禁止依賴 Tauri IPC 命令邏輯。
+
+- **模組職責與行數控制**：單一程式碼檔案行數建議控制在 400 行以內；若邏輯膨脹應拆分為
+  Composables、子組件或 Utils 工具函數。
+- **IPC 隔離與 Web 相容**：UI 組件嚴禁直接呼叫 `@tauri-apps/api` 的 `invoke`，一律經由
+  `services/` 封裝；所有 IPC 呼叫需在 `api.ts` 提供 Mock 降級以支援瀏覽器開發
+  （`npm run dev` 就是靠這一層跑起來的）。
+- **統一錯誤處理規範**：後端統一採用 `AppError`（基於 `thiserror`）列舉型別回傳；
+  前端一律透過 `normalizeBackendError` 統一轉譯，嚴禁未捕獲的 Promise 拋錯或靜默吞沒異常。
+- **狀態單一真實來源 (SSOT)**：視窗層與跨組件狀態必須由 Pinia Stores（`stores/`）統一管理，
+  禁止跨組件任意深層 Prop Drilling 或直接修改外部非自身負責之狀態。
+- **無副作用與模組邊界**：`utils/` 必須維持無副作用的純函數，不依賴 Vue 響應式狀態或後端 IPC；
+  平台整合（Shell／剪貼簿／目錄監控）一律放在 `src-tauri/src/core/`，不可混進 `commands/`。
+- **檔案系統路徑**：Rust 端回傳的是 `display_path()` 處理過的一般路徑（去掉 `\\?\`）；
+  要交給 Shell API 前若拿到 canonicalize 的結果，務必先過 `display_path()`，否則會踩 `0x80070057`。
