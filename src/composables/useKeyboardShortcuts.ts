@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted } from "vue";
 import { useExplorerStore } from "@/stores/explorer";
+import { useClipboardStore } from "@/stores/clipboard";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
@@ -17,6 +18,7 @@ export function useKeyboardShortcuts() {
   const ui = useUiStore();
   const settings = useSettingsStore();
   const refreshView = useRefreshView();
+  const clipboard = useClipboardStore();
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return (
@@ -29,6 +31,18 @@ export function useKeyboardShortcuts() {
   function onKeydown(event: KeyboardEvent) {
     const { key, altKey, ctrlKey, metaKey, shiftKey } = event;
     const modifier = ctrlKey || metaKey;
+
+    // 確認對話框開著時只處理它自己的按鍵。
+    if (ui.confirmState) {
+      if (key === "Escape") {
+        event.preventDefault();
+        ui.resolveConfirm(false);
+      } else if (key === "Enter") {
+        event.preventDefault();
+        ui.resolveConfirm(true);
+      }
+      return;
+    }
 
     // 設定頁開著時只留下 Esc；其他快速鍵不該在看不到畫面的情況下動到瀏覽狀態。
     if (ui.settingsOpen && key !== "Escape") {
@@ -77,6 +91,33 @@ export function useKeyboardShortcuts() {
           event.preventDefault();
           explorer.selectAll(paneId);
           return;
+        case "c":
+        case "C":
+          event.preventDefault();
+          if (shiftKey) {
+            void clipboard.transferToOtherPane("copy");
+          } else {
+            void clipboard.copySelection(paneId);
+          }
+          return;
+        case "x":
+        case "X":
+          event.preventDefault();
+          void clipboard.cutSelection(paneId);
+          return;
+        case "v":
+        case "V":
+          event.preventDefault();
+          void clipboard.paste(paneId);
+          return;
+        case "m":
+        case "M":
+          if (!shiftKey) {
+            break;
+          }
+          event.preventDefault();
+          void clipboard.transferToOtherPane("move");
+          return;
         case "f":
         case "F":
           event.preventDefault();
@@ -108,6 +149,10 @@ export function useKeyboardShortcuts() {
       case "F6":
         event.preventDefault();
         cycleFocus();
+        break;
+      case "Delete":
+        event.preventDefault();
+        void clipboard.removePaths(clipboard.selectionOf(paneId));
         break;
       case "Backspace":
         event.preventDefault();
@@ -178,6 +223,7 @@ export function useKeyboardShortcuts() {
     }
     settings.toggleTree();
   }
+
 
   onMounted(() => window.addEventListener("keydown", onKeydown));
   onUnmounted(() => window.removeEventListener("keydown", onKeydown));

@@ -13,6 +13,12 @@ export function fileNameOf(path: string): string {
   return index === -1 ? normalized : normalized.slice(index + 1);
 }
 
+/** 去掉最後一個副檔名的檔名；沒有副檔名（或只有開頭是點）時原樣回傳。 */
+export function fileStemOf(name: string): string {
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(0, index) : name;
+}
+
 export function joinPath(base: string, name: string): string {
   const normalized = toBackslashes(base);
   return normalized.endsWith("\\") ? `${normalized}${name}` : `${normalized}\\${name}`;

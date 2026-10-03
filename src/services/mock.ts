@@ -130,3 +130,18 @@ export async function mockListDirectory(
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** 瀏覽器開發用的假剪貼簿，讓前端流程可以在沒有 Tauri 的情況下走完。 */
+let mockClipboard: { paths: string[]; cut: boolean } = { paths: [], cut: false };
+
+export function mockReadClipboard(): { paths: string[]; cut: boolean } {
+  return { ...mockClipboard };
+}
+
+export function mockWriteClipboard(paths: string[], cut: boolean): void {
+  mockClipboard = { paths: [...paths], cut };
+}
+
+export function mockClearClipboard(): void {
+  mockClipboard = { paths: [], cut: false };
+}

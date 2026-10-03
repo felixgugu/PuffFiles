@@ -1,13 +1,14 @@
 import { computed } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
+import { useClipboardStore } from "@/stores/clipboard";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import type { MenuItem } from "@/types/menu";
 import type { ExternalTool, ToolVars } from "@/types/tools";
-import { fileNameOf, parentOf } from "@/utils/path";
+import { fileNameOf, fileStemOf, normalizeKey, parentOf } from "@/utils/path";
 import { applyVars, buildVars } from "@/utils/toolVars";
 
 /** 右鍵選單的對象：檔案或資料夾，以及它自己的完整路徑。 */
@@ -19,26 +20,27 @@ export interface MenuTarget {
 /**
  * 右鍵選單的內容與動作。
  *
- * 外部工具完全來自使用者的設定清單，依「檔案／資料夾」篩選；
- * 引數與工作目錄在執行前才把變數展開成實際路徑。
+ * 檔案操作一律交給 Windows shell；外部工具則完全來自使用者的設定清單，
+ * 依「檔案／資料夾」篩選，引數在執行前才把變數展開成實際路徑。
  */
 export function usePathMenu() {
   const explorer = useExplorerStore();
   const settings = useSettingsStore();
   const tabs = useTabsStore();
   const ui = useUiStore();
+  const clipboard = useClipboardStore();
 
   function toVars(target: MenuTarget | null): ToolVars | null {
     if (!target?.path) {
       return null;
     }
-    const fullFolderPath = target.isDir
-      ? target.path
-      : (parentOf(target.path) ?? target.path);
+    const fullFolderPath = target.isDir ? target.path : (parentOf(target.path) ?? target.path);
+    const fileName = fileNameOf(target.path);
     return {
       fullFilePath: target.path,
       fullFolderPath,
-      fileName: fileNameOf(target.path),
+      fileName,
+      fileStem: fileStemOf(fileName),
       folderName: fileNameOf(fullFolderPath) || fullFolderPath,
     };
   }
@@ -50,36 +52,89 @@ export function usePathMenu() {
     return buildVars(toVars(target), paneVars);
   }
 
+  /**
+   * 檔案操作作用的對象：右鍵的那個項目若已在選取範圍內，就作用於整個選取；
+   * 否則只作用於它自己（與檔案總管一致）。
+   */
+  function targetsFor(target: MenuTarget | null): string[] {
+    const selection = clipboard.selectionOf(tabs.activePaneId);
+    if (!target?.path) {
+      return selection;
+    }
+    const key = normalizeKey(target.path);
+    return selection.some((path) => normalizeKey(path) === key) ? selection : [target.path];
+  }
+
   function toolItems(kind: "file" | "folder"): MenuItem[] {
     return settings.tools
       .filter((tool) => tool.targets.includes(kind))
       .map((tool) => ({ id: `tool:${tool.id}`, label: tool.label, icon: tool.icon }));
   }
 
-  function copyItems(): MenuItem[] {
+  function clipboardItems(kind: "file" | "folder"): MenuItem[] {
+    const items: MenuItem[] = [
+      { id: "cut", label: "剪下", icon: "scissors", shortcut: "Ctrl+X" },
+      { id: "copy", label: "複製", icon: "copy", shortcut: "Ctrl+C" },
+    ];
+    if (kind === "folder") {
+      items.push({ id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" });
+    }
+    items.push({ id: "delete", label: "刪除", icon: "trash", shortcut: "Del" });
+    return items;
+  }
+
+  /** 只有分割時才提供的「送到另一邊」。 */
+  function transferItems(): MenuItem[] {
+    const tab = tabs.activeTab;
+    if (!tab || !tabs.otherPaneId(tab)) {
+      return [];
+    }
+    return [
+      { id: "transfer-copy", label: "複製到另一窗格", icon: "copy", shortcut: "Ctrl+Shift+C" },
+      { id: "transfer-move", label: "移動到另一窗格", icon: "move", shortcut: "Ctrl+Shift+M" },
+    ];
+  }
+
+  function copyPathItems(): MenuItem[] {
     return [
       { id: "copy-windows", label: "複製路徑（Windows）", icon: "link" },
       { id: "copy-linux", label: "複製路徑（Linux）", icon: "link" },
     ];
   }
 
+  function appendWithSeparator(items: MenuItem[], block: MenuItem[]) {
+    block.forEach((item, index) => {
+      items.push({ ...item, separatorBefore: index === 0 ? items.length > 0 : false });
+    });
+  }
+
   const folderMenu = computed<MenuItem[]>(() => {
-    const items = toolItems("folder");
-    const copy = copyItems();
-    items.push({ ...copy[0], separatorBefore: items.length > 0 });
-    items.push(copy[1]);
-    items.push({ id: "reveal", label: "在檔案總管中顯示", icon: "externalLink", separatorBefore: true });
+    const items: MenuItem[] = [];
+    appendWithSeparator(items, clipboardItems("folder"));
+    appendWithSeparator(items, toolItems("folder"));
+    appendWithSeparator(items, transferItems());
+    appendWithSeparator(items, copyPathItems());
+    items.push({
+      id: "reveal",
+      label: "在檔案總管中顯示",
+      icon: "externalLink",
+      separatorBefore: true,
+    });
     return items;
   });
 
   const fileMenu = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [{ id: "open", label: "開啟", icon: "folderOpen" }];
-    const tools = toolItems("file");
-    tools.forEach((tool, index) => items.push({ ...tool, separatorBefore: index === 0 }));
-    const copy = copyItems();
-    items.push({ ...copy[0], separatorBefore: true });
-    items.push(copy[1]);
-    items.push({ id: "reveal", label: "在檔案總管中顯示", icon: "externalLink", separatorBefore: true });
+    appendWithSeparator(items, clipboardItems("file"));
+    appendWithSeparator(items, toolItems("file"));
+    appendWithSeparator(items, transferItems());
+    appendWithSeparator(items, copyPathItems());
+    items.push({
+      id: "reveal",
+      label: "在檔案總管中顯示",
+      icon: "externalLink",
+      separatorBefore: true,
+    });
     return items;
   });
 
@@ -105,6 +160,8 @@ export function usePathMenu() {
   }
 
   async function run(id: string, target: MenuTarget | null) {
+    const paneId = tabs.activePaneId;
+
     if (id.startsWith("tool:")) {
       const tool = settings.tools.find((item) => item.id === id.slice(5));
       if (tool) {
@@ -114,6 +171,29 @@ export function usePathMenu() {
     }
 
     const path = target?.path;
+    switch (id) {
+      case "cut":
+        await clipboard.put(targetsFor(target), true);
+        return;
+      case "copy":
+        await clipboard.put(targetsFor(target), false);
+        return;
+      case "paste":
+        await clipboard.paste(paneId, target?.isDir ? target.path : undefined);
+        return;
+      case "delete":
+        await clipboard.removePaths(targetsFor(target));
+        return;
+      case "transfer-copy":
+        await clipboard.transferToOtherPane("copy");
+        return;
+      case "transfer-move":
+        await clipboard.transferToOtherPane("move");
+        return;
+      default:
+        break;
+    }
+
     if (!path) {
       return;
     }

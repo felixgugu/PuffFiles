@@ -71,8 +71,13 @@ export interface FolderRoot {
 }
 
 export interface HistoryEntry {
-  path: string;
-  name: string;
+  /**
+   * 這筆紀錄的路徑。
+   * 一個＝單窗瀏覽；兩個＝當時的分割版面，順序固定是「左／上、右／下」。
+   */
+  paths: string[];
+  /** 分割方向；只有兩個路徑時才有意義。 */
+  direction?: SplitDirection;
   at: number;
 }
 

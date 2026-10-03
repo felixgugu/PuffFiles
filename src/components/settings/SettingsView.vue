@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { IconName } from "@/components/common/icons";
 import ToolsSettings from "./ToolsSettings.vue";
+import * as api from "@/services/api";
+import { normalizeBackendError } from "@/services/errors";
 import { ALL_COLUMNS, useSettingsStore } from "@/stores/settings";
 import type { MotionPreference, ThemeMode } from "@/stores/settings";
 import { useExplorerStore } from "@/stores/explorer";
 import { useUiStore } from "@/stores/ui";
 import type { ColumnId } from "@/types/fs";
 
-type SectionId = "general" | "browse" | "tools" | "about";
+type SectionId = "general" | "browse" | "tools" | "log" | "about";
 
 const SECTIONS: { id: SectionId; label: string; icon: IconName }[] = [
   { id: "general", label: "一般", icon: "settings" },
   { id: "browse", label: "瀏覽", icon: "folderOpen" },
   { id: "tools", label: "外部工具", icon: "terminal" },
+  { id: "log", label: "紀錄", icon: "history" },
   { id: "about", label: "關於", icon: "info" },
 ];
 
@@ -34,6 +37,24 @@ const settings = useSettingsStore();
 const explorer = useExplorerStore();
 const ui = useUiStore();
 const section = ref<SectionId>("general");
+
+const logText = ref("");
+const logPath = ref("");
+
+async function loadLog() {
+  try {
+    logText.value = await api.operationLog(300);
+    logPath.value = await api.operationLogPath();
+  } catch (cause) {
+    ui.showNotice(normalizeBackendError(cause).message);
+  }
+}
+
+watch(section, (value) => {
+  if (value === "log") {
+    void loadLog();
+  }
+});
 
 </script>
 
@@ -141,6 +162,15 @@ const section = ref<SectionId>("general");
                   @change="settings.restoreSession = ($event.target as HTMLInputElement).checked"
                 />
               </label>
+              <label class="flex items-center justify-between py-1">
+                <span class="text-[13px] text-ink">清單自動更新</span>
+                <input
+                  type="checkbox"
+                  class="size-4 accent-[var(--color-accent)]"
+                  :checked="settings.autoRefresh"
+                  @change="settings.autoRefresh = ($event.target as HTMLInputElement).checked"
+                />
+              </label>
             </section>
 
             <section>
@@ -177,6 +207,41 @@ const section = ref<SectionId>("general");
           <!-- 外部工具 -->
           <ToolsSettings v-else-if="section === 'tools'" />
 
+          <!-- 紀錄 -->
+          <div v-else-if="section === 'log'" class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-[13px] font-semibold text-ink">檔案操作紀錄</h3>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="h-7 rounded-md border border-line px-2.5 text-[12px] text-ink transition-colors duration-75 hover:bg-surface-hover"
+                  @click="loadLog()"
+                >
+                  重新整理
+                </button>
+                <button
+                  type="button"
+                  class="h-7 rounded-md border border-line px-2.5 text-[12px] text-ink transition-colors duration-75 hover:bg-surface-hover"
+                  :disabled="!logPath"
+                  @click="explorer.revealTarget(logPath)"
+                >
+                  開啟紀錄檔
+                </button>
+              </div>
+            </div>
+
+            <p class="text-[12px] leading-relaxed text-ink-muted">
+              剪下、複製、貼上與刪除的每一次操作、結果與錯誤都寫在這裡。
+              紀錄只存在本機，不會上傳；超過 512 KB 會自動輪替成舊檔。
+            </p>
+
+            <pre
+              class="scroll-area max-h-[52vh] overflow-auto rounded-xl border border-line bg-surface p-3 font-mono text-[11px] leading-relaxed whitespace-pre text-ink-muted"
+            >{{ logText || "（還沒有紀錄）" }}</pre>
+
+            <p v-if="logPath" class="text-[11px] break-all text-ink-faint">{{ logPath }}</p>
+          </div>
+
           <!-- 關於 -->
           <div v-else class="space-y-4">
             <div>
@@ -186,8 +251,9 @@ const section = ref<SectionId>("general");
               </p>
             </div>
             <p class="text-[12px] leading-relaxed text-ink-muted">
-              PuffFile 只做「快速回到常用工作資料夾」這一件事。檔案的新增、刪除、搬移與更名
-              一律留給 Windows 檔案總管 —— 這是刻意的界線，不是還沒做的功能。
+              PuffFile 專注在「快速回到常用工作資料夾」。剪下、複製、貼上與刪除都直接交給
+              Windows 的檔案操作機制執行，所以衝突處理、進度、取消與資源回收筒的行為
+              都與檔案總管一致，剪貼簿也雙向互通。新增資料夾與重新命名仍留給檔案總管。
             </p>
             <dl class="space-y-1 text-[12px] text-ink-muted">
               <div class="flex gap-3">

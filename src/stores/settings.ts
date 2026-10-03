@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch, watchEffect } from "vue";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
-import type { ColumnId, SortDirection, SortKey } from "@/types/fs";
+import type { ColumnId, SortDirection, SortKey, SplitDirection } from "@/types/fs";
 import type { ExternalTool } from "@/types/tools";
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -101,9 +101,15 @@ interface StoredSettings {
   defaultSortDirection: SortDirection;
   motion: MotionPreference;
   restoreSession: boolean;
+  /** 監控目前資料夾，外部變更自動反映到清單。 */
+  autoRefresh: boolean;
   tools: ExternalTool[];
   treeWidth: number;
   treeCollapsed: boolean;
+  /** 上次分割時，第二個窗格開在哪個資料夾、用哪個方向。 */
+  lastSplit: { path: string; direction: SplitDirection };
+  /** 舊版欄位，僅用於讀取時搬移。 */
+  lastSplitPath?: string;
 }
 
 /** 舊版把編輯器路徑存在各自的欄位；首次升級時把它們帶進對應工具的執行檔。 */
@@ -121,9 +127,11 @@ const DEFAULTS: StoredSettings = {
   defaultSortDirection: "asc",
   motion: "system",
   restoreSession: true,
+  autoRefresh: true,
   tools: DEFAULT_TOOLS,
   treeWidth: 260,
   treeCollapsed: false,
+  lastSplit: { path: "", direction: "row" },
 };
 
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
@@ -183,9 +191,13 @@ export const useSettingsStore = defineStore("settings", () => {
   const defaultSortDirection = ref<SortDirection>(stored.defaultSortDirection);
   const motion = ref<MotionPreference>(stored.motion);
   const restoreSession = ref(stored.restoreSession);
+  const autoRefresh = ref(stored.autoRefresh);
   const tools = ref<ExternalTool[]>(stored.tools);
   const treeWidth = ref(stored.treeWidth);
   const treeCollapsed = ref(stored.treeCollapsed);
+  const lastSplit = ref<{ path: string; direction: SplitDirection }>(
+    stored.lastSplit ?? { path: stored.lastSplitPath ?? "", direction: "row" },
+  );
 
   const prefersDark = ref(
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -222,7 +234,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, tools, treeWidth, treeCollapsed],
+    [themeMode, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -235,9 +247,11 @@ export const useSettingsStore = defineStore("settings", () => {
           defaultSortDirection: defaultSortDirection.value,
           motion: motion.value,
           restoreSession: restoreSession.value,
+          autoRefresh: autoRefresh.value,
           tools: tools.value,
           treeWidth: treeWidth.value,
           treeCollapsed: treeCollapsed.value,
+          lastSplit: lastSplit.value,
         } satisfies StoredSettings);
       }, 200);
     },
@@ -272,13 +286,22 @@ export const useSettingsStore = defineStore("settings", () => {
     treeCollapsed.value = !treeCollapsed.value;
   }
 
+  /** 記住分割出來的那個窗格上次開在哪、用哪個方向。 */
+  function rememberSplit(path: string, direction: SplitDirection) {
+    if (lastSplit.value.path === path && lastSplit.value.direction === direction) {
+      return;
+    }
+    lastSplit.value = { path, direction };
+  }
+
   function addTool(): ExternalTool {
     const tool: ExternalTool = {
       id: `tool-${Date.now().toString(36)}`,
       label: "新工具",
       executable: "",
       args: ["$fullFilePath"],
-      workingDirectory: "",
+      // 新工具預設就在「選取項目所在的資料夾」執行；要沿用行程目前位置就清空。
+      workingDirectory: "$fullFolderPath",
       newConsole: false,
       targets: ["file"],
       icon: "program",
@@ -310,9 +333,11 @@ export const useSettingsStore = defineStore("settings", () => {
     defaultSortDirection,
     motion,
     restoreSession,
+    autoRefresh,
     tools,
     treeWidth,
     treeCollapsed,
+    lastSplit,
     isDark,
     reduceMotion,
     prefersReducedMotion,
@@ -321,6 +346,7 @@ export const useSettingsStore = defineStore("settings", () => {
     resetColumnWidths,
     setTreeWidth,
     toggleTree,
+    rememberSplit,
     addTool,
     updateTool,
     removeTool,

@@ -10,6 +10,8 @@ const props = defineProps<{
   columns: ColumnId[];
   selected: boolean;
   focused: boolean;
+  /** 被剪下、等待貼上的項目：淡化顯示。 */
+  cut: boolean;
 }>();
 
 defineEmits<{
@@ -59,6 +61,7 @@ function cellText(column: ColumnId): string {
     :aria-selected="selected"
     class="file-grid h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-[13px] transition-colors duration-75"
     :class="[
+      cut ? 'opacity-45' : '',
       selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover',
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
     ]"

@@ -6,6 +6,13 @@ export interface NoticeAction {
   run: () => void;
 }
 
+export interface ConfirmOptions {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+}
+
 /**
  * 短生命週期的 UI 狀態：通知、跨元件的焦點請求、浮層開關。
  *
@@ -18,6 +25,24 @@ export const useUiStore = defineStore("ui", () => {
   const pathEditRequest = ref(0);
   const settingsOpen = ref(false);
   const historyOpen = ref(false);
+  const confirmState = ref<ConfirmOptions | null>(null);
+
+  let confirmResolver: ((value: boolean) => void) | null = null;
+
+  /** 開一個確認對話框並等待使用者回答；同時只會有一個。 */
+  function confirm(options: ConfirmOptions): Promise<boolean> {
+    confirmResolver?.(false);
+    confirmState.value = options;
+    return new Promise((resolve) => {
+      confirmResolver = resolve;
+    });
+  }
+
+  function resolveConfirm(value: boolean) {
+    confirmState.value = null;
+    confirmResolver?.(value);
+    confirmResolver = null;
+  }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -49,6 +74,9 @@ export const useUiStore = defineStore("ui", () => {
     pathEditRequest,
     settingsOpen,
     historyOpen,
+    confirmState,
+    confirm,
+    resolveConfirm,
     showNotice,
     dismissNotice,
     requestSearchFocus,

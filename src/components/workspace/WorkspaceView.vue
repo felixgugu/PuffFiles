@@ -18,20 +18,28 @@ const tabs = useTabsStore();
 const settings = useSettingsStore();
 
 const paneArea = useTemplateRef<HTMLElement>("paneArea");
-const areaWidth = ref(1600);
-const areaHeight = ref(900);
+/**
+ * 量測的是「外層」而不是窗格區。
+ *
+ * 窗格區的寬度會被「樹顯示／隱藏」改變，如果用窗格區的寬度來決定要不要顯示樹，
+ * 就會變成：藏起來 → 變寬 → 又顯示 → 變窄 → 又藏起來，無限震盪
+ * （ResizeObserver 迴圈錯誤會每秒噴上百次）。外層寬度不受樹影響，是穩定的輸入。
+ */
+const root = useTemplateRef<HTMLElement>("root");
+const outerWidth = ref(1600);
+const outerHeight = ref(900);
 let observer: ResizeObserver | null = null;
 
 onMounted(() => {
-  const element = paneArea.value;
+  const element = root.value;
   if (!element) {
     return;
   }
-  areaWidth.value = element.clientWidth;
-  areaHeight.value = element.clientHeight;
+  outerWidth.value = element.clientWidth;
+  outerHeight.value = element.clientHeight;
   observer = new ResizeObserver(() => {
-    areaWidth.value = element.clientWidth;
-    areaHeight.value = element.clientHeight;
+    outerWidth.value = element.clientWidth;
+    outerHeight.value = element.clientHeight;
   });
   observer.observe(element);
 });
@@ -46,9 +54,11 @@ const ratio = computed(() => tabs.activeTab?.ratio ?? 0.5);
 /** 窗格被壓得太小時讓樹退場，但使用者的收合狀態不會被破壞。 */
 const tooCramped = computed(() => {
   const share = isSplit.value ? Math.min(ratio.value, 1 - ratio.value) : 1;
-  const width = direction.value === "row" ? areaWidth.value * share : areaWidth.value;
-  const height = direction.value === "column" ? areaHeight.value * share : areaHeight.value;
-  return width < 340 || height < 220;
+  if (direction.value === "column") {
+    return outerHeight.value * share < 220;
+  }
+  // 用「樹還顯示著」的寬度判斷：一旦退場就不會自己彈回來，直到視窗真的變寬。
+  return (outerWidth.value - settings.treeWidth) * share < 340;
 });
 
 const showTree = computed(() => !settings.treeCollapsed && !tooCramped.value);
@@ -114,7 +124,7 @@ function resetRatio() {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1">
+  <div ref="root" class="flex min-h-0 flex-1">
     <FolderTreePanel v-if="showTree" />
 
     <div v-else class="flex w-9 shrink-0 flex-col items-center border-r border-line bg-rail pt-2">

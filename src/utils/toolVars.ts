@@ -10,12 +10,13 @@ export const TOOL_VARIABLES: { name: string; description: string }[] = [
   { name: "$fullFilePath", description: "選取項目的完整路徑" },
   { name: "$fullFolderPath", description: "該項目所在資料夾的完整路徑" },
   { name: "$fileName", description: "項目名稱（含副檔名）" },
+  { name: "$fileStem", description: "項目名稱去掉副檔名（例如 archive.7z → archive）" },
   { name: "$folderName", description: "所在資料夾的名稱" },
-  { name: "$…1", description: "同上四者，但固定取左／上窗格" },
-  { name: "$…2", description: "同上四者，但固定取右／下窗格（未分割時為空）" },
+  { name: "$fullFilePath1", description: "四種變數都可以加後綴 1＝左／上窗格、2＝右／下窗格" },
+  { name: "$fullFilePath2", description: "取右／下窗格的選取項目（未分割時展開成空字串）" },
 ];
 
-const PATTERN = /\$(fullFilePath|fullFolderPath|fileName|folderName)([12])?/g;
+const PATTERN = /\$(fullFilePath|fullFolderPath|fileName|fileStem|folderName)([12])?/g;
 
 /** 把樣板中的變數換成實際路徑；未知或取不到的變數會展開成空字串。 */
 export function applyVars(template: string, vars: Record<string, string>): string {
@@ -34,6 +35,7 @@ export function buildVars(
     vars[`fullFilePath${suffix}`] = value?.fullFilePath ?? "";
     vars[`fullFolderPath${suffix}`] = value?.fullFolderPath ?? "";
     vars[`fileName${suffix}`] = value?.fileName ?? "";
+    vars[`fileStem${suffix}`] = value?.fileStem ?? "";
     vars[`folderName${suffix}`] = value?.folderName ?? "";
   };
 

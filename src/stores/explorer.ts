@@ -3,10 +3,10 @@ import { reactive, shallowRef, triggerRef, watch, type ShallowRef } from "vue";
 import * as api from "@/services/api";
 import { copyText } from "@/services/clipboard";
 import { normalizeBackendError, type AppErrorView } from "@/services/errors";
-import { useHistoryStore } from "@/stores/history";
 import { COLUMN_DEFAULTS, COLUMN_MIN, useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
+import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
 import { parentOf, toUnixPath } from "@/utils/path";
 
@@ -35,6 +35,9 @@ export interface PaneMeta {
 
 const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 
+/** 變更通知的合併視窗：一次爆炸性變更只重算一次。 */
+const WATCH_FLUSH_MS = 80;
+
 /** 超過這個數量就延後排序，避免串流過程中反覆排序拖慢 UI。 */
 const EAGER_SORT_LIMIT = 2000;
 
@@ -47,12 +50,16 @@ const EAGER_SORT_LIMIT = 2000;
 export const useExplorerStore = defineStore("explorer", () => {
   const settings = useSettingsStore();
   const ui = useUiStore();
-  const history = useHistoryStore();
 
   const panes = reactive<Record<PaneId, PaneMeta>>({});
   const entriesByPane = new Map<PaneId, ShallowRef<FileEntry[]>>();
   const visibleByPane = new Map<PaneId, ShallowRef<FileEntry[]>>();
   const controllers = new Map<PaneId, AbortController>();
+  /** 窗格正在監控的路徑。 */
+  const watchedPaths = new Map<PaneId, string>();
+  /** 等待套用的變更：同一路徑只留最後一筆。 */
+  const pendingChanges = new Map<PaneId, Map<string, WatchEvent>>();
+  const flushTimers = new Map<PaneId, ReturnType<typeof setTimeout>>();
   let sequence = 0;
 
   function entriesRef(id: PaneId): ShallowRef<FileEntry[]> {
@@ -97,9 +104,131 @@ export const useExplorerStore = defineStore("explorer", () => {
   function destroyPane(id: PaneId) {
     controllers.get(id)?.abort();
     controllers.delete(id);
+    stopWatch(id);
     entriesByPane.delete(id);
     visibleByPane.delete(id);
     delete panes[id];
+  }
+
+  /** 後端順序：資料夾優先，其次不分大小寫的名稱。 */
+  function compareForBackend(a: FileEntry, b: FileEntry): number {
+    return a.isDir === b.isDir ? collator.compare(a.name, b.name) : a.isDir ? -1 : 1;
+  }
+
+  function insertSorted(list: FileEntry[], entry: FileEntry) {
+    let low = 0;
+    let high = list.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compareForBackend(list[middle], entry) <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    list.splice(low, 0, entry);
+  }
+
+  function stopWatch(id: PaneId) {
+    if (!watchedPaths.delete(id)) {
+      return;
+    }
+    const timer = flushTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      flushTimers.delete(id);
+    }
+    pendingChanges.delete(id);
+    void api.unwatchDirectory(id).catch(() => undefined);
+  }
+
+  function startWatch(id: PaneId, path: string) {
+    if (!settings.autoRefresh || !path || watchedPaths.get(id) === path) {
+      return;
+    }
+    stopWatch(id);
+    watchedPaths.set(id, path);
+    void api
+      .watchDirectory(id, path, (event) => queueChange(id, event))
+      .catch(() => {
+        // 有些位置（例如部分網路磁碟）不支援監控；靜靜放棄，清單仍然可以手動重新整理。
+        watchedPaths.delete(id);
+      });
+  }
+
+  function queueChange(id: PaneId, event: WatchEvent) {
+    if (!panes[id]) {
+      return;
+    }
+    // 同一個路徑只留最後一筆：新增後又刪除，最後就是刪除。
+    const bucket = pendingChanges.get(id) ?? new Map<string, WatchEvent>();
+    bucket.set(event.path.toLocaleLowerCase(), event);
+    pendingChanges.set(id, bucket);
+
+    if (!flushTimers.has(id)) {
+      flushTimers.set(
+        id,
+        setTimeout(() => {
+          flushTimers.delete(id);
+          applyChanges(id);
+        }, WATCH_FLUSH_MS),
+      );
+    }
+  }
+
+  /**
+   * 把累積的變更套用到清單上。
+   *
+   * 刻意不做「整份重讀」：那會清掉選取、把捲軸拉回頂端，變成每次存檔畫面都跳掉。
+   * 只有真的漏掉通知（rescan）時才退回重讀。
+   */
+  function applyChanges(id: PaneId) {
+    const pane = panes[id];
+    const bucket = pendingChanges.get(id);
+    pendingChanges.delete(id);
+    if (!pane || !bucket || bucket.size === 0) {
+      return;
+    }
+
+    const events = [...bucket.values()];
+    if (events.some((event) => event.kind === "rescan")) {
+      void load(id, pane.currentPath);
+      return;
+    }
+
+    const removed = new Set<string>();
+    const upserts: FileEntry[] = [];
+    for (const event of events) {
+      if (event.kind === "removed") {
+        removed.add(event.path);
+      } else if (event.entry) {
+        upserts.push(event.entry);
+      }
+    }
+
+    const current = entriesByPane.get(id)?.value;
+    if (!current) {
+      return;
+    }
+    // 一律換成新陣列，shallowRef 才會觸發更新。
+    const next = removed.size ? current.filter((item) => !removed.has(item.path)) : [...current];
+    const known = new Set(next.map((item) => item.path));
+
+    for (const entry of upserts) {
+      const index = next.findIndex((item) => item.path === entry.path);
+      if (index >= 0) {
+        next[index] = entry;
+      } else if (!known.has(entry.path)) {
+        insertSorted(next, entry);
+        known.add(entry.path);
+      }
+    }
+
+    const target = entriesByPane.get(id);
+    if (target) {
+      target.value = next;
+    }
+    recompute(id);
   }
 
   function compare(a: FileEntry, b: FileEntry, key: SortKey, direction: SortDirection): number {
@@ -176,6 +305,8 @@ export const useExplorerStore = defineStore("explorer", () => {
       return;
     }
 
+    // 換資料夾就先放掉舊的監控，載入成功後再掛上新的。
+    stopWatch(id);
     controllers.get(id)?.abort();
     const local = new AbortController();
     controllers.set(id, local);
@@ -215,7 +346,7 @@ export const useExplorerStore = defineStore("explorer", () => {
               pane.truncated = event.truncated;
               pane.status = "ready";
               recompute(id);
-              history.record(pane.currentPath, pane.currentName);
+              startWatch(id, pane.currentPath);
               break;
           }
         },

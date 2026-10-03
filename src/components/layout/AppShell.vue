@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import NoticeToast from "@/components/common/NoticeToast.vue";
+import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import WindowChrome from "@/components/chrome/WindowChrome.vue";
 import StatusBar from "@/components/layout/StatusBar.vue";
 import SettingsView from "@/components/settings/SettingsView.vue";
@@ -37,5 +38,6 @@ onMounted(async () => {
     </template>
 
     <NoticeToast />
+    <ConfirmDialog />
   </div>
 </template>

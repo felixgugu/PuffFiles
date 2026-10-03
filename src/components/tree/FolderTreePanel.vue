@@ -102,12 +102,25 @@ async function locate() {
 
   const root = folders.rootFor(target);
   if (!root) {
-    ui.showNotice("這個位置不在左側清單的資料夾底下");
-    return;
+    // 不在清單裡就直接問要不要加進來，比只回一句「找不到」有用。
+    const accepted = await ui.confirm({
+      title: "加入左側清單？",
+      message: `「${target}」不在左側清單的資料夾底下。要把它加入清單嗎？`,
+      confirmText: "加入",
+    });
+    if (!accepted) {
+      return;
+    }
+    if (!folders.addRoot(target)) {
+      ui.showNotice("這個資料夾已經在清單裡了");
+    }
   }
 
   folders.setActivePath(target);
-  await folders.reveal(target, root.path);
+  const resolved = folders.rootFor(target);
+  if (resolved) {
+    await folders.reveal(target, resolved.path);
+  }
   await nextTick();
 
   const node = Array.from(

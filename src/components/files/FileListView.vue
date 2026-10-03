@@ -6,6 +6,7 @@ import ContextMenu from "@/components/overlays/ContextMenu.vue";
 import FileTableRow from "./FileTableRow.vue";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { usePathMenu } from "@/composables/usePathMenu";
+import { useClipboardStore } from "@/stores/clipboard";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
@@ -17,6 +18,7 @@ const props = defineProps<{ paneId: PaneId }>();
 const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
+const clipboard = useClipboardStore();
 const { fileMenu, folderMenu, run: runMenu } = usePathMenu();
 
 const ROW_HEIGHT = 24;
@@ -299,6 +301,7 @@ function sortBy(column: ColumnId) {
             :columns="settings.columns"
             :selected="pane.selected.includes(entry.path)"
             :focused="pane.focusedIndex === start + index"
+            :cut="clipboard.isCut(entry.path)"
             @select="onRowSelect(entry, $event)"
             @activate="explorer.activate(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"

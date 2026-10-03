@@ -1,21 +1,76 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
+import { copyText } from "@/services/clipboard";
 import { TOOL_ICONS, useSettingsStore } from "@/stores/settings";
+import { useUiStore } from "@/stores/ui";
 import type { ExternalTool, ToolTarget } from "@/types/tools";
 import { TOOL_VARIABLES } from "@/utils/toolVars";
 
 const settings = useSettingsStore();
+const ui = useUiStore();
 const selectedId = ref<string>(settings.tools[0]?.id ?? "");
 
 const selected = computed(() => settings.tools.find((tool) => tool.id === selectedId.value) ?? null);
 
-/** 引數在 UI 上一行一個，避免用空白切字串把含空白的路徑切壞。 */
-const argsText = computed({
-  get: () => selected.value?.args.join("\n") ?? "",
-  set: (value: string) =>
-    patch({ args: value.split("\n").map((line) => line.trim()).filter(Boolean) }),
+/**
+ * 引數欄位保留使用者輸入的原始文字。
+ *
+ * 原本每次輸入都 trim + 過濾空行再寫回，結果按 Enter 產生的換行會立刻被
+ * 同步回來的值吃掉，變成「不能換行」。現在原文照存，空行由執行時過濾。
+ */
+const argsDraft = ref("");
+const argsEl = useTemplateRef<HTMLTextAreaElement>("argsEl");
+const workdirEl = useTemplateRef<HTMLInputElement>("workdirEl");
+/** 點變數時要插入哪個欄位：看最後聚焦的是引數還是工作目錄。 */
+const lastField = ref<"args" | "workdir">("args");
+
+watch(
+  () => selected.value?.id,
+  () => {
+    argsDraft.value = selected.value?.args.join("\n") ?? "";
+    lastField.value = "args";
+  },
+  { immediate: true },
+);
+
+// 只有內容真的不同才寫回，避免與 store 互相觸發。
+watch(argsDraft, (text) => {
+  const tool = selected.value;
+  if (!tool) {
+    return;
+  }
+  const next = text.split("\n");
+  if (next.join("\n") !== tool.args.join("\n")) {
+    patch({ args: next });
+  }
 });
+
+/** 插入變數到最後聚焦的欄位；在引數欄位是插在游標位置。 */
+function insertVariable(name: string) {
+  if (lastField.value === "workdir" && selected.value) {
+    patch({ workingDirectory: `${selected.value.workingDirectory}${name}` });
+    void nextTick(() => workdirEl.value?.focus());
+    return;
+  }
+
+  const element = argsEl.value;
+  const text = argsDraft.value;
+  const start = element?.selectionStart ?? text.length;
+  const end = element?.selectionEnd ?? start;
+  argsDraft.value = `${text.slice(0, start)}${name}${text.slice(end)}`;
+
+  void nextTick(() => {
+    element?.focus();
+    const caret = start + name.length;
+    element?.setSelectionRange(caret, caret);
+  });
+}
+
+async function copyVariable(name: string) {
+  const copied = await copyText(name);
+  ui.showNotice(copied ? `已複製 ${name}` : "無法複製到剪貼簿");
+}
 
 function patch(changes: Partial<ExternalTool>) {
   if (selected.value) {
@@ -134,25 +189,32 @@ function removeTool(id: string) {
         <label class="block">
           <span class="text-[12px] text-ink-muted">引數（一行一個）</span>
           <textarea
-            :value="argsText"
+            ref="argsEl"
+            v-model="argsDraft"
             rows="3"
             spellcheck="false"
             placeholder="$fullFilePath"
             class="mt-1 w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 font-mono text-[12px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
-            @input="argsText = ($event.target as HTMLTextAreaElement).value"
+            @focus="lastField = 'args'"
           />
         </label>
 
         <label class="block">
           <span class="text-[12px] text-ink-muted">工作目錄</span>
           <input
+            ref="workdirEl"
             :value="selected.workingDirectory"
             type="text"
             spellcheck="false"
             placeholder="留空表示不指定，例如 $fullFolderPath"
             class="mt-1 h-8 w-full rounded-md border border-line bg-canvas px-2.5 font-mono text-[12px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+            @focus="lastField = 'workdir'"
             @input="patch({ workingDirectory: ($event.target as HTMLInputElement).value })"
           />
+          <span class="mt-1 block text-[11px] text-ink-faint">
+            新工具預設是「選取項目所在的資料夾」（<code class="rounded bg-surface-muted px-1">$fullFolderPath</code>）；
+            留空表示沿用行程目前的位置。
+          </span>
         </label>
 
         <div class="flex flex-wrap items-center gap-4">
@@ -209,13 +271,29 @@ function removeTool(id: string) {
 
     <section class="rounded-xl border border-line bg-surface p-4">
       <h3 class="text-[13px] font-semibold text-ink">可用變數</h3>
+      <p class="mt-1 text-[11px] text-ink-faint">
+        點變數名稱會插入到最後聚焦的欄位（引數欄位是插在游標位置），右邊的圖示則複製到剪貼簿。
+      </p>
       <dl class="mt-2 space-y-1.5">
-        <div v-for="variable in TOOL_VARIABLES" :key="variable.name" class="flex items-baseline gap-3">
-          <dt class="w-36 shrink-0">
-            <code class="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-ink">
+        <div v-for="variable in TOOL_VARIABLES" :key="variable.name" class="flex items-center gap-2">
+          <dt class="shrink-0">
+            <button
+              type="button"
+              class="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-ink transition-colors duration-75 hover:bg-accent-soft hover:text-accent"
+              title="插入到最後聚焦的欄位"
+              @click="insertVariable(variable.name)"
+            >
               {{ variable.name }}
-            </code>
+            </button>
           </dt>
+          <button
+            type="button"
+            class="shrink-0 rounded p-1 text-ink-faint transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
+            title="複製變數名稱"
+            @click="copyVariable(variable.name)"
+          >
+            <AppIcon name="copy" :size="12" />
+          </button>
           <dd class="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-muted">
             {{ variable.description }}
           </dd>

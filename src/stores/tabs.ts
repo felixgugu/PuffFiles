@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import { useExplorerStore } from "@/stores/explorer";
+import { useHistoryStore } from "@/stores/history";
 import { useSettingsStore } from "@/stores/settings";
 import type { PaneId, SplitDirection, TabState } from "@/types/fs";
 
@@ -36,6 +37,7 @@ export const MAX_RATIO = 0.8;
 export const useTabsStore = defineStore("tabs", () => {
   const explorer = useExplorerStore();
   const settings = useSettingsStore();
+  const history = useHistoryStore();
 
   const tabs = ref<TabState[]>([]);
   const activeTabId = ref<string>("");
@@ -131,7 +133,7 @@ export const useTabsStore = defineStore("tabs", () => {
   }
 
   /** 分割：已有兩個窗格時只切換方向，不新增。 */
-  function split(direction: SplitDirection) {
+  function split(direction: SplitDirection, newPanePath?: string) {
     const tab = activeTab.value;
     if (!tab) {
       return;
@@ -141,13 +143,18 @@ export const useTabsStore = defineStore("tabs", () => {
       return;
     }
     const source = explorer.meta(tab.activePaneId)?.currentPath ?? "";
-    // 分割出來的窗格一開始跟來源長得一樣，但欄寬是各自獨立的副本。
+    /*
+     * 新窗格開在「上次分割時用的那個資料夾」，這樣就不用每次重新導覽一次；
+     * 沒有紀錄（或跟目前資料夾相同）時才跟來源窗格一樣。
+     */
+    const remembered = settings.lastSplit.path;
+    const target = newPanePath ?? (remembered && remembered !== source ? remembered : source);
     const paneId = explorer.createPane(source, explorer.meta(tab.activePaneId)?.columnWidths);
     tab.paneIds = [...tab.paneIds, paneId];
     tab.direction = direction;
     tab.activePaneId = paneId;
-    if (source) {
-      void explorer.load(paneId, source);
+    if (target) {
+      void explorer.load(paneId, target);
     }
   }
 
@@ -277,6 +284,69 @@ export const useTabsStore = defineStore("tabs", () => {
     { deep: true },
   );
 
+  // 分割中的第二個窗格每次換資料夾就記下來，供下次分割沿用。
+  const recordedLayouts = new Map<string, string>();
+
+  watch(
+    () =>
+      tabs.value
+        .map((tab) =>
+          [
+            tab.id,
+            tab.direction,
+            tab.paneIds
+              .map((id) => `${explorer.meta(id)?.status}:${explorer.meta(id)?.currentPath}`)
+              .join("|"),
+          ].join("::"),
+        )
+        .join("##"),
+    () => {
+      for (const tab of tabs.value) {
+        const metas = tab.paneIds.map((id) => explorer.meta(id));
+        // 只在整個分頁都載入完成時記錄，避免把中途狀態寫進歷史。
+        if (!metas.length || metas.some((meta) => meta?.status !== "ready")) {
+          continue;
+        }
+
+        const paths = metas.map((meta) => meta!.currentPath);
+        const split = tab.paneIds.length > 1;
+        const signature = `${paths.join("|")}::${split ? tab.direction : ""}`;
+        if (recordedLayouts.get(tab.id) === signature) {
+          continue;
+        }
+        recordedLayouts.set(tab.id, signature);
+
+        history.record(paths, split ? tab.direction : undefined);
+        if (split) {
+          settings.rememberSplit(paths[1], tab.direction);
+        }
+      }
+    },
+  );
+
+  /** 套用一筆歷史版面：一個路徑＝單窗導覽，兩個路徑＝重建整個分割。 */
+  function applyLayout(paths: string[], direction?: SplitDirection) {
+    const tab = activeTab.value;
+    const target = paths.filter(Boolean);
+    if (!tab || target.length === 0) {
+      return;
+    }
+
+    if (target.length < 2) {
+      void explorer.navigate(tab.activePaneId, target[0]);
+      return;
+    }
+
+    if (tab.paneIds.length < 2) {
+      split(direction ?? settings.lastSplit.direction, target[1]);
+    } else {
+      tab.direction = direction ?? tab.direction;
+      void explorer.navigate(tab.paneIds[1], target[1]);
+    }
+    tab.activePaneId = tab.paneIds[0];
+    void explorer.navigate(tab.paneIds[0], target[0]);
+  }
+
   return {
     tabs,
     activeTabId,
@@ -297,6 +367,7 @@ export const useTabsStore = defineStore("tabs", () => {
     otherPaneId,
     bootstrap,
     reloadAll,
+    applyLayout,
   };
 });
 

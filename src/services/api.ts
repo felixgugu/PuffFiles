@@ -8,7 +8,15 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toBackendError } from "./errors";
-import { MOCK_DRIVES, MOCK_QUICK_LOCATIONS, mockListDirectory, mockListSubdirs } from "./mock";
+import {
+  MOCK_DRIVES,
+  MOCK_QUICK_LOCATIONS,
+  mockClearClipboard,
+  mockListDirectory,
+  mockListSubdirs,
+  mockReadClipboard,
+  mockWriteClipboard,
+} from "./mock";
 import type {
   DirStreamEvent,
   DriveInfo,
@@ -99,6 +107,105 @@ export async function runExternal(
   return guarded(() =>
     invoke("run_external", { program, args, workingDir: workingDirectory, newConsole }),
   );
+}
+
+/** 系統剪貼簿裡的檔案清單（與檔案總管互通）。 */
+export interface ClipboardFiles {
+  paths: string[];
+  cut: boolean;
+}
+
+export async function clipboardFiles(): Promise<ClipboardFiles> {
+  if (!isDesktopRuntime()) {
+    return mockReadClipboard();
+  }
+  return guarded(() => invoke<ClipboardFiles>("clipboard_files"));
+}
+
+export async function setClipboardFiles(paths: string[], cut: boolean): Promise<void> {
+  if (!isDesktopRuntime()) {
+    mockWriteClipboard(paths, cut);
+    return;
+  }
+  return guarded(() => invoke("set_clipboard_files", { paths, cut }));
+}
+
+export async function clearClipboard(): Promise<void> {
+  if (!isDesktopRuntime()) {
+    mockClearClipboard();
+    return;
+  }
+  return guarded(() => invoke("clear_clipboard"));
+}
+
+/** 複製／搬移／刪除都交給 Windows shell；回傳 false 代表使用者取消。 */
+export async function copyItems(sources: string[], destination: string): Promise<boolean> {
+  if (!isDesktopRuntime()) {
+    console.info("[mock] copy", sources, "->", destination);
+    return true;
+  }
+  return guarded(() => invoke<boolean>("copy_items", { sources, destination }));
+}
+
+export async function moveItems(sources: string[], destination: string): Promise<boolean> {
+  if (!isDesktopRuntime()) {
+    console.info("[mock] move", sources, "->", destination);
+    return true;
+  }
+  return guarded(() => invoke<boolean>("move_items", { sources, destination }));
+}
+
+export async function deleteItems(paths: string[]): Promise<boolean> {
+  if (!isDesktopRuntime()) {
+    console.info("[mock] delete", paths);
+    return true;
+  }
+  return guarded(() => invoke<boolean>("delete_items", { paths }));
+}
+
+/** 檔案操作紀錄的最後幾行（本機日誌檔）。 */
+export async function operationLog(lines = 200): Promise<string> {
+  if (!isDesktopRuntime()) {
+    return "[mock] 瀏覽器預覽模式沒有紀錄檔";
+  }
+  return guarded(() => invoke<string>("operation_log", { lines }));
+}
+
+export async function operationLogPath(): Promise<string> {
+  if (!isDesktopRuntime()) {
+    return "";
+  }
+  return guarded(() => invoke<string>("operation_log_path"));
+}
+
+export type WatchKind = "added" | "removed" | "modified" | "rescan";
+
+export interface WatchEvent {
+  kind: WatchKind;
+  path: string;
+  /** 新增與內容變更會附帶完整項目；移除與重掃為 null。 */
+  entry: FileEntry | null;
+}
+
+/** 開始監控資料夾；變更會透過回呼送進來。瀏覽器預覽模式沒有監控。 */
+export async function watchDirectory(
+  id: string,
+  path: string,
+  onEvent: (event: WatchEvent) => void,
+): Promise<void> {
+  if (!isDesktopRuntime()) {
+    return;
+  }
+  const channel = new Channel<WatchEvent>();
+  channel.onmessage = (event) => onEvent(event);
+  return guarded(() => invoke("watch_dir", { id, path, onEvent: channel }));
+}
+
+export async function unwatchDirectory(id: string): Promise<void> {
+  if (!isDesktopRuntime()) {
+    return;
+  }
+  return guarded(() => invoke("unwatch_dir", { id }));
 }
 
 /** 原生資料夾選擇器；瀏覽器開發模式下沒有原生對話框，回傳 null。 */

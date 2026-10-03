@@ -32,5 +32,7 @@ export interface ToolVars {
   fullFilePath: string;
   fullFolderPath: string;
   fileName: string;
+  /** 檔名去掉副檔名。 */
+  fileStem: string;
   folderName: string;
 }

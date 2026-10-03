@@ -5,6 +5,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useHistoryStore } from "@/stores/history";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import type { HistoryEntry } from "@/types/fs";
 
 const history = useHistoryStore();
 const explorer = useExplorerStore();
@@ -19,8 +20,18 @@ const filtered = computed(() => {
   if (!query) {
     return history.items;
   }
-  return history.items.filter((item) => item.path.toLocaleLowerCase().includes(query));
+  return history.items.filter((item) =>
+    item.paths.some((path) => path.toLocaleLowerCase().includes(query)),
+  );
 });
+
+/** 一筆紀錄的圖示：單窗是資料夾，分割用方向對應的版面圖示。 */
+function iconFor(entry: HistoryEntry) {
+  if (entry.paths.length < 2) {
+    return "folder" as const;
+  }
+  return entry.direction === "column" ? ("splitRows" as const) : ("splitColumns" as const);
+}
 
 watch(
   () => ui.historyOpen,
@@ -35,11 +46,18 @@ watch(
 );
 
 /** Alt+點擊＝在另一個窗格開啟（有分割時）。 */
-function open(path: string, event: MouseEvent) {
+function open(entry: HistoryEntry, event: MouseEvent) {
+  // 兩行的那種是整組分割版面，套用到目前分頁；單一路徑才只換窗格。
+  if (entry.paths.length > 1) {
+    tabs.applyLayout(entry.paths, entry.direction);
+    ui.historyOpen = false;
+    return;
+  }
+
   const tab = tabs.activeTab;
   const target = event.altKey && tab ? (tabs.otherPaneId(tab) ?? tab.activePaneId) : tabs.activePaneId;
-  if (target) {
-    void explorer.navigate(target, path);
+  if (target && entry.paths[0]) {
+    void explorer.navigate(target, entry.paths[0]);
   }
   ui.historyOpen = false;
 }
@@ -73,18 +91,27 @@ function open(path: string, event: MouseEvent) {
       <div class="scroll-area min-h-0 flex-1 overflow-y-auto py-1">
         <button
           v-for="item in filtered"
-          :key="item.path"
+          :key="item.paths.join('\u0000')"
           type="button"
-          class="group flex w-full items-baseline gap-3 px-3 py-1.5 text-left transition-colors duration-75 hover:bg-surface-hover"
-          :title="item.path"
-          @click="open(item.path, $event)"
+          class="group flex w-full items-start gap-2.5 px-3 py-1.5 text-left transition-colors duration-75 hover:bg-surface-hover"
+          :title="item.paths.join('\n')"
+          @click="open(item, $event)"
         >
-          <span class="min-w-0 shrink-0 max-w-40 truncate text-[13px] text-ink">{{ item.name }}</span>
-          <span class="min-w-0 flex-1 truncate text-[11px] text-ink-faint">{{ item.path }}</span>
+          <AppIcon :name="iconFor(item)" :size="14" class="mt-0.5 shrink-0 text-ink-muted" />
+          <span class="min-w-0 flex-1">
+            <span
+              v-for="(path, index) in item.paths"
+              :key="path"
+              class="block truncate text-[12px]"
+              :class="index === 0 ? 'text-ink' : 'text-ink-muted'"
+            >
+              {{ path }}
+            </span>
+          </span>
           <span
             class="shrink-0 rounded px-1 text-[11px] text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-ink"
             title="從紀錄移除"
-            @click.stop="history.remove(item.path)"
+            @click.stop="history.remove(item)"
           >
             <AppIcon name="close" :size="11" />
           </span>
@@ -96,7 +123,9 @@ function open(path: string, event: MouseEvent) {
       </div>
 
       <div v-if="history.items.length" class="flex shrink-0 items-center justify-between border-t border-line px-3 py-1.5">
-        <span class="text-[11px] text-ink-faint">Alt+點擊可在另一個窗格開啟</span>
+        <span class="text-[11px] text-ink-faint">
+          兩行的紀錄是分割版面（第一行左／上、第二行右／下），點一下整組還原；Alt+點擊單一路徑可在另一窗格開啟
+        </span>
         <button
           type="button"
           class="rounded px-2 py-1 text-[11px] text-ink-muted hover:bg-surface-hover hover:text-ink"
