@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import { useSpringValue } from "@/composables/useSpringValue";
 import { useExplorerStore } from "@/stores/explorer";
@@ -12,6 +12,8 @@ const props = defineProps<{
   entry: FileEntry;
   depth: number;
   paneId: PaneId;
+  /** 只有「我的資料夾」的根節點拿得到：它是使用者自己排的清單，可以拖曳調順序。 */
+  rootIndex?: number;
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +30,113 @@ const isCurrent = computed(() =>
   samePath(explorer.meta(props.paneId)?.currentPath ?? "", props.entry.path),
 );
 const isSelected = computed(() => samePath(folders.activePath, props.entry.path));
+const draggable = computed(() => props.rootIndex !== undefined);
+
+/* ---------------------------------------------------------------------------
+ * 拖曳排序：只作用於根節點（檔案系統來的子節點不該被重排）。
+ *
+ * 與分頁列同一套做法 —— 指標一進入鄰居的範圍就立刻搬動，結果連續可見，
+ * 不需要另外畫一條插入線。
+ * ------------------------------------------------------------------------- */
+
+interface DragSession {
+  index: number;
+  startY: number;
+  moved: boolean;
+  element: HTMLElement;
+  pointerId: number;
+}
+
+let drag: DragSession | null = null;
+const dragging = ref(false);
+/** 拖曳結束後緊接著的那一次 click 要吞掉，否則放開手會順便跳進那個資料夾。 */
+let swallowClick = false;
+
+/** 捕捉指標；指標在拖曳途中消失（或事件是合成出來的）時不該讓整個手勢爆掉。 */
+function setCapture(element: HTMLElement, pointerId: number, on: boolean) {
+  try {
+    if (on) {
+      element.setPointerCapture(pointerId);
+    } else {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // 捕捉失敗只影響「指標移出元素後還收不收得到事件」，拖曳本身照常結束。
+  }
+}
+
+function detach() {
+  window.removeEventListener("pointermove", onWindowPointerMove);
+  window.removeEventListener("pointerup", onWindowPointerUp);
+  window.removeEventListener("pointercancel", onWindowPointerUp);
+}
+
+function onPointerDown(event: PointerEvent) {
+  swallowClick = false;
+  if (!draggable.value || event.button !== 0 || props.rootIndex === undefined) {
+    return;
+  }
+  // 展開／收合鈕是獨立操作：絕對不要在這裡捕捉指標，否則這一列的 click 會蓋掉它。
+  if (event.target instanceof Element && event.target.closest("[data-tree-toggle]")) {
+    return;
+  }
+  drag = {
+    index: props.rootIndex,
+    startY: event.clientY,
+    moved: false,
+    element: event.currentTarget as HTMLElement,
+    pointerId: event.pointerId,
+  };
+  // 用 window 監聽而不是「按下就捕捉指標」：捕捉會把 click 重導到整列，
+  // 一般點擊（導覽）與展開鈕都會被影響。等真的開始拖曳再捕捉。
+  window.addEventListener("pointermove", onWindowPointerMove);
+  window.addEventListener("pointerup", onWindowPointerUp);
+  window.addEventListener("pointercancel", onWindowPointerUp);
+}
+
+function onWindowPointerMove(event: PointerEvent) {
+  const session = drag;
+  if (!session || event.pointerId !== session.pointerId) {
+    return;
+  }
+  if (!session.moved && Math.abs(event.clientY - session.startY) < 4) {
+    return;
+  }
+  if (!session.moved) {
+    session.moved = true;
+    dragging.value = true;
+    setCapture(session.element, session.pointerId, true);
+  }
+
+  let target = session.index;
+  document.querySelectorAll<HTMLElement>("[data-root-index]").forEach((row, index) => {
+    const rect = row.getBoundingClientRect();
+    if (event.clientY >= rect.top && event.clientY <= rect.bottom) {
+      target = index;
+    }
+  });
+
+  if (target !== session.index) {
+    folders.moveRoot(session.index, target);
+    session.index = target;
+    session.startY = event.clientY;
+  }
+}
+
+function onWindowPointerUp(event: PointerEvent) {
+  const session = drag;
+  if (!session || event.pointerId !== session.pointerId) {
+    return;
+  }
+  drag = null;
+  dragging.value = false;
+  detach();
+  swallowClick = session.moved;
+  setCapture(session.element, session.pointerId, false);
+}
+
+// 元件在拖曳途中被卸載時，window 上的監聽不能留下來。
+onScopeDispose(detach);
 
 // 展開／收合用彈簧驅動而不是 CSS 過渡：動畫途中再點一次會直接反轉，
 // 不會先跑完再重來。
@@ -53,6 +162,11 @@ const childrenStyle = computed(() => ({
 }));
 
 function open() {
+  // 剛拖曳完的那一下放開不算「點擊」。
+  if (swallowClick) {
+    swallowClick = false;
+    return;
+  }
   folders.setActivePath(props.entry.path);
   void explorer.navigate(props.paneId, props.entry.path);
 }
@@ -70,8 +184,11 @@ function forwardContextMenu(entry: FileEntry, event: MouseEvent) {
   <div>
     <div
       :data-tree-path="entry.path"
+      :data-root-index="draggable ? rootIndex : undefined"
       class="group flex h-7 items-center rounded-md pr-1.5 text-base pressable"
       :class="[
+        draggable ? 'cursor-grab' : '',
+        dragging ? 'z-10 opacity-95 shadow-md' : '',
         isCurrent
           ? 'bg-accent-soft text-ink'
           : isSelected
@@ -80,10 +197,12 @@ function forwardContextMenu(entry: FileEntry, event: MouseEvent) {
       ]"
       :style="{ paddingLeft: `${6 + depth * 12}px` }"
       @click="open"
+      @pointerdown="onPointerDown"
       @contextmenu.prevent="emit('contextmenu', entry, $event)"
     >
       <button
         type="button"
+        data-tree-toggle
         class="flex size-5 active:scale-95 shrink-0 items-center justify-center rounded text-ink-faint pressable hover:text-ink"
         :title="expanded ? '收合' : '展開'"
         @click.stop="toggle"

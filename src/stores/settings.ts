@@ -89,7 +89,8 @@ export const COLUMN_MIN: Record<ColumnId, number> = {
   path: 140,
 };
 
-export const TREE_MIN_WIDTH = 168;
+/** 最小寬度要放得下工具列的六顆按鈕（加入／移除／排序／定位／收合全部／收合側欄）。 */
+export const TREE_MIN_WIDTH = 192;
 export const TREE_MAX_WIDTH = 460;
 
 interface StoredSettings {

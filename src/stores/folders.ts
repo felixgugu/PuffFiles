@@ -75,8 +75,39 @@ export const useFoldersStore = defineStore("folders", () => {
     roots.value = next;
   }
 
+  /**
+   * 拖曳排序：把第 `from` 個資料夾搬到第 `to` 個位置。
+   *
+   * 清單順序就是使用者自己決定的順序（存檔即所見），所以搬動後直接寫回 `roots`，
+   * 由既有的 watch 負責持久化。
+   */
+  function moveRoot(from: number, to: number) {
+    if (from === to || from < 0 || from >= roots.value.length) {
+      return;
+    }
+    const next = [...roots.value];
+    const [moved] = next.splice(from, 1);
+    if (!moved) {
+      return;
+    }
+    next.splice(Math.min(Math.max(to, 0), next.length), 0, moved);
+    roots.value = next;
+  }
+
   function rootIndexOf(id: string): number {
     return roots.value.findIndex((root) => root.id === id);
+  }
+
+  /**
+   * 依名稱排序（A→Z）。
+   *
+   * 用 `Intl.Collator` 而不是字串比較：中文照 `zh-Hant` 的排序規則，
+   * 而且 `numeric` 讓「資料夾 2」排在「資料夾 10」前面。
+   * 排完之後仍然是同一份可拖曳的清單 —— 想微調再自己拉。
+   */
+  function sortRootsByName() {
+    const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+    roots.value = [...roots.value].sort((a, b) => collator.compare(a.label, b.label));
   }
 
   function setActivePath(path: string) {
@@ -175,6 +206,14 @@ export const useFoldersStore = defineStore("folders", () => {
     if (!path || !rootPath || !normalizeKey(path).startsWith(normalizeKey(rootPath))) {
       return;
     }
+    /*
+     * 根自己也要展開。這裡只展開「中間層」的話，「收合全部」（或上次關閉時
+     * 根是收合的）之後再定位，中間層雖然被展開，整串卻藏在收合的根底下，
+     * 看起來就像定位沒反應。
+     */
+    setExpanded(rootPath, true);
+    await loadChildren(rootPath);
+
     const parts = path.slice(rootPath.length).split("\\").filter(Boolean);
 
     let current = rootPath;
@@ -195,7 +234,9 @@ export const useFoldersStore = defineStore("folders", () => {
     addRoot,
     removeRoot,
     insertRoot,
+    moveRoot,
     rootIndexOf,
+    sortRootsByName,
     setActivePath,
     activeRoot,
     rootFor,

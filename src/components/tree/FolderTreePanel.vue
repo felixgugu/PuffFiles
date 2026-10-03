@@ -154,6 +154,15 @@ async function locate() {
   node?.scrollIntoView({ block: "nearest" });
 }
 
+/** 依名稱排序：排完仍然是同一份可拖曳的清單，想微調再自己拉。 */
+function sortFolders() {
+  if (folders.roots.length < 2) {
+    return;
+  }
+  folders.sortRootsByName();
+  ui.showNotice("已依名稱排序");
+}
+
 function removeFolder() {
   const root = removableRoot();
   if (!root) {
@@ -216,6 +225,14 @@ async function onMenuSelect(id: string) {
       <button
         type="button"
         class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
+        title="依名稱排序（A→Z）"
+        @click="sortFolders()"
+      >
+        <AppIcon name="sort" :size="14" />
+      </button>
+      <button
+        type="button"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
         title="定位到清單中選取的資料夾（選到檔案時定位其父目錄）"
         @click="locate()"
       >
@@ -241,7 +258,7 @@ async function onMenuSelect(id: string) {
 
     <div ref="treeScroll" class="scroll-area min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
       <FolderTreeNode
-        v-for="root in folders.roots"
+        v-for="(root, index) in folders.roots"
         :key="root.id"
         :entry="{
           name: root.label,
@@ -257,6 +274,7 @@ async function onMenuSelect(id: string) {
         }"
         :depth="0"
         :pane-id="paneId"
+        :root-index="index"
         @contextmenu="openNodeMenu"
       />
 
