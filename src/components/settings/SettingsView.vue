@@ -5,6 +5,7 @@ import type { IconName } from "@/components/common/icons";
 import ToolsSettings from "./ToolsSettings.vue";
 import { ALL_COLUMNS, useSettingsStore } from "@/stores/settings";
 import type { MotionPreference, ThemeMode } from "@/stores/settings";
+import { useExplorerStore } from "@/stores/explorer";
 import { useUiStore } from "@/stores/ui";
 import type { ColumnId } from "@/types/fs";
 
@@ -30,6 +31,7 @@ const MOTIONS: { value: MotionPreference; label: string }[] = [
 ];
 
 const settings = useSettingsStore();
+const explorer = useExplorerStore();
 const ui = useUiStore();
 const section = ref<SectionId>("general");
 
@@ -165,7 +167,7 @@ const section = ref<SectionId>("general");
               <button
                 type="button"
                 class="mt-2 rounded px-1.5 py-1 text-[11px] text-ink-muted transition-colors duration-75 hover:bg-surface-hover hover:text-ink"
-                @click="settings.resetColumnWidths()"
+                @click="explorer.resetAllColumnWidths()"
               >
                 重設所有欄寬
               </button>

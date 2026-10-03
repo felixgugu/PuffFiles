@@ -4,9 +4,9 @@ import * as api from "@/services/api";
 import { copyText } from "@/services/clipboard";
 import { normalizeBackendError, type AppErrorView } from "@/services/errors";
 import { useHistoryStore } from "@/stores/history";
-import { useSettingsStore } from "@/stores/settings";
+import { COLUMN_DEFAULTS, COLUMN_MIN, useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
-import type { FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
+import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
 import { kindLabel } from "@/utils/fileKind";
 import { parentOf, toUnixPath } from "@/utils/path";
 
@@ -29,6 +29,8 @@ export interface PaneMeta {
   forwardStack: string[];
   truncated: boolean;
   total: number;
+  /** 這個窗格自己的欄位寬度；兩個窗格互不影響。 */
+  columnWidths: Record<string, number>;
 }
 
 const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
@@ -65,7 +67,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     return panes[id];
   }
 
-  function createPane(initialPath = ""): PaneId {
+  function createPane(initialPath = "", widths?: Record<string, number>): PaneId {
     const id = `pane-${++sequence}`;
     panes[id] = {
       id,
@@ -83,6 +85,9 @@ export const useExplorerStore = defineStore("explorer", () => {
       forwardStack: [],
       truncated: false,
       total: 0,
+      // 新窗格從設定裡的預設欄寬出發，之後就各自獨立。
+      // 注意 `...widths` 是複製：兩個窗格不能共用同一個物件，否則拖曳會互相影響。
+      columnWidths: { ...COLUMN_DEFAULTS, ...settings.columnWidths, ...(widths ?? {}) },
     };
     entriesByPane.set(id, shallowRef<FileEntry[]>([]));
     visibleByPane.set(id, shallowRef<FileEntry[]>([]));
@@ -467,6 +472,37 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
+  function columnWidth(id: PaneId, column: ColumnId): number {
+    return panes[id]?.columnWidths[column] ?? COLUMN_DEFAULTS[column];
+  }
+
+  function setColumnWidth(id: PaneId, column: ColumnId, width: number) {
+    const pane = panes[id];
+    if (!pane) {
+      return;
+    }
+    const next = Math.max(Math.round(width), COLUMN_MIN[column]);
+    if (pane.columnWidths[column] === next) {
+      return;
+    }
+    pane.columnWidths = { ...pane.columnWidths, [column]: next };
+  }
+
+  function resetColumnWidth(id: PaneId, column: ColumnId) {
+    const pane = panes[id];
+    if (pane) {
+      pane.columnWidths = { ...pane.columnWidths, [column]: COLUMN_DEFAULTS[column] };
+    }
+  }
+
+  /** 把所有窗格的欄寬，連同新窗格的預設值一起回復原廠。 */
+  function resetAllColumnWidths() {
+    settings.resetColumnWidths();
+    for (const id of Object.keys(panes)) {
+      panes[id].columnWidths = { ...COLUMN_DEFAULTS };
+    }
+  }
+
   function setQuery(id: PaneId, value: string) {
     const pane = panes[id];
     if (pane) {
@@ -502,6 +538,10 @@ export const useExplorerStore = defineStore("explorer", () => {
     locateDirectory,
     selectionTarget,
     dismissError,
+    columnWidth,
+    setColumnWidth,
+    resetColumnWidth,
+    resetAllColumnWidths,
     setQuery,
   };
 });

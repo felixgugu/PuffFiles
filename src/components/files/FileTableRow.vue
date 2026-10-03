@@ -57,7 +57,7 @@ function cellText(column: ColumnId): string {
     data-row
     role="option"
     :aria-selected="selected"
-    class="file-grid h-[30px] cursor-default pr-3 pl-2.5 text-[13px] transition-colors duration-75"
+    class="file-grid h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-[13px] transition-colors duration-75"
     :class="[
       selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover',
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
@@ -66,16 +66,20 @@ function cellText(column: ColumnId): string {
     @dblclick="$emit('activate')"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
+    <!--
+      格子要撐滿整列高度（h-full），否則 border-r 只會畫在文字那一小段，
+      分隔線就會上下斷開。內容各自再用 flex 置中。
+    -->
     <div
       v-for="(column, index) in columns"
       :key="column"
-      class="min-w-0 px-1"
+      class="flex h-full min-w-0 items-center px-1"
       :class="[
-        column === 'size' ? 'text-right' : '',
+        column === 'size' ? 'justify-end' : '',
         index < columns.length - 1 ? 'border-r border-line' : '',
       ]"
     >
-      <div v-if="column === 'name'" class="flex min-w-0 items-center gap-2">
+      <div v-if="column === 'name'" class="flex min-w-0 flex-1 items-center gap-2">
         <AppIcon :name="iconFor(entry)" :size="15" :class="colorFor(entry)" />
         <span class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>
         <span
@@ -86,7 +90,11 @@ function cellText(column: ColumnId): string {
           連結
         </span>
       </div>
-      <div v-else class="truncate tabular-nums" :class="column === 'path' ? 'text-ink-faint' : 'text-ink-muted'">
+      <div
+        v-else
+        class="min-w-0 truncate tabular-nums"
+        :class="column === 'path' ? 'text-ink-faint' : 'text-ink-muted'"
+      >
         {{ cellText(column) }}
       </div>
     </div>

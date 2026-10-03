@@ -7,6 +7,7 @@ import type { PaneId, SplitDirection, TabState } from "@/types/fs";
 
 interface SessionPane {
   path: string;
+  columnWidths?: Record<string, number>;
 }
 
 interface SessionTab {
@@ -56,8 +57,10 @@ export const useTabsStore = defineStore("tabs", () => {
 
   /** 建立新分頁；`path` 省略時沿用目前焦點窗格的路徑。 */
   function newTab(path?: string): TabState {
-    const fallback = path ?? explorer.meta(activePaneId.value)?.currentPath ?? "";
-    const paneId = explorer.createPane(fallback);
+    const source = explorer.meta(activePaneId.value);
+    const fallback = path ?? source?.currentPath ?? "";
+    // 沿用目前窗格的欄寬，新分頁才不會看起來像被重設過；之後兩者各自獨立。
+    const paneId = explorer.createPane(fallback, source?.columnWidths);
     const tab = createTabState([paneId], "row", 0.5);
     tabs.value = [...tabs.value, tab];
     activeTabId.value = tab.id;
@@ -138,7 +141,8 @@ export const useTabsStore = defineStore("tabs", () => {
       return;
     }
     const source = explorer.meta(tab.activePaneId)?.currentPath ?? "";
-    const paneId = explorer.createPane(source);
+    // 分割出來的窗格一開始跟來源長得一樣，但欄寬是各自獨立的副本。
+    const paneId = explorer.createPane(source, explorer.meta(tab.activePaneId)?.columnWidths);
     tab.paneIds = [...tab.paneIds, paneId];
     tab.direction = direction;
     tab.activePaneId = paneId;
@@ -198,6 +202,7 @@ export const useTabsStore = defineStore("tabs", () => {
       tabs: tabs.value.map((tab) => ({
         panes: tab.paneIds.map((paneId) => ({
           path: explorer.meta(paneId)?.currentPath ?? "",
+          columnWidths: explorer.meta(paneId)?.columnWidths,
         })),
         direction: tab.direction,
         ratio: tab.ratio,
@@ -219,7 +224,9 @@ export const useTabsStore = defineStore("tabs", () => {
     tabs.value = [];
 
     for (const saved of session.tabs) {
-      const paneIds = saved.panes.map((pane) => explorer.createPane(pane.path));
+      const paneIds = saved.panes.map((pane) =>
+        explorer.createPane(pane.path, pane.columnWidths),
+      );
       if (paneIds.length === 0) {
         continue;
       }

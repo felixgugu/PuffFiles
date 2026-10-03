@@ -258,24 +258,9 @@ export const useSettingsStore = defineStore("settings", () => {
     columns.value = next;
   }
 
-  function columnWidth(id: ColumnId): number {
-    return columnWidths.value[id] ?? COLUMN_DEFAULTS[id];
-  }
-
-  function setColumnWidth(id: ColumnId, width: number) {
-    const next = Math.max(Math.round(width), COLUMN_MIN[id]);
-    if (columnWidths.value[id] === next) {
-      return;
-    }
-    columnWidths.value = { ...columnWidths.value, [id]: next };
-  }
-
+  /** 預設欄寬：新開的窗格會從這裡出發，之後各自獨立。 */
   function resetColumnWidths() {
     columnWidths.value = { ...COLUMN_DEFAULTS };
-  }
-
-  function resetColumnWidth(id: ColumnId) {
-    columnWidths.value = { ...columnWidths.value, [id]: COLUMN_DEFAULTS[id] };
   }
 
   /** 資料夾樹是整個分頁共用的一份，寬度與收合狀態因此也是全域的。 */
@@ -333,9 +318,6 @@ export const useSettingsStore = defineStore("settings", () => {
     prefersReducedMotion,
     toggleTheme,
     toggleColumn,
-    columnWidth,
-    setColumnWidth,
-    resetColumnWidth,
     resetColumnWidths,
     setTreeWidth,
     toggleTree,

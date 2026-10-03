@@ -7,7 +7,7 @@ import FileTableRow from "./FileTableRow.vue";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useExplorerStore } from "@/stores/explorer";
-import { COLUMN_DEFAULTS, useSettingsStore } from "@/stores/settings";
+import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { formatCount } from "@/utils/format";
@@ -19,9 +19,9 @@ const settings = useSettingsStore();
 const tabs = useTabsStore();
 const { fileMenu, folderMenu, run: runMenu } = usePathMenu();
 
-const ROW_HEIGHT = 30;
+const ROW_HEIGHT = 24;
 /** 表頭是 sticky 而且是 in-flow，佔掉內容最前面的這一段。 */
-const HEADER_HEIGHT = 32;
+const HEADER_HEIGHT = 28;
 const OVERSCAN = 6;
 
 const pane = computed(() => explorer.meta(props.paneId)!);
@@ -61,12 +61,14 @@ const SORTABLE: ColumnId[] = ["name", "kind", "size", "modified", "created"];
 
 /** 每個欄位都是固定寬度，最後補一條彈性軌道吸收剩餘空間（沒有子元素也會佔位）。 */
 const gridTemplate = computed(() =>
-  `${settings.columns.map((column) => `${settings.columnWidth(column)}px`).join(" ")} minmax(0, 1fr)`,
+  `${settings.columns
+    .map((column) => `${explorer.columnWidth(props.paneId, column)}px`)
+    .join(" ")} minmax(0, 1fr)`,
 );
 
 /** 欄位可以拖到比視窗還寬；那時表頭與列一起水平捲動，所以兩者要同寬。 */
 const columnsWidth = computed(() =>
-  settings.columns.reduce((sum, column) => sum + settings.columnWidth(column), 0),
+  settings.columns.reduce((sum, column) => sum + explorer.columnWidth(props.paneId, column), 0),
 );
 const contentWidthStyle = computed(() => ({
   width: `max(100%, ${columnsWidth.value + 64}px)`,
@@ -77,12 +79,12 @@ let widthAtDragStart = 0;
 
 const columnDrag = useDragGesture({
   onStart: () => {
-    widthAtDragStart = resizing.value ? settings.columnWidth(resizing.value) : 0;
+    widthAtDragStart = resizing.value ? explorer.columnWidth(props.paneId, resizing.value) : 0;
     document.body.style.cursor = "col-resize";
   },
   onMove: (state) => {
     if (resizing.value) {
-      settings.setColumnWidth(resizing.value, widthAtDragStart + state.dx);
+      explorer.setColumnWidth(props.paneId, resizing.value, widthAtDragStart + state.dx);
     }
   },
   onEnd: () => {
@@ -226,7 +228,10 @@ function sortBy(column: ColumnId) {
 </script>
 
 <template>
-  <div class="relative flex min-h-0 min-w-0 flex-1 flex-col" :style="{ '--file-columns': gridTemplate }">
+  <div
+    class="relative flex min-h-0 min-w-0 flex-1 flex-col"
+    :style="{ '--file-columns': gridTemplate, '--row-height': `${ROW_HEIGHT}px` }"
+  >
     <div
       ref="scroll"
       class="scroll-area min-h-0 flex-1 overflow-auto bg-canvas"
@@ -237,7 +242,7 @@ function sortBy(column: ColumnId) {
       <!-- 表頭跟內容共用同一個捲動容器：水平捲動時一起移動，垂直捲動時固定在頂端。 -->
       <div
         data-header
-        class="file-grid sticky top-0 z-10 h-8 border-b border-line bg-surface pr-3 pl-2.5 text-[12px] text-ink-muted"
+        class="file-grid sticky top-0 z-10 h-7 border-b border-line bg-surface pr-3 pl-2.5 text-[12px] text-ink-muted"
         :style="contentWidthStyle"
       >
         <div
@@ -262,24 +267,23 @@ function sortBy(column: ColumnId) {
             />
           </button>
 
-          <!-- 欄寬拖曳把手：1:1 跟手，雙擊回復預設寬度。 -->
+          <!--
+            欄寬拖曳把手：1:1 跟手，雙擊回復預設寬度。
+            這裡刻意不畫線 —— 把手置中在格線上，1px 的線在非整數縮放下會落到
+            格線左邊，讓表頭那條線看起來比資料列的粗且偏移。改用左右對稱的
+            底色提示（w-2 / -right-1），只表達「這裡可以抓」與「這欄改過」。
+          -->
           <div
-            class="absolute top-0 -right-[3px] z-10 h-full w-[7px] cursor-col-resize"
-            :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬，雙擊回復預設`"
-            @pointerdown="startResize(column, $event)"
-            @dblclick="settings.resetColumnWidth(column)"
-          >
-          <div
-            class="mx-auto h-full w-px transition-colors duration-100"
+            class="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize transition-colors duration-100"
             :class="
               resizing === column
-                ? 'bg-accent'
-                : settings.columnWidth(column) !== COLUMN_DEFAULTS[column]
-                  ? 'bg-accent/40 group-hover:bg-accent'
-                  : 'bg-transparent group-hover:bg-accent'
+                ? 'bg-accent/50'
+                : 'bg-transparent hover:bg-accent/25'
             "
+            :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬，雙擊回復預設`"
+            @pointerdown="startResize(column, $event)"
+            @dblclick="explorer.resetColumnWidth(paneId, column)"
           />
-          </div>
         </div>
       </div>
 
