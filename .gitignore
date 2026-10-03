@@ -23,6 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Python（tools/ 的圖示產生腳本）
+__pycache__/
+*.pyc
+
 # Agent 技能庫（本機工具，不屬於這個應用程式）
 .agents/
 skills-lock.json
