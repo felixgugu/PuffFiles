@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* 深色模式改用 .dark 類別切換（Tailwind 4 CSS-first 設定） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * 設計權杖全部集中在 @theme，Tailwind 會產生 bg-canvas / text-ink 等工具類別，
+ * 且工具類別引用 var(--color-*)；因此只要在 .dark 覆寫變數即可整站換色。
+ */
+@theme {
+  --font-sans:
+    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "Microsoft JhengHei UI", "Noto Sans TC", sans-serif;
+
+  --color-canvas: oklch(0.984 0.002 265);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.972 0.003 265);
+  --color-surface-hover: oklch(0.955 0.004 265);
+  --color-line: oklch(0.92 0.005 265);
+  --color-line-strong: oklch(0.86 0.006 265);
+  --color-ink: oklch(0.3 0.012 265);
+  --color-ink-muted: oklch(0.55 0.014 265);
+  --color-ink-faint: oklch(0.68 0.012 265);
+  --color-accent: oklch(0.63 0.155 252);
+  --color-accent-ink: oklch(1 0 0);
+  --color-accent-soft: oklch(0.95 0.028 252);
+  --color-danger: oklch(0.6 0.19 25);
+  --color-danger-soft: oklch(0.96 0.03 25);
+
+  /* 材質階層：標題列最輕、側欄較重、浮層最亮。 */
+  --color-chrome: oklch(0.995 0.001 265);
+  --color-rail: oklch(0.968 0.003 265);
+  --color-menu: oklch(1 0 0);
+  --color-hairline-bright: oklch(1 0 0 / 0.6);
+}
+
+.dark {
+  --color-canvas: oklch(0.19 0.008 265);
+  --color-surface: oklch(0.225 0.009 265);
+  --color-surface-muted: oklch(0.255 0.01 265);
+  --color-surface-hover: oklch(0.29 0.012 265);
+  --color-line: oklch(0.32 0.012 265);
+  --color-line-strong: oklch(0.42 0.014 265);
+  --color-ink: oklch(0.94 0.004 265);
+  --color-ink-muted: oklch(0.74 0.01 265);
+  --color-ink-faint: oklch(0.62 0.012 265);
+  --color-accent: oklch(0.72 0.13 252);
+  --color-accent-ink: oklch(0.18 0.02 265);
+  --color-accent-soft: oklch(0.32 0.06 252);
+  --color-danger: oklch(0.72 0.16 25);
+  --color-danger-soft: oklch(0.3 0.06 25);
+
+  --color-chrome: oklch(0.235 0.009 265);
+  --color-rail: oklch(0.205 0.008 265);
+  --color-menu: oklch(0.27 0.01 265);
+  --color-hairline-bright: oklch(1 0 0 / 0.08);
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    -webkit-font-smoothing: antialiased;
+    /* 桌面應用程式的外框不應該可以被拖曳選取 */
+    user-select: none;
+    /* 無邊框視窗：整個視窗由 WebView 填滿。 */
+    background: var(--color-canvas);
+  }
+
+  input,
+  textarea {
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
+  /* 自繪標題列的拖曳區由 Tauri 的 data-tauri-drag-region 屬性處理。 */
+}
+
+/* 資料夾列表用的細捲軸 */
+@utility scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--color-line-strong);
+    background-clip: content-box;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-ink-faint);
+  }
+}
+
+/* 表格列以格線排版，欄寬集中定義一次 */
+@utility file-grid {
+  display: grid;
+  grid-template-columns: var(--file-columns, minmax(0, 1fr) 11rem 8.5rem 6rem);
+  align-items: center;
+}
+
+/* 浮層（右鍵選單、面板）：邊緣亮線讓材質看起來有厚度。 */
+@utility material-menu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-line);
+  box-shadow:
+    0 0 0 0.5px var(--color-hairline-bright) inset,
+    0 12px 28px -8px oklch(0 0 0 / 0.28),
+    0 2px 8px -2px oklch(0 0 0 / 0.18);
+}
+
+/* 動態效果全站開關：由 settings store 依系統偏好與使用者選擇掛上。 */
+.reduce-motion * {
+  transition-duration: 1ms !important;
+  animation-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+/* 減少透明度偏好：材質改為不透明，關閉所有模糊。 */
+@media (prefers-reduced-transparency: reduce) {
+  * {
+    backdrop-filter: none !important;
+  }
+}
+
+/* 提高對比偏好：給浮層更明確的邊界。 */
+@media (prefers-contrast: more) {
+  :root {
+    --color-line: oklch(0.6 0.01 265);
+  }
+}
