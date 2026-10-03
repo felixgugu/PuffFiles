@@ -2,10 +2,60 @@ import { defineStore } from "pinia";
 import { computed, ref, watch, watchEffect } from "vue";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import type { ColumnId, SortDirection, SortKey } from "@/types/fs";
+import type { ExternalTool } from "@/types/tools";
 
 export type ThemeMode = "light" | "dark" | "system";
 export type MotionPreference = "full" | "system" | "reduced";
-export type TerminalChoice = "powershell" | "cmd";
+
+/** 內建的外部工具：可以編輯內容，但不能刪除。 */
+export const DEFAULT_TOOLS: ExternalTool[] = [
+  {
+    id: "builtin-powershell",
+    label: "開啟至 PowerShell",
+    executable: "powershell.exe",
+    args: ["-NoExit"],
+    workingDirectory: "$fullFolderPath",
+    newConsole: true,
+    targets: ["folder"],
+    icon: "terminal",
+    builtin: true,
+  },
+  {
+    id: "builtin-cmd",
+    label: "開啟至命令提示字元",
+    executable: "cmd.exe",
+    args: ["/K"],
+    workingDirectory: "$fullFolderPath",
+    newConsole: true,
+    targets: ["folder"],
+    icon: "terminal",
+    builtin: true,
+  },
+  {
+    id: "builtin-notepadpp",
+    label: "開啟至 Notepad++",
+    executable: "notepad++",
+    args: ["$fullFilePath"],
+    workingDirectory: "",
+    newConsole: false,
+    targets: ["file"],
+    icon: "text",
+    builtin: true,
+  },
+  {
+    id: "builtin-vscode",
+    label: "開啟至 VS Code",
+    executable: "code",
+    args: ["$fullFilePath"],
+    workingDirectory: "",
+    newConsole: false,
+    targets: ["file", "folder"],
+    icon: "code",
+    builtin: true,
+  },
+];
+
+export const TOOL_ICONS = ["terminal", "code", "text", "program", "link", "externalLink"] as const;
 
 export const ALL_COLUMNS: { id: ColumnId; label: string; sortable: SortKey | null; align?: "end" }[] = [
   { id: "name", label: "名稱", sortable: "name" },
@@ -51,11 +101,15 @@ interface StoredSettings {
   defaultSortDirection: SortDirection;
   motion: MotionPreference;
   restoreSession: boolean;
-  terminal: TerminalChoice;
-  notepadppPath: string;
-  vscodePath: string;
+  tools: ExternalTool[];
   treeWidth: number;
   treeCollapsed: boolean;
+}
+
+/** 舊版把編輯器路徑存在各自的欄位；首次升級時把它們帶進對應工具的執行檔。 */
+interface LegacySettings {
+  notepadppPath?: string;
+  vscodePath?: string;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -67,31 +121,55 @@ const DEFAULTS: StoredSettings = {
   defaultSortDirection: "asc",
   motion: "system",
   restoreSession: true,
-  terminal: "powershell",
-  notepadppPath: "",
-  vscodePath: "",
+  tools: DEFAULT_TOOLS,
   treeWidth: 260,
   treeCollapsed: false,
 };
 
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
 
-function sanitize(raw: Partial<StoredSettings>): StoredSettings {
+function cloneTools(tools: ExternalTool[]): ExternalTool[] {
+  return tools.map((tool) => ({ ...tool, args: [...tool.args], targets: [...tool.targets] }));
+}
+
+function seedTools(raw: Partial<StoredSettings> & LegacySettings): ExternalTool[] {
+  const tools = cloneTools(DEFAULT_TOOLS);
+  const applyLegacy = (id: string, path?: string) => {
+    if (!path) {
+      return;
+    }
+    const tool = tools.find((item) => item.id === id);
+    if (tool) {
+      tool.executable = path;
+    }
+  };
+  applyLegacy("builtin-notepadpp", raw.notepadppPath);
+  applyLegacy("builtin-vscode", raw.vscodePath);
+  return tools;
+}
+
+function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings {
   const columns = Array.isArray(raw.columns)
     ? raw.columns.filter((id): id is ColumnId => COLUMN_IDS.has(id))
     : [];
+  const tools = Array.isArray(raw.tools) && raw.tools.length ? cloneTools(raw.tools) : seedTools(raw);
 
   return {
     ...DEFAULTS,
     ...raw,
     columns: columns.length ? columns : DEFAULTS.columns,
+    tools,
   };
 }
 
 /** 使用者偏好設定的唯一真實來源，任何變更都會立刻反映到 DOM 與持久化。 */
 export const useSettingsStore = defineStore("settings", () => {
   const stored = sanitize(
-    readJson<Partial<StoredSettings>>(STORAGE_KEYS.settings, {}, (value) => typeof value === "object"),
+    readJson<Partial<StoredSettings> & LegacySettings>(
+      STORAGE_KEYS.settings,
+      {},
+      (value) => typeof value === "object",
+    ),
   );
 
   const themeMode = ref<ThemeMode>(stored.themeMode);
@@ -105,9 +183,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const defaultSortDirection = ref<SortDirection>(stored.defaultSortDirection);
   const motion = ref<MotionPreference>(stored.motion);
   const restoreSession = ref(stored.restoreSession);
-  const terminal = ref<TerminalChoice>(stored.terminal);
-  const notepadppPath = ref(stored.notepadppPath);
-  const vscodePath = ref(stored.vscodePath);
+  const tools = ref<ExternalTool[]>(stored.tools);
   const treeWidth = ref(stored.treeWidth);
   const treeCollapsed = ref(stored.treeCollapsed);
 
@@ -146,7 +222,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, terminal, notepadppPath, vscodePath, treeWidth, treeCollapsed],
+    [themeMode, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, tools, treeWidth, treeCollapsed],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -159,9 +235,7 @@ export const useSettingsStore = defineStore("settings", () => {
           defaultSortDirection: defaultSortDirection.value,
           motion: motion.value,
           restoreSession: restoreSession.value,
-          terminal: terminal.value,
-          notepadppPath: notepadppPath.value,
-          vscodePath: vscodePath.value,
+          tools: tools.value,
           treeWidth: treeWidth.value,
           treeCollapsed: treeCollapsed.value,
         } satisfies StoredSettings);
@@ -213,6 +287,35 @@ export const useSettingsStore = defineStore("settings", () => {
     treeCollapsed.value = !treeCollapsed.value;
   }
 
+  function addTool(): ExternalTool {
+    const tool: ExternalTool = {
+      id: `tool-${Date.now().toString(36)}`,
+      label: "新工具",
+      executable: "",
+      args: ["$fullFilePath"],
+      workingDirectory: "",
+      newConsole: false,
+      targets: ["file"],
+      icon: "program",
+    };
+    tools.value = [...tools.value, tool];
+    return tool;
+  }
+
+  function updateTool(id: string, patch: Partial<ExternalTool>) {
+    tools.value = tools.value.map((tool) => (tool.id === id ? { ...tool, ...patch } : tool));
+  }
+
+  function removeTool(id: string) {
+    tools.value = tools.value.filter((tool) => tool.id !== id || tool.builtin);
+  }
+
+  /** 內建工具被改壞時的逃生門；自訂工具不受影響。 */
+  function resetTools() {
+    const custom = tools.value.filter((tool) => !tool.builtin);
+    tools.value = [...cloneTools(DEFAULT_TOOLS), ...custom];
+  }
+
   return {
     themeMode,
     showHidden,
@@ -222,9 +325,7 @@ export const useSettingsStore = defineStore("settings", () => {
     defaultSortDirection,
     motion,
     restoreSession,
-    terminal,
-    notepadppPath,
-    vscodePath,
+    tools,
     treeWidth,
     treeCollapsed,
     isDark,
@@ -238,6 +339,10 @@ export const useSettingsStore = defineStore("settings", () => {
     resetColumnWidths,
     setTreeWidth,
     toggleTree,
+    addTool,
+    updateTool,
+    removeTool,
+    resetTools,
   };
 });
 

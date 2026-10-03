@@ -26,7 +26,7 @@ const folders = useFoldersStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
-const pathMenu = usePathMenu();
+const { folderMenu, run: runMenu } = usePathMenu();
 
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
@@ -143,7 +143,7 @@ async function onMenuSelect(id: string) {
   const target = menu.value?.path;
   menu.value = null;
   if (target) {
-    await pathMenu.run(id, target);
+    await runMenu(id, { path: target, isDir: true });
   }
 }
 </script>
@@ -247,7 +247,7 @@ async function onMenuSelect(id: string) {
       v-if="menu"
       :x="menu.x"
       :y="menu.y"
-      :items="pathMenu.folderMenu"
+      :items="folderMenu"
       @select="onMenuSelect"
       @close="menu = null"
     />

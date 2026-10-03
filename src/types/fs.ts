@@ -77,5 +77,3 @@ export interface HistoryEntry {
 }
 
 export type ColumnId = "name" | "kind" | "size" | "modified" | "created" | "attributes" | "path";
-
-export type ExternalProgram = "powershell" | "cmd" | "notepadpp" | "vscode";

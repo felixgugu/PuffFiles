@@ -14,7 +14,7 @@ pub fn run() {
             commands::fs::list_dir_stream,
             commands::fs::list_subdirs,
             commands::fs::open_path,
-            commands::fs::open_with,
+            commands::fs::run_external,
             commands::fs::reveal_path,
             commands::system::list_drives,
             commands::system::quick_locations,

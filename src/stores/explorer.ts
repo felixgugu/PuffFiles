@@ -6,7 +6,7 @@ import { normalizeBackendError, type AppErrorView } from "@/services/errors";
 import { useHistoryStore } from "@/stores/history";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
-import type { ExternalProgram, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
+import type { FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
 import { kindLabel } from "@/utils/fileKind";
 import { parentOf, toUnixPath } from "@/utils/path";
 
@@ -424,21 +424,6 @@ export const useExplorerStore = defineStore("explorer", () => {
     ui.showNotice(copied ? "已複製路徑" : "無法複製到剪貼簿");
   }
 
-  /** 以外部程式開啟（PowerShell / Cmd / Notepad++ / VS Code）。 */
-  async function runExternal(target: string, program: ExternalProgram): Promise<void> {
-    const executable =
-      program === "notepadpp"
-        ? settings.notepadppPath
-        : program === "vscode"
-          ? settings.vscodePath
-          : "";
-    try {
-      await api.openWith(target, program, executable || null);
-    } catch (cause) {
-      ui.showNotice(normalizeBackendError(cause).message, undefined, 4200);
-    }
-  }
-
   /**
    * 定位用：目前選取項目所在的資料夾。
    *
@@ -459,6 +444,20 @@ export const useExplorerStore = defineStore("explorer", () => {
       return last;
     }
     return entry.isDir ? entry.path : (parentOf(entry.path) ?? pane.currentPath);
+  }
+
+  /** 目前選取項目；沒有選取任何東西時，就是這個窗格所在的資料夾。 */
+  function selectionTarget(id: PaneId): { path: string; isDir: boolean } | null {
+    const pane = panes[id];
+    if (!pane) {
+      return null;
+    }
+    const last = pane.selected.at(-1);
+    if (!last) {
+      return pane.currentPath ? { path: pane.currentPath, isDir: true } : null;
+    }
+    const entry = visibleRef(id).value.find((item) => item.path === last);
+    return entry ? { path: entry.path, isDir: entry.isDir } : { path: last, isDir: false };
   }
 
   function dismissError(id: PaneId) {
@@ -500,8 +499,8 @@ export const useExplorerStore = defineStore("explorer", () => {
     reveal,
     revealTarget,
     copyPath,
-    runExternal,
     locateDirectory,
+    selectionTarget,
     dismissError,
     setQuery,
   };

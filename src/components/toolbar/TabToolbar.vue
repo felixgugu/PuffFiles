@@ -3,6 +3,7 @@ import { computed } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import SearchField from "@/components/common/SearchField.vue";
 import PathBreadcrumb from "./PathBreadcrumb.vue";
+import { useRefreshView } from "@/composables/useRefreshView";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
 import { paneSlotLabel } from "@/utils/layout";
@@ -15,6 +16,7 @@ import { paneSlotLabel } from "@/utils/layout";
  */
 const explorer = useExplorerStore();
 const tabs = useTabsStore();
+const refreshView = useRefreshView();
 
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
@@ -93,9 +95,9 @@ const navButtons = computed(() => {
     },
     {
       icon: "refresh" as const,
-      title: "重新整理 (F5)",
+      title: "重新整理清單與資料夾樹 (F5)",
       run: (): void => {
-        void explorer.refresh(paneId.value);
+        void refreshView(paneId.value);
       },
       enabled: true,
     },

@@ -73,115 +73,143 @@ pub async fn list_subdirs(path: String) -> AppResult<Vec<crate::model::FileEntry
     run_blocking(move || core::list_subdirs(Path::new(&path))).await
 }
 
-/// 以外部程式開啟路徑。
+/// 執行使用者設定的外部工具。
 ///
-/// `program` 為 `powershell` / `cmd` / `notepadpp` / `vscode`；
-/// `executable` 讓使用者在設定中指定自訂執行檔（例如不在 PATH 的 Notepad++）。
+/// 引數與工作目錄都由前端依樣板展開（例如 `$fullFolderPath`），
+/// 這裡只負責把程式找出來、把引號處理正確、用正確的主控台模式啟動。
 #[tauri::command]
-pub async fn open_with(path: String, program: String, executable: Option<String>) -> AppResult<()> {
-    run_blocking(move || launch(&path, &program, executable.as_deref())).await
+pub async fn run_external(
+    program: String,
+    args: Vec<String>,
+    working_dir: Option<String>,
+    new_console: bool,
+) -> AppResult<()> {
+    run_blocking(move || {
+        let command = build_command(&program, &args, working_dir.as_deref(), new_console)?;
+        spawn(command, &program)
+    })
+    .await
 }
 
 /// 終端機類要開新主控台；編輯器類若只是轉呼叫 `code.cmd` 則不需要視窗。
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// 組出一個「還沒啟動」的行程，方便測試直接檢查命令列。
 #[cfg(windows)]
-fn launch(path: &str, program: &str, executable: Option<&str>) -> AppResult<()> {
+fn build_command(
+    program: &str,
+    args: &[String],
+    working_dir: Option<&str>,
+    new_console: bool,
+) -> AppResult<std::process::Command> {
     use std::os::windows::process::CommandExt;
 
-    let raw = existing_path(path)?;
-    let meta = std::fs::metadata(&raw).map_err(|e| AppError::from_io(e, &raw))?;
-
-    // 終端機永遠開在「資料夾」；若目標是檔案，就開在它所屬的資料夾。
-    let directory = if meta.is_dir() {
-        raw.clone()
-    } else {
-        raw.parent().map(Path::to_path_buf).unwrap_or_else(|| raw.clone())
-    };
-    let dir_text = core::dir::display_path(&directory);
-    let file_text = core::dir::display_path(&raw);
-
-    match program {
-        "powershell" | "terminal" => {
-            let exe = resolve_program("powershell.exe", None)?;
-            let mut command = std::process::Command::new(exe);
-            command.creation_flags(CREATE_NEW_CONSOLE);
-            command.raw_arg("-NoExit");
-            command.raw_arg("-Command");
-            command.raw_arg(format!(
-                "Set-Location -LiteralPath '{}'",
-                dir_text.replace('\'', "''")
-            ));
-            spawn(command, "powershell.exe")
-        }
-        "cmd" => {
-            let exe = resolve_program("cmd.exe", None)?;
-            let mut command = std::process::Command::new(exe);
-            command.creation_flags(CREATE_NEW_CONSOLE);
-            command.raw_arg("/K");
-            command.raw_arg(format!("cd /d \"{}\"", dir_text.replace('"', "")));
-            spawn(command, "cmd.exe")
-        }
-        "notepadpp" => open_editor("notepad++", executable, &file_text),
-        "vscode" => open_editor("code", executable, &file_text),
-        other => Err(AppError::Unsupported {
-            feature: format!("外部程式 {other}"),
-        }),
+    let program = program.trim();
+    if program.is_empty() {
+        return Err(AppError::ProgramNotFound {
+            program: "（未指定執行檔）".to_string(),
+        });
     }
-}
 
-#[cfg(not(windows))]
-fn launch(_path: &str, program: &str, _executable: Option<&str>) -> AppResult<()> {
-    Err(AppError::Unsupported {
-        feature: format!("外部程式 {program}（僅支援 Windows）"),
-    })
-}
-
-/// 開啟編輯器；`.cmd` / `.bat` 需要透過 cmd.exe 才能被 CreateProcess 執行。
-#[cfg(windows)]
-fn open_editor(program: &str, executable: Option<&str>, target: &str) -> AppResult<()> {
-    use std::os::windows::process::CommandExt;
-
-    let exe = resolve_program(program, executable)?;
+    let exe = resolve_program(program)?;
     let is_script = matches!(
-        exe.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+        exe.extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("cmd") | Some("bat")
     );
 
     let mut command = if is_script {
+        // `.cmd` / `.bat` 不是執行檔映像，CreateProcess 不能直接跑，必須交給 cmd.exe。
+        let mut line = quote_arg(&exe.to_string_lossy());
+        for arg in args {
+            line.push(' ');
+            line.push_str(&quote_arg(arg));
+        }
         let mut command = std::process::Command::new("cmd.exe");
-        command.creation_flags(CREATE_NO_WINDOW);
         command.raw_arg("/C");
-        command.raw_arg(format!("\"{}\" \"{}\"", exe.to_string_lossy(), target));
+        // cmd 的規則：/C 後面的命令列以引號開頭時會吃掉頭尾引號，所以要再包一層。
+        command.raw_arg(format!("\"{line}\""));
         command
     } else {
         let mut command = std::process::Command::new(&exe);
-        command.arg(target);
+        command.args(args);
         command
     };
-    command.creation_flags(CREATE_NO_WINDOW);
-    spawn(command, program)
-}
 
-/// 找出要執行的程式：使用者指定路徑優先，其次在 PATH（含 PATHEXT）中尋找。
-#[cfg(windows)]
-fn resolve_program(default_name: &str, executable: Option<&str>) -> AppResult<PathBuf> {
-    if let Some(custom) = executable.map(str::trim).filter(|value| !value.is_empty()) {
-        let candidate = PathBuf::from(custom);
-        if candidate.is_file() {
-            return Ok(candidate);
+    if let Some(directory) = working_dir.map(str::trim).filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(directory);
+        if !path.is_dir() {
+            return Err(AppError::NotADirectory {
+                path: directory.to_string(),
+            });
         }
-        if let Some(found) = search_path(custom) {
-            return Ok(found);
-        }
-        return Err(AppError::ProgramNotFound {
-            program: custom.to_string(),
-        });
+        command.current_dir(path);
     }
 
-    search_path(default_name).ok_or_else(|| AppError::ProgramNotFound {
-        program: default_name.to_string(),
+    command.creation_flags(if new_console {
+        CREATE_NEW_CONSOLE
+    } else {
+        CREATE_NO_WINDOW
+    });
+
+    Ok(command)
+}
+
+#[cfg(not(windows))]
+fn build_command(
+    _program: &str,
+    _args: &[String],
+    _working_dir: Option<&str>,
+    _new_console: bool,
+) -> AppResult<std::process::Command> {
+    Err(AppError::Unsupported {
+        feature: "外部工具（僅支援 Windows）".to_string(),
+    })
+}
+
+/// Windows 命令列的引號規則（與 MSVCRT 一致）：反斜線要依後方是否為引號加倍。
+#[cfg(windows)]
+fn quote_arg(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.to_string();
+    }
+
+    let mut out = String::from("\"");
+    let mut backslashes = 0usize;
+
+    for character in arg.chars() {
+        match character {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                out.push_str(&"\\".repeat(backslashes));
+                out.push(character);
+                backslashes = 0;
+            }
+        }
+    }
+
+    out.push_str(&"\\".repeat(backslashes * 2));
+    out.push('"');
+    out
+}
+
+/// 找出要執行的程式：可以是完整路徑，也可以是 PATH（含 PATHEXT）中的名稱。
+#[cfg(windows)]
+fn resolve_program(program: &str) -> AppResult<PathBuf> {
+    let candidate = PathBuf::from(program);
+    if candidate.is_file() {
+        return Ok(candidate);
+    }
+    search_path(program).ok_or_else(|| AppError::ProgramNotFound {
+        program: program.to_string(),
     })
 }
 
@@ -189,28 +217,43 @@ fn resolve_program(default_name: &str, executable: Option<&str>) -> AppResult<Pa
 fn search_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-    let has_extension = Path::new(name).extension().is_some();
+    search_path_in(&path, &extensions, name)
+}
 
-    for directory in std::env::split_paths(&path) {
-        if directory.as_os_str().is_empty() {
-            continue;
-        }
-        let direct = directory.join(name);
-        if direct.is_file() {
-            return Some(direct);
-        }
-        if has_extension {
-            continue;
-        }
-        for extension in extensions.split(';').filter(|value| !value.is_empty()) {
-            let candidate = directory.join(format!("{name}{}", extension.to_ascii_lowercase()));
+/// 依 Windows 的習慣找執行檔。
+///
+/// 關鍵在於**先試 PATHEXT 的每一種副檔名，最後才看沒有副檔名的檔案**：
+/// VS Code 的 `bin` 目錄同時放了 `code`（給 Git Bash 用的 shell 腳本）與 `code.cmd`，
+/// 先挑到沒有副檔名的那個會讓 CreateProcess 直接回「不是有效的 Win32 應用程式」。
+#[cfg(windows)]
+fn search_path_in(path: &std::ffi::OsStr, extensions: &str, name: &str) -> Option<PathBuf> {
+    let has_extension = Path::new(name).extension().is_some();
+    let directories: Vec<PathBuf> = std::env::split_paths(path)
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .collect();
+
+    if has_extension {
+        return directories
+            .into_iter()
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file());
+    }
+
+    for extension in extensions.split(';').filter(|value| !value.is_empty()) {
+        let suffix = extension.to_ascii_lowercase();
+        for directory in &directories {
+            let candidate = directory.join(format!("{name}{suffix}"));
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
     }
 
-    None
+    // 保底：有些工具真的沒有副檔名。
+    directories
+        .into_iter()
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
 }
 
 #[cfg(windows)]
@@ -243,4 +286,73 @@ where
 
 fn existing_path(path: &str) -> AppResult<PathBuf> {
     core::normalize(Path::new(path))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn quotes_arguments_like_the_c_runtime() {
+        assert_eq!(quote_arg("plain"), "plain");
+        assert_eq!(quote_arg("has space"), "\"has space\"");
+        assert_eq!(quote_arg(""), "\"\"");
+        assert_eq!(quote_arg("say \"hi\""), "\"say \\\"hi\\\"\"");
+        // 結尾的反斜線要加倍，否則會把收尾的引號逃逸掉。
+        assert_eq!(quote_arg("C:\\a path\\"), "\"C:\\a path\\\\\"");
+        assert_eq!(quote_arg("C:\\plain\\"), "C:\\plain\\");
+    }
+
+    /// VS Code 的 bin 目錄同時有 `code` 與 `code.cmd`；必須挑到後者。
+    #[test]
+    fn prefers_pathext_over_extensionless_files() {
+        let root = std::env::temp_dir().join("pufffile-path-test");
+        let bash_like = root.join("bash-like");
+        let windows_like = root.join("windows-like");
+        std::fs::create_dir_all(&bash_like).expect("bash-like dir");
+        std::fs::create_dir_all(&windows_like).expect("windows-like dir");
+        std::fs::write(bash_like.join("mycode"), "#!/bin/sh\n").expect("bare file");
+        std::fs::write(windows_like.join("mycode.cmd"), "@echo off\r\n").expect("cmd file");
+
+        let path = std::env::join_paths([bash_like.clone(), windows_like.clone()]).expect("join path");
+        let found = search_path_in(&path, ".COM;.EXE;.BAT;.CMD", "mycode");
+
+        assert_eq!(found, Some(windows_like.join("mycode.cmd")));
+    }
+
+    /// 真的產生一個 .cmd 並執行，確認引號處理沒有把帶空白的參數吃掉。
+    #[test]
+    fn runs_batch_script_with_quoted_arguments() {
+        let dir = std::env::temp_dir().join("pufffile-quote-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let script = dir.join("write-arg.cmd");
+        // 用 %~1（去掉引號）比較，驗證帶空白的路徑是「一個」引數完整送達。
+        std::fs::write(&script, "@echo off\r\n> \"%~dp0out.txt\" echo %~1\r\n").expect("write script");
+        let out = dir.join("out.txt");
+        let _ = std::fs::remove_file(&out);
+
+        let project = dir.join("a path");
+        std::fs::create_dir_all(&project).expect("project dir");
+        let argument = project.join("file.txt").to_string_lossy().into_owned();
+
+        let mut command = build_command(
+            &script.to_string_lossy(),
+            std::slice::from_ref(&argument),
+            Some(&dir.to_string_lossy()),
+            false,
+        )
+        .expect("build command");
+        command.spawn().expect("spawn script").wait().expect("wait script");
+
+        for _ in 0..50 {
+            if out.is_file() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let written = std::fs::read_to_string(&out).unwrap_or_default();
+        assert_eq!(written.trim(), argument, "引數被引號規則吃掉了");
+    }
 }

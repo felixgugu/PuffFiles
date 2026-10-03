@@ -1,21 +1,13 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  useTemplateRef,
-  watch,
-} from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import ContextMenu from "@/components/overlays/ContextMenu.vue";
 import FileTableRow from "./FileTableRow.vue";
-import { usePathMenu } from "@/composables/usePathMenu";
 import { useDragGesture } from "@/composables/useDragGesture";
+import { usePathMenu } from "@/composables/usePathMenu";
 import { useExplorerStore } from "@/stores/explorer";
-import { COLUMN_DEFAULTS, COLUMN_MIN, useSettingsStore } from "@/stores/settings";
+import { COLUMN_DEFAULTS, useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { formatCount } from "@/utils/format";
@@ -25,9 +17,11 @@ const props = defineProps<{ paneId: PaneId }>();
 const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
-const pathMenu = usePathMenu();
+const { fileMenu, folderMenu, run: runMenu } = usePathMenu();
 
 const ROW_HEIGHT = 30;
+/** 表頭是 sticky 而且是 in-flow，佔掉內容最前面的這一段。 */
+const HEADER_HEIGHT = 32;
 const OVERSCAN = 6;
 
 const pane = computed(() => explorer.meta(props.paneId)!);
@@ -36,7 +30,6 @@ const rows = explorer.visibleRef(props.paneId);
 const scrollEl = useTemplateRef<HTMLElement>("scroll");
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
-const viewportWidth = ref(0);
 
 let observer: ResizeObserver | null = null;
 
@@ -46,10 +39,8 @@ onMounted(() => {
     return;
   }
   viewportHeight.value = element.clientHeight;
-  viewportWidth.value = element.clientWidth;
   observer = new ResizeObserver(() => {
     viewportHeight.value = element.clientHeight;
-    viewportWidth.value = element.clientWidth;
   });
   observer.observe(element);
 });
@@ -73,16 +64,16 @@ const gridTemplate = computed(() =>
   `${settings.columns.map((column) => `${settings.columnWidth(column)}px`).join(" ")} minmax(0, 1fr)`,
 );
 
+/** 欄位可以拖到比視窗還寬；那時表頭與列一起水平捲動，所以兩者要同寬。 */
+const columnsWidth = computed(() =>
+  settings.columns.reduce((sum, column) => sum + settings.columnWidth(column), 0),
+);
+const contentWidthStyle = computed(() => ({
+  width: `max(100%, ${columnsWidth.value + 64}px)`,
+}));
+
 const resizing = ref<ColumnId | null>(null);
 let widthAtDragStart = 0;
-
-/** 可拖曳的最大寬度：不能把其他欄位推出畫面。 */
-function maxWidthFor(column: ColumnId): number {
-  const others = settings.columns
-    .filter((id) => id !== column)
-    .reduce((sum, id) => sum + settings.columnWidth(id), 0);
-  return Math.max(COLUMN_MIN[column], viewportWidth.value - others - 48);
-}
 
 const columnDrag = useDragGesture({
   onStart: () => {
@@ -90,11 +81,9 @@ const columnDrag = useDragGesture({
     document.body.style.cursor = "col-resize";
   },
   onMove: (state) => {
-    if (!resizing.value) {
-      return;
+    if (resizing.value) {
+      settings.setColumnWidth(resizing.value, widthAtDragStart + state.dx);
     }
-    const next = Math.min(widthAtDragStart + state.dx, maxWidthFor(resizing.value));
-    settings.setColumnWidth(resizing.value, next);
   },
   onEnd: () => {
     resizing.value = null;
@@ -107,11 +96,16 @@ function startResize(column: ColumnId, event: PointerEvent) {
   columnDrag.onPointerDown(event);
 }
 
-const start = computed(() => Math.max(0, Math.floor(scrollTop.value / ROW_HEIGHT) - OVERSCAN));
-const end = computed(() =>
-  Math.min(rows.value.length, Math.ceil((scrollTop.value + viewportHeight.value) / ROW_HEIGHT) + OVERSCAN),
+const start = computed(() =>
+  Math.max(0, Math.floor((scrollTop.value - HEADER_HEIGHT) / ROW_HEIGHT) - OVERSCAN),
 );
-const slice = computed(() => rows.value.slice(start.value, end.value));
+const end = computed(() =>
+  Math.min(
+    rows.value.length,
+    Math.ceil((scrollTop.value + viewportHeight.value - HEADER_HEIGHT) / ROW_HEIGHT) + OVERSCAN,
+  ),
+);
+const slice = computed(() => rows.value.slice(start.value, Math.max(end.value, 0)));
 const offsetY = computed(() => start.value * ROW_HEIGHT);
 const totalHeight = computed(() => rows.value.length * ROW_HEIGHT);
 
@@ -137,9 +131,13 @@ function onScroll() {
   scrollTop.value = scrollEl.value?.scrollTop ?? 0;
 }
 
-/** 點擊空白處才清除選取；點到列由列自己處理。 */
+/** 表頭也是這個捲動容器的一部分，點它不該被當成「點空白處」。 */
+function isChrome(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && !!target.closest("[data-row], [data-header]");
+}
+
 function onBlankClick(event: MouseEvent) {
-  if ((event.target as HTMLElement).closest("[data-row]")) {
+  if (isChrome(event.target)) {
     return;
   }
   explorer.clearSelection(props.paneId);
@@ -165,9 +163,12 @@ watch(
     }
     const top = index * ROW_HEIGHT;
     const bottom = top + ROW_HEIGHT;
-    if (top < element.scrollTop) {
-      element.scrollTop = top;
-    } else if (bottom > element.scrollTop + element.clientHeight) {
+    const visibleTop = element.scrollTop + HEADER_HEIGHT;
+    const visibleBottom = element.scrollTop + element.clientHeight;
+
+    if (top < visibleTop) {
+      element.scrollTop = Math.max(0, top - HEADER_HEIGHT);
+    } else if (bottom > visibleBottom) {
       element.scrollTop = bottom - element.clientHeight;
     }
   },
@@ -182,7 +183,7 @@ interface MenuState {
 
 const menu = ref<MenuState | null>(null);
 
-const menuItems = computed(() => (menu.value?.kind === "file" ? pathMenu.fileMenu : pathMenu.folderMenu));
+const menuItems = computed(() => (menu.value?.kind === "file" ? fileMenu.value : folderMenu.value));
 
 function openRowMenu(entry: FileEntry, event: MouseEvent) {
   tabs.setActivePane(props.paneId);
@@ -199,7 +200,7 @@ function openRowMenu(entry: FileEntry, event: MouseEvent) {
 
 /** 空白處右鍵＝針對目前資料夾本身的操作。 */
 function openBlankMenu(event: MouseEvent) {
-  if ((event.target as HTMLElement).closest("[data-row]")) {
+  if (isChrome(event.target)) {
     return;
   }
   tabs.setActivePane(props.paneId);
@@ -210,10 +211,10 @@ function openBlankMenu(event: MouseEvent) {
 }
 
 async function onMenuSelect(id: string) {
-  const target = menu.value?.path;
+  const current = menu.value;
   menu.value = null;
-  if (target) {
-    await pathMenu.run(id, target);
+  if (current) {
+    await runMenu(id, { path: current.path, isDir: current.kind === "folder" });
   }
 }
 
@@ -226,58 +227,67 @@ function sortBy(column: ColumnId) {
 
 <template>
   <div class="relative flex min-h-0 min-w-0 flex-1 flex-col" :style="{ '--file-columns': gridTemplate }">
-    <div class="file-grid h-8 shrink-0 border-b border-line bg-surface pr-3 pl-2.5 text-[12px] text-ink-muted">
+    <div
+      ref="scroll"
+      class="scroll-area min-h-0 flex-1 overflow-auto bg-canvas"
+      @scroll="onScroll"
+      @click="onBlankClick"
+      @contextmenu.prevent="openBlankMenu"
+    >
+      <!-- 表頭跟內容共用同一個捲動容器：水平捲動時一起移動，垂直捲動時固定在頂端。 -->
       <div
-        v-for="column in settings.columns"
-        :key="column"
-        class="group relative flex h-full min-w-0 items-center"
+        data-header
+        class="file-grid sticky top-0 z-10 h-8 border-b border-line bg-surface pr-3 pl-2.5 text-[12px] text-ink-muted"
+        :style="contentWidthStyle"
       >
-        <button
-          type="button"
-          class="flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left transition-colors duration-75 enabled:hover:text-ink disabled:cursor-default"
-          :class="column === 'size' ? 'justify-end' : ''"
-          :disabled="!SORTABLE.includes(column)"
-          @click="sortBy(column)"
-        >
-          <span class="truncate">{{ COLUMN_LABELS[column] }}</span>
-          <AppIcon
-            v-if="pane.sortKey === column"
-            :name="pane.sortDirection === 'asc' ? 'chevronUp' : 'chevronDown'"
-            :size="11"
-            class="shrink-0 text-accent"
-          />
-        </button>
-
-        <!-- 欄寬拖曳把手：1:1 跟手，雙擊回復預設寬度。 -->
         <div
-          class="absolute top-0 -right-[3px] z-10 h-full w-[7px] cursor-col-resize"
-          :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬，雙擊回復預設`"
-          @pointerdown="startResize(column, $event)"
-          @dblclick="settings.resetColumnWidth(column)"
+          v-for="(column, index) in settings.columns"
+          :key="column"
+          class="group relative flex h-full min-w-0 items-center"
+          :class="index < settings.columns.length - 1 ? 'border-r border-line' : ''"
         >
+          <button
+            type="button"
+            class="flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left transition-colors duration-75 enabled:hover:text-ink disabled:cursor-default"
+            :class="column === 'size' ? 'justify-end' : ''"
+            :disabled="!SORTABLE.includes(column)"
+            @click="sortBy(column)"
+          >
+            <span class="truncate">{{ COLUMN_LABELS[column] }}</span>
+            <AppIcon
+              v-if="pane.sortKey === column"
+              :name="pane.sortDirection === 'asc' ? 'chevronUp' : 'chevronDown'"
+              :size="11"
+              class="shrink-0 text-accent"
+            />
+          </button>
+
+          <!-- 欄寬拖曳把手：1:1 跟手，雙擊回復預設寬度。 -->
+          <div
+            class="absolute top-0 -right-[3px] z-10 h-full w-[7px] cursor-col-resize"
+            :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬，雙擊回復預設`"
+            @pointerdown="startResize(column, $event)"
+            @dblclick="settings.resetColumnWidth(column)"
+          >
           <div
             class="mx-auto h-full w-px transition-colors duration-100"
             :class="
               resizing === column
                 ? 'bg-accent'
                 : settings.columnWidth(column) !== COLUMN_DEFAULTS[column]
-                  ? 'bg-line-strong group-hover:bg-accent'
-                  : 'bg-transparent group-hover:bg-line-strong'
+                  ? 'bg-accent/40 group-hover:bg-accent'
+                  : 'bg-transparent group-hover:bg-accent'
             "
           />
+          </div>
         </div>
       </div>
-    </div>
 
-    <div
-      ref="scroll"
-      class="scroll-area min-h-0 flex-1 overflow-y-auto bg-canvas"
-      @scroll="onScroll"
-      @click="onBlankClick"
-      @contextmenu.prevent="openBlankMenu"
-    >
       <div class="relative" :style="{ height: `${totalHeight}px` }">
-        <div class="absolute inset-x-0 top-0" :style="{ transform: `translateY(${offsetY}px)` }">
+        <div
+          class="absolute top-0 left-0"
+          :style="[contentWidthStyle, { transform: `translateY(${offsetY}px)` }]"
+        >
           <FileTableRow
             v-for="(entry, index) in slice"
             :key="entry.path"

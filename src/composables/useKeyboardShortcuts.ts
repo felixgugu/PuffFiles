@@ -3,6 +3,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import { useRefreshView } from "@/composables/useRefreshView";
 
 /**
  * 全域快速鍵。
@@ -15,6 +16,7 @@ export function useKeyboardShortcuts() {
   const tabs = useTabsStore();
   const ui = useUiStore();
   const settings = useSettingsStore();
+  const refreshView = useRefreshView();
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return (
@@ -27,6 +29,11 @@ export function useKeyboardShortcuts() {
   function onKeydown(event: KeyboardEvent) {
     const { key, altKey, ctrlKey, metaKey, shiftKey } = event;
     const modifier = ctrlKey || metaKey;
+
+    // 設定頁開著時只留下 Esc；其他快速鍵不該在看不到畫面的情況下動到瀏覽狀態。
+    if (ui.settingsOpen && key !== "Escape") {
+      return;
+    }
 
     // 分頁切換即使在輸入框裡也要生效。
     if (modifier && key === "Tab") {
@@ -96,7 +103,7 @@ export function useKeyboardShortcuts() {
     switch (key) {
       case "F5":
         event.preventDefault();
-        void explorer.refresh(paneId);
+        void refreshView(paneId);
         break;
       case "F6":
         event.preventDefault();

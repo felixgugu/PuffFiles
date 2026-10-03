@@ -66,7 +66,15 @@ function cellText(column: ColumnId): string {
     @dblclick="$emit('activate')"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
-    <div v-for="column in columns" :key="column" class="min-w-0 px-1" :class="column === 'size' ? 'text-right' : ''">
+    <div
+      v-for="(column, index) in columns"
+      :key="column"
+      class="min-w-0 px-1"
+      :class="[
+        column === 'size' ? 'text-right' : '',
+        index < columns.length - 1 ? 'border-r border-line' : '',
+      ]"
+    >
       <div v-if="column === 'name'" class="flex min-w-0 items-center gap-2">
         <AppIcon :name="iconFor(entry)" :size="15" :class="colorFor(entry)" />
         <span class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>

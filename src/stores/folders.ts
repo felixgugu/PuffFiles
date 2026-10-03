@@ -103,13 +103,21 @@ export const useFoldersStore = defineStore("folders", () => {
   }
 
   function isExpanded(path: string): boolean {
-    return expanded.value.includes(normalizeKey(path));
+    const key = normalizeKey(path);
+    return expanded.value.some((value) => normalizeKey(value) === key);
+  }
+
+  /** 展開狀態存的是原始路徑，比對時才正規化 —— 重新整理時要能直接拿來重讀。 */
+  function setExpanded(path: string, open: boolean) {
+    const key = normalizeKey(path);
+    const rest = expanded.value.filter((value) => normalizeKey(value) !== key);
+    expanded.value = open ? [...rest, path] : rest;
   }
 
   async function toggle(path: string) {
     const key = normalizeKey(path);
-    if (expanded.value.includes(key)) {
-      expanded.value = expanded.value.filter((value) => value !== key);
+    if (isExpanded(path)) {
+      setExpanded(path, false);
       // 收合時順手丟掉快取：下次展開會重新讀取，樹就不會一直是舊的。
       if (children.value[key]) {
         const next = { ...children.value };
@@ -118,8 +126,15 @@ export const useFoldersStore = defineStore("folders", () => {
       }
       return;
     }
-    expanded.value = [...expanded.value, key];
+    setExpanded(path, true);
     await loadChildren(path);
+  }
+
+  /** 重新整理：丟掉所有快取，重新讀取資料夾根與目前展開的節點。 */
+  async function refresh() {
+    children.value = {};
+    const targets = [...roots.value.map((root) => root.path), ...expanded.value];
+    await Promise.all(targets.map((path) => loadChildren(path)));
   }
 
   async function loadChildren(path: string) {
@@ -165,9 +180,7 @@ export const useFoldersStore = defineStore("folders", () => {
     let current = rootPath;
     for (const part of parts.slice(0, -1)) {
       current = `${current.replace(/\\+$/, "")}\\${part}`;
-      if (!expanded.value.includes(normalizeKey(current))) {
-        expanded.value = [...expanded.value, normalizeKey(current)];
-      }
+      setExpanded(current, true);
       await loadChildren(current);
     }
   }
@@ -192,6 +205,7 @@ export const useFoldersStore = defineStore("folders", () => {
     childrenOf,
     isLoading,
     collapseAll,
+    refresh,
     reveal,
   };
 });

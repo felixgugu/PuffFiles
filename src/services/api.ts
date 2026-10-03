@@ -12,7 +12,6 @@ import { MOCK_DRIVES, MOCK_QUICK_LOCATIONS, mockListDirectory, mockListSubdirs }
 import type {
   DirStreamEvent,
   DriveInfo,
-  ExternalProgram,
   FileEntry,
   QuickLocation,
 } from "@/types/fs";
@@ -86,17 +85,20 @@ export async function revealPath(path: string): Promise<void> {
   return guarded(() => invoke("reveal_path", { path }));
 }
 
-/** 用外部程式開啟：PowerShell / Cmd / Notepad++ / VS Code。 */
-export async function openWith(
-  path: string,
-  program: ExternalProgram,
-  executable?: string | null,
+/** 執行使用者設定的外部工具（引數已在前端依樣板展開）。 */
+export async function runExternal(
+  program: string,
+  args: string[],
+  workingDirectory: string | null,
+  newConsole: boolean,
 ): Promise<void> {
   if (!isDesktopRuntime()) {
-    console.info("[mock] open with", program, path);
+    console.info("[mock] run external", program, args, workingDirectory, newConsole);
     return;
   }
-  return guarded(() => invoke("open_with", { path, program, executable: executable ?? null }));
+  return guarded(() =>
+    invoke("run_external", { program, args, workingDir: workingDirectory, newConsole }),
+  );
 }
 
 /** 原生資料夾選擇器；瀏覽器開發模式下沒有原生對話框，回傳 null。 */
