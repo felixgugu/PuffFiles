@@ -73,6 +73,37 @@ pub async fn list_subdirs(path: String) -> AppResult<Vec<crate::model::FileEntry
     run_blocking(move || core::list_subdirs(Path::new(&path))).await
 }
 
+/// 在指定父層底下建立新資料夾，回傳新資料夾路徑。
+#[tauri::command]
+pub async fn create_folder(parent: String, name: String) -> AppResult<String> {
+    run_blocking(move || {
+        let name = validated_name(&name)?;
+        let parent = core::normalize(Path::new(&parent))?;
+        let target = parent.join(name);
+        std::fs::create_dir(&target).map_err(|e| AppError::from_io(e, &target))?;
+        // 回傳一般路徑：前端要拿它比對清單項目、交給 shell，verbatim 前綴會壞事。
+        Ok(core::display_path(&target))
+    })
+    .await
+}
+
+/// 建立空檔案。用 `create_new` 所以同名會直接失敗，不會覆蓋既有檔案。
+#[tauri::command]
+pub async fn create_file(parent: String, name: String) -> AppResult<String> {
+    run_blocking(move || {
+        let name = validated_name(&name)?;
+        let parent = core::normalize(Path::new(&parent))?;
+        let target = parent.join(name);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|e| AppError::from_io(e, &target))?;
+        Ok(core::display_path(&target))
+    })
+    .await
+}
+
 /// 執行使用者設定的外部工具。
 ///
 /// 引數與工作目錄都由前端依樣板展開（例如 `$fullFolderPath`），
@@ -288,10 +319,107 @@ fn existing_path(path: &str) -> AppResult<PathBuf> {
     core::normalize(Path::new(path))
 }
 
+/// Windows 保留的裝置名稱，用這些名字建立檔案會失敗且訊息很難懂。
+const RESERVED_NAMES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// 名稱驗證：不能空白、不能含路徑分隔或非法字元、不能以句點或空白結尾，
+/// 也不能是 Windows 保留名稱。
+fn validated_name(name: &str) -> AppResult<String> {
+    let trimmed = name.trim();
+    let invalid = |reason: &str| AppError::InvalidName {
+        reason: reason.to_string(),
+    };
+
+    if trimmed.is_empty() {
+        return Err(invalid("名稱不能是空的"));
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err(invalid("名稱不能是 . 或 .."));
+    }
+    if trimmed.contains(['/', '\\']) || trimmed.contains('\0') {
+        return Err(invalid("名稱不能包含路徑分隔符號"));
+    }
+    if trimmed.contains(['<', '>', ':', '"', '|', '?', '*']) {
+        return Err(invalid("名稱不能包含 < > : \" | ? * 等字元"));
+    }
+    // 名稱已經 trim 過，所以只需要擋句點結尾（Windows 會把它吃掉）。
+    if trimmed.ends_with('.') {
+        return Err(invalid("名稱不能以句點結尾"));
+    }
+
+    let stem = trimmed
+        .split('.')
+        .next()
+        .unwrap_or(trimmed)
+        .to_ascii_uppercase();
+    if RESERVED_NAMES.contains(&stem.as_str()) {
+        return Err(invalid("這是 Windows 保留的裝置名稱"));
+    }
+
+    Ok(trimmed.to_string())
+}
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn accepts_normal_names() {
+        assert_eq!(validated_name("  報告 ").unwrap(), "報告");
+        assert_eq!(validated_name("notes.txt").unwrap(), "notes.txt");
+        assert_eq!(validated_name("archive.tar.gz").unwrap(), "archive.tar.gz");
+    }
+
+    #[test]
+    fn rejects_invalid_names() {
+        assert!(validated_name("").is_err());
+        assert!(validated_name("..").is_err());
+        assert!(validated_name("a/b").is_err());
+        assert!(validated_name(r"a\b").is_err());
+        assert!(validated_name("a:b").is_err());
+        assert!(validated_name("trailing.").is_err());
+        assert_eq!(validated_name("trailing ").unwrap(), "trailing");
+        assert!(validated_name("CON").is_err());
+        assert!(validated_name("com1.txt").is_err());
+        assert!(validated_name("LPT9.log").is_err());
+    }
+
+    /// 走完整指令路徑：真的建立資料夾與空檔案，並確認同名不會覆蓋。
+    #[test]
+    fn creates_folders_and_files() {
+        let root = std::env::temp_dir().join(format!(
+            "pufffile-create-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_millis()
+        ));
+        std::fs::create_dir_all(&root).expect("create scratch");
+        let parent = root.to_string_lossy().into_owned();
+
+        let folder =
+            tauri::async_runtime::block_on(create_folder(parent.clone(), "新資料夾".into()))
+                .expect("create folder");
+        assert!(Path::new(&folder).is_dir());
+        // 前端要拿這個路徑比對清單項目，verbatim 前綴會讓比對失敗。
+        assert!(!folder.starts_with(r"\\?\"), "verbatim 前綴外洩：{folder}");
+
+        let file = tauri::async_runtime::block_on(create_file(parent.clone(), "notes.txt".into()))
+            .expect("create file");
+        assert!(Path::new(&file).is_file());
+        assert!(!file.starts_with(r"\\?\"), "verbatim 前綴外洩：{file}");
+        assert_eq!(std::fs::metadata(&file).expect("metadata").len(), 0);
+
+        // 同名要回 AlreadyExists，而不是默默覆蓋既有檔案。
+        let again = tauri::async_runtime::block_on(create_file(parent, "notes.txt".into()));
+        assert!(
+            matches!(again, Err(AppError::AlreadyExists { .. })),
+            "got {again:?}"
+        );
+    }
 
     #[test]
     fn quotes_arguments_like_the_c_runtime() {

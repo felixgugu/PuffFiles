@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import { useRefreshView } from "@/composables/useRefreshView";
+import { usePathMenu } from "@/composables/usePathMenu";
 
 /**
  * 全域快速鍵。
@@ -19,6 +20,7 @@ export function useKeyboardShortcuts() {
   const settings = useSettingsStore();
   const refreshView = useRefreshView();
   const clipboard = useClipboardStore();
+  const pathMenu = usePathMenu();
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return (
@@ -41,6 +43,11 @@ export function useKeyboardShortcuts() {
         event.preventDefault();
         ui.resolveConfirm(true);
       }
+      return;
+    }
+
+    // 輸入對話框開著時，Enter／Esc 由對話框自己處理。
+    if (ui.promptState) {
       return;
     }
 
@@ -117,6 +124,17 @@ export function useKeyboardShortcuts() {
           }
           event.preventDefault();
           void clipboard.transferToOtherPane("move");
+          return;
+        case "n":
+        case "N":
+          if (!shiftKey) {
+            break;
+          }
+          event.preventDefault();
+          void pathMenu.run("new-folder", {
+            path: explorer.meta(paneId)?.currentPath ?? "",
+            isDir: true,
+          });
           return;
         case "f":
         case "F":

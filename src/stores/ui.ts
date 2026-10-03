@@ -13,6 +13,17 @@ export interface ConfirmOptions {
   cancelText?: string;
 }
 
+export interface PromptOptions {
+  title: string;
+  label?: string;
+  placeholder?: string;
+  /** 預填值。 */
+  value?: string;
+  confirmText?: string;
+  /** 聚焦時只選取到第幾個字（例如檔名只選主檔名、不選副檔名）。 */
+  selectTo?: number;
+}
+
 /**
  * 短生命週期的 UI 狀態：通知、跨元件的焦點請求、浮層開關。
  *
@@ -26,8 +37,10 @@ export const useUiStore = defineStore("ui", () => {
   const settingsOpen = ref(false);
   const historyOpen = ref(false);
   const confirmState = ref<ConfirmOptions | null>(null);
+  const promptState = ref<PromptOptions | null>(null);
 
   let confirmResolver: ((value: boolean) => void) | null = null;
+  let promptResolver: ((value: string | null) => void) | null = null;
 
   /** 開一個確認對話框並等待使用者回答；同時只會有一個。 */
   function confirm(options: ConfirmOptions): Promise<boolean> {
@@ -42,6 +55,21 @@ export const useUiStore = defineStore("ui", () => {
     confirmState.value = null;
     confirmResolver?.(value);
     confirmResolver = null;
+  }
+
+  /** 開一個輸入對話框並等待結果；取消回傳 null。同時只會有一個。 */
+  function prompt(options: PromptOptions): Promise<string | null> {
+    promptResolver?.(null);
+    promptState.value = options;
+    return new Promise((resolve) => {
+      promptResolver = resolve;
+    });
+  }
+
+  function resolvePrompt(value: string | null) {
+    promptState.value = null;
+    promptResolver?.(value);
+    promptResolver = null;
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -77,6 +105,9 @@ export const useUiStore = defineStore("ui", () => {
     confirmState,
     confirm,
     resolveConfirm,
+    promptState,
+    prompt,
+    resolvePrompt,
     showNotice,
     dismissNotice,
     requestSearchFocus,

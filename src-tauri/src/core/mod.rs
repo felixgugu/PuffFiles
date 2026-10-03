@@ -5,4 +5,4 @@ pub mod oplog;
 pub mod shell;
 pub mod watch;
 
-pub use dir::{list_directory, list_subdirs, normalize};
+pub use dir::{display_path, list_directory, list_subdirs, normalize};

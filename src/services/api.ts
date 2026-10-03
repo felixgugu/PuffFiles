@@ -12,6 +12,7 @@ import {
   MOCK_DRIVES,
   MOCK_QUICK_LOCATIONS,
   mockClearClipboard,
+  mockCreateEntry,
   mockListDirectory,
   mockListSubdirs,
   mockReadClipboard,
@@ -161,6 +162,22 @@ export async function deleteItems(paths: string[]): Promise<boolean> {
     return true;
   }
   return guarded(() => invoke<boolean>("delete_items", { paths }));
+}
+
+/** 建立資料夾；成功時回傳新資料夾的完整路徑。 */
+export async function createFolder(parent: string, name: string): Promise<string> {
+  if (!isDesktopRuntime()) {
+    return mockCreateEntry(parent, name, true);
+  }
+  return guarded(() => invoke<string>("create_folder", { parent, name }));
+}
+
+/** 建立空檔案；成功時回傳新檔案的完整路徑。 */
+export async function createFile(parent: string, name: string): Promise<string> {
+  if (!isDesktopRuntime()) {
+    return mockCreateEntry(parent, name, false);
+  }
+  return guarded(() => invoke<string>("create_file", { parent, name }));
 }
 
 /** 檔案操作紀錄的最後幾行（本機日誌檔）。 */

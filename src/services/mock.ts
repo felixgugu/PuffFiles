@@ -93,7 +93,8 @@ export function buildMockEntries(path: string): FileEntry[] {
     };
   });
 
-  return [...folders, ...files];
+  const created = mockCreated.get(path.toLocaleLowerCase()) ?? [];
+  return [...folders, ...files, ...created];
 }
 
 /** 模擬 `list_subdirs`：只回傳資料夾。 */
@@ -144,4 +145,26 @@ export function mockWriteClipboard(paths: string[], cut: boolean): void {
 
 export function mockClearClipboard(): void {
   mockClipboard = { paths: [], cut: false };
+}
+
+/** 瀏覽器預覽用：記住「建立」出來的項目，重新列舉時會出現。 */
+const mockCreated = new Map<string, FileEntry[]>();
+
+export function mockCreateEntry(parent: string, name: string, isDir: boolean): string {
+  const path = joinPath(parent, name);
+  const key = parent.toLocaleLowerCase();
+  const entry: FileEntry = {
+    name,
+    path,
+    isDir,
+    isSymlink: false,
+    isHidden: false,
+    isReadonly: false,
+    size: 0,
+    modifiedMs: Date.now(),
+    createdMs: Date.now(),
+    extension: isDir || !name.includes(".") ? null : name.split(".").pop()!.toLowerCase(),
+  };
+  mockCreated.set(key, [...(mockCreated.get(key) ?? []), entry]);
+  return path;
 }

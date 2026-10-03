@@ -8,7 +8,7 @@ import { useUiStore } from "@/stores/ui";
 import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
 import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
-import { parentOf, toUnixPath } from "@/utils/path";
+import { parentOf, samePath, toUnixPath } from "@/utils/path";
 
 export type ExplorerStatus = "idle" | "loading" | "ready" | "error";
 
@@ -629,6 +629,46 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
+  /**
+   * 建立資料夾或空檔案。
+   *
+   * 建立的位置不一定等於這個窗格目前顯示的資料夾（右鍵在子資料夾上時），
+   * 只有在兩者相同時才重讀清單並選取新項目 —— 否則使用者的畫面不該被拉走。
+   */
+  async function createEntry(
+    id: PaneId,
+    parent: string,
+    name: string,
+    kind: "folder" | "file",
+  ): Promise<boolean> {
+    const pane = panes[id];
+    if (!pane) {
+      return false;
+    }
+    try {
+      const created =
+        kind === "folder"
+          ? await api.createFolder(parent, name)
+          : await api.createFile(parent, name);
+
+      if (samePath(parent, pane.currentPath)) {
+        await refresh(id);
+        // 用清單裡的實際路徑選取：後端回傳的路徑大小寫可能與列舉結果不同。
+        const list = visibleRef(id).value;
+        const index = list.findIndex((item) => samePath(item.path, created));
+        pane.selected = index >= 0 ? [list[index].path] : [created];
+        if (index >= 0) {
+          pane.focusedIndex = index;
+        }
+      }
+      ui.showNotice(kind === "folder" ? `已建立資料夾「${name}」` : `已建立檔案「${name}」`);
+      return true;
+    } catch (cause) {
+      pane.error = normalizeBackendError(cause);
+      return false;
+    }
+  }
+
   function columnWidth(id: PaneId, column: ColumnId): number {
     return panes[id]?.columnWidths[column] ?? COLUMN_DEFAULTS[column];
   }
@@ -696,6 +736,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     locateDirectory,
     selectionTarget,
     dismissError,
+    createEntry,
     columnWidth,
     setColumnWidth,
     resetColumnWidth,

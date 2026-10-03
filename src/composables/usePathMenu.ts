@@ -71,6 +71,14 @@ export function usePathMenu() {
       .map((tool) => ({ id: `tool:${tool.id}`, label: tool.label, icon: tool.icon }));
   }
 
+  /** 檔案總管的習慣：新增只出現在資料夾的右鍵選單（含空白處）。 */
+  function newItems(): MenuItem[] {
+    return [
+      { id: "new-folder", label: "建立新資料夾", icon: "folder", shortcut: "Ctrl+Shift+N" },
+      { id: "new-file", label: "建立新檔案", icon: "file" },
+    ];
+  }
+
   function clipboardItems(kind: "file" | "folder"): MenuItem[] {
     const items: MenuItem[] = [
       { id: "cut", label: "剪下", icon: "scissors", shortcut: "Ctrl+X" },
@@ -110,6 +118,7 @@ export function usePathMenu() {
 
   const folderMenu = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [];
+    appendWithSeparator(items, newItems());
     appendWithSeparator(items, clipboardItems("folder"));
     appendWithSeparator(items, toolItems("folder"));
     appendWithSeparator(items, transferItems());
@@ -159,6 +168,32 @@ export function usePathMenu() {
     }
   }
 
+  /** 建立新項目：先問名稱，再交給後端；檔名預設只選取主檔名。 */
+  async function createEntry(kind: "folder" | "file", target: MenuTarget | null) {
+    const folder = target?.isDir
+      ? target.path
+      : target
+        ? (parentOf(target.path) ?? "")
+        : explorer.meta(tabs.activePaneId)?.currentPath ?? "";
+    if (!folder) {
+      return;
+    }
+
+    const suggested = kind === "folder" ? "新增資料夾" : "新增文字文件.txt";
+    const name = await ui.prompt({
+      title: kind === "folder" ? "建立新資料夾" : "建立新檔案",
+      label: "名稱",
+      value: suggested,
+      confirmText: "建立",
+      // 只選取「新增文字文件」的部分，副檔名留著不要被覆蓋。
+      selectTo: kind === "file" ? "新增文字文件".length : undefined,
+    });
+    if (!name) {
+      return;
+    }
+    await explorer.createEntry(tabs.activePaneId, folder, name, kind);
+  }
+
   async function run(id: string, target: MenuTarget | null) {
     const paneId = tabs.activePaneId;
 
@@ -172,6 +207,12 @@ export function usePathMenu() {
 
     const path = target?.path;
     switch (id) {
+      case "new-folder":
+        await createEntry("folder", target);
+        return;
+      case "new-file":
+        await createEntry("file", target);
+        return;
       case "cut":
         await clipboard.put(targetsFor(target), true);
         return;
