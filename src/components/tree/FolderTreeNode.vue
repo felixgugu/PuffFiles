@@ -4,42 +4,56 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import { useSpringValue } from "@/composables/useSpringValue";
 import { useExplorerStore } from "@/stores/explorer";
 import { useFoldersStore } from "@/stores/folders";
-import type { FileEntry, PaneId } from "@/types/fs";
+import type { FolderNode, PaneId } from "@/types/fs";
 import { SPRINGS } from "@/utils/spring";
 import { samePath } from "@/utils/path";
 
 const props = defineProps<{
-  entry: FileEntry;
+  node: FolderNode;
   depth: number;
   paneId: PaneId;
-  /** 只有「我的資料夾」的根節點拿得到：它是使用者自己排的清單，可以拖曳調順序。 */
-  rootIndex?: number;
+  /**
+   * 節點所屬的容器（空字串＝第一層，其餘是虛擬目錄 id）與它在容器中的位置。
+   * 只有清單上的節點會拿到；檔案系統的子資料夾不帶，因此不能拖曳排序。
+   */
+  containerId?: string;
+  itemIndex?: number;
 }>();
 
 const emit = defineEmits<{
-  contextmenu: [entry: FileEntry, event: MouseEvent];
+  contextmenu: [node: FolderNode, event: MouseEvent];
 }>();
 
 const folders = useFoldersStore();
 const explorer = useExplorerStore();
 
-const expanded = computed(() => folders.isExpanded(props.entry.path));
-const children = computed(() => folders.childrenOf(props.entry.path));
-const loading = computed(() => folders.isLoading(props.entry.path));
-const isCurrent = computed(() =>
-  samePath(explorer.meta(props.paneId)?.currentPath ?? "", props.entry.path),
+const isGroup = computed(() => props.node.kind === "group");
+const draggable = computed(() => props.containerId !== undefined && props.itemIndex !== undefined);
+const expanded = computed(() => folders.isExpanded(props.node));
+const isActive = computed(() => folders.activeId === props.node.id);
+const isCurrent = computed(
+  () =>
+    !isGroup.value && samePath(explorer.meta(props.paneId)?.currentPath ?? "", props.node.path ?? ""),
 );
-const isSelected = computed(() => samePath(folders.activePath, props.entry.path));
-const draggable = computed(() => props.rootIndex !== undefined);
+
+/** 虛擬目錄的內容就是清單裡的真實資料夾；真實資料夾的內容則來自檔案系統。 */
+const groupChildren = computed(() => (isGroup.value ? (props.node.children ?? []) : []));
+const folderChildren = computed(() =>
+  isGroup.value || !props.node.path ? [] : folders.childrenOf(props.node.path),
+);
+const loading = computed(() =>
+  isGroup.value || !props.node.path ? false : folders.isLoading(props.node.path),
+);
 
 /* ---------------------------------------------------------------------------
- * 拖曳排序：只作用於根節點（檔案系統來的子節點不該被重排）。
+ * 拖曳排序：只在同一個容器內搬動（跨容器一律不搬，搬進虛擬目錄走右鍵選單）。
  *
  * 與分頁列同一套做法 —— 指標一進入鄰居的範圍就立刻搬動，結果連續可見，
  * 不需要另外畫一條插入線。
  * ------------------------------------------------------------------------- */
 
 interface DragSession {
+  containerId: string;
   index: number;
   startY: number;
   moved: boolean;
@@ -73,7 +87,7 @@ function detach() {
 
 function onPointerDown(event: PointerEvent) {
   swallowClick = false;
-  if (!draggable.value || event.button !== 0 || props.rootIndex === undefined) {
+  if (!draggable.value || event.button !== 0 || props.containerId === undefined) {
     return;
   }
   // 展開／收合鈕是獨立操作：絕對不要在這裡捕捉指標，否則這一列的 click 會蓋掉它。
@@ -81,7 +95,8 @@ function onPointerDown(event: PointerEvent) {
     return;
   }
   drag = {
-    index: props.rootIndex,
+    containerId: props.containerId,
+    index: props.itemIndex ?? 0,
     startY: event.clientY,
     moved: false,
     element: event.currentTarget as HTMLElement,
@@ -108,16 +123,20 @@ function onWindowPointerMove(event: PointerEvent) {
     setCapture(session.element, session.pointerId, true);
   }
 
+  // 只看同一個容器的列：拖到別的虛擬目錄或第一層都不會有反應。
   let target = session.index;
-  document.querySelectorAll<HTMLElement>("[data-root-index]").forEach((row, index) => {
+  document.querySelectorAll<HTMLElement>("[data-item-index]").forEach((row) => {
+    if ((row.dataset.containerId ?? "") !== session.containerId) {
+      return;
+    }
     const rect = row.getBoundingClientRect();
     if (event.clientY >= rect.top && event.clientY <= rect.bottom) {
-      target = index;
+      target = Number(row.dataset.itemIndex);
     }
   });
 
   if (target !== session.index) {
-    folders.moveRoot(session.index, target);
+    folders.moveNode(session.containerId, session.index, target);
     session.index = target;
     session.startY = event.clientY;
   }
@@ -137,6 +156,10 @@ function onWindowPointerUp(event: PointerEvent) {
 
 // 元件在拖曳途中被卸載時，window 上的監聽不能留下來。
 onScopeDispose(detach);
+
+/* ---------------------------------------------------------------------------
+ * 展開／收合
+ * ------------------------------------------------------------------------- */
 
 // 展開／收合用彈簧驅動而不是 CSS 過渡：動畫途中再點一次會直接反轉，
 // 不會先跑完再重來。
@@ -161,44 +184,52 @@ const childrenStyle = computed(() => ({
   opacity: String(Math.min(1, progress.value * 1.4)),
 }));
 
-function open() {
+function activate() {
   // 剛拖曳完的那一下放開不算「點擊」。
   if (swallowClick) {
     swallowClick = false;
     return;
   }
-  folders.setActivePath(props.entry.path);
-  void explorer.navigate(props.paneId, props.entry.path);
+  folders.select(props.node.id);
+  // 虛擬目錄沒有實體位置，點它＝展開／收合。
+  if (isGroup.value) {
+    void folders.toggle(props.node);
+    return;
+  }
+  if (props.node.path) {
+    void explorer.navigate(props.paneId, props.node.path);
+  }
 }
 
 function toggle() {
-  void folders.toggle(props.entry.path);
+  void folders.toggle(props.node);
 }
 
-function forwardContextMenu(entry: FileEntry, event: MouseEvent) {
-  emit("contextmenu", entry, event);
+function forwardContextMenu(node: FolderNode, event: MouseEvent) {
+  emit("contextmenu", node, event);
 }
 </script>
 
 <template>
   <div>
     <div
-      :data-tree-path="entry.path"
-      :data-root-index="draggable ? rootIndex : undefined"
+      :data-tree-path="node.path"
+      :data-container-id="draggable ? containerId : undefined"
+      :data-item-index="draggable ? itemIndex : undefined"
       class="group flex h-7 items-center rounded-md pr-1.5 text-base pressable"
       :class="[
         draggable ? 'cursor-grab' : '',
         dragging ? 'z-10 opacity-95 shadow-md' : '',
         isCurrent
           ? 'bg-accent-soft text-ink'
-          : isSelected
+          : isActive
             ? 'bg-surface-hover text-ink'
             : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink',
       ]"
       :style="{ paddingLeft: `${6 + depth * 12}px` }"
-      @click="open"
+      @click="activate"
       @pointerdown="onPointerDown"
-      @contextmenu.prevent="emit('contextmenu', entry, $event)"
+      @contextmenu.prevent="emit('contextmenu', node, $event)"
     >
       <button
         type="button"
@@ -215,11 +246,12 @@ function forwardContextMenu(entry: FileEntry, event: MouseEvent) {
         />
       </button>
       <AppIcon
-        :name="expanded ? 'folderOpen' : 'folder'"
+        :name="isGroup ? 'folderStack' : expanded ? 'folderOpen' : 'folder'"
         :size="14"
-        class="mr-1.5 shrink-0 text-accent/85"
+        class="mr-1.5 shrink-0"
+        :class="isGroup ? 'text-ink-muted' : 'text-accent/85'"
       />
-      <span class="min-w-0 flex-1 truncate" :title="entry.name">{{ entry.name }}</span>
+      <span class="min-w-0 flex-1 truncate" :title="node.label">{{ node.label }}</span>
     </div>
 
     <!--
@@ -229,22 +261,44 @@ function forwardContextMenu(entry: FileEntry, event: MouseEvent) {
     <div v-if="mounted" class="grid" :style="childrenStyle">
       <div class="min-h-0 overflow-hidden">
         <p
-          v-if="loading && !children.length"
+          v-if="loading && !folderChildren.length"
           class="py-1 text-xs text-ink-faint"
           :style="{ paddingLeft: `${18 + depth * 12}px` }"
         >
           讀取中…
         </p>
+
+        <!-- 虛擬目錄：內容是清單裡的真實資料夾，可以在這個容器內拖曳排序 -->
         <FolderTreeNode
-          v-for="child in children"
+          v-for="(child, index) in groupChildren"
+          :key="child.id"
+          :node="child"
+          :depth="depth + 1"
+          :pane-id="paneId"
+          :container-id="node.id"
+          :item-index="index"
+          @contextmenu="forwardContextMenu"
+        />
+
+        <!-- 真實資料夾：內容是檔案系統的子資料夾，不屬於清單，因此不能拖曳排序 -->
+        <FolderTreeNode
+          v-for="child in folderChildren"
           :key="child.path"
-          :entry="child"
+          :node="{ id: child.path, label: child.name, kind: 'folder', path: child.path }"
           :depth="depth + 1"
           :pane-id="paneId"
           @contextmenu="forwardContextMenu"
         />
+
         <p
-          v-if="!loading && !children.length"
+          v-if="isGroup && !groupChildren.length"
+          class="py-1 text-xs text-ink-faint"
+          :style="{ paddingLeft: `${18 + depth * 12}px` }"
+        >
+          這個虛擬目錄還沒有資料夾
+        </p>
+        <p
+          v-if="!isGroup && !loading && !folderChildren.length"
           class="py-1 text-xs text-ink-faint"
           :style="{ paddingLeft: `${18 + depth * 12}px` }"
         >

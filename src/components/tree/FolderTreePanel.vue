@@ -11,11 +11,12 @@ import * as api from "@/services/api";
 import { isDesktopRuntime } from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import { useExplorerStore } from "@/stores/explorer";
-import { useFoldersStore } from "@/stores/folders";
+import { useFoldersStore, TREE_ROOT_CONTAINER } from "@/stores/folders";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
-import type { FileEntry } from "@/types/fs";
+import type { FolderNode } from "@/types/fs";
+import type { MenuItem } from "@/types/menu";
 import { rubberband, SPRINGS } from "@/utils/spring";
 import { TREE_MAX_WIDTH, TREE_MIN_WIDTH } from "@/stores/settings";
 
@@ -35,12 +36,27 @@ const { menuFor, run: runMenu } = usePathMenu();
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
 
-const menu = ref<{ x: number; y: number; target: MenuTarget } | null>(null);
-/** 樹上的節點一定是資料夾，而且只作用於它自己（與清單的選取無關）。 */
-const menuItems = computed(() =>
-  menu.value ? menuFor({ target: menu.value.target, targets: [menu.value.target] }) : [],
-);
+/** 三種選單（加入、節點、移動到虛擬目錄）共用同一個實例，各自帶自己的處理函式。 */
+interface TreeMenu {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  onSelect: (id: string) => void;
+}
+
+const menu = ref<TreeMenu | null>(null);
 const treeScroll = useTemplateRef<HTMLElement>("treeScroll");
+const addButton = useTemplateRef<HTMLButtonElement>("addButton");
+
+function openMenu(x: number, y: number, items: MenuItem[], onSelect: (id: string) => void) {
+  menu.value = { x, y, items, onSelect };
+}
+
+function onMenuSelect(id: string) {
+  const current = menu.value;
+  menu.value = null;
+  current?.onSelect(id);
+}
 
 let widthAtDragStart = 0;
 const widthSpring = useSpringValue(settings.treeWidth, SPRINGS.panel);
@@ -80,16 +96,50 @@ watch(
     if (!path) {
       return;
     }
-    folders.setActivePath(path);
-    const root = folders.rootFor(path);
-    if (root) {
-      void folders.reveal(path, root.path);
-    }
+    folders.selectByPath(path);
+    void folders.reveal(path);
   },
   { immediate: true },
 );
 
-async function addFolder() {
+/* ---------------------------------------------------------------------------
+ * 加入資料夾／虛擬目錄
+ * ------------------------------------------------------------------------- */
+
+/** 工具列的＋：先問要建立虛擬目錄，還是直接加入真實資料夾。 */
+function openAddMenu() {
+  const rect = addButton.value?.getBoundingClientRect();
+  openMenu(
+    rect?.left ?? 8,
+    rect ? rect.bottom + 4 : 44,
+    [
+      { id: "add-group", label: "新增虛擬目錄", icon: "folderStack" },
+      { id: "add-folder", label: "加入真實資料夾", icon: "folder" },
+    ],
+    (id) => {
+      if (id === "add-group") {
+        void createGroup();
+        return;
+      }
+      void addFolder(TREE_ROOT_CONTAINER);
+    },
+  );
+}
+
+async function createGroup() {
+  const label = await ui.prompt({
+    title: "新增虛擬目錄",
+    label: "名稱",
+    value: "新增虛擬目錄",
+    confirmText: "建立",
+  });
+  if (label) {
+    folders.addGroup(label);
+  }
+}
+
+/** 加入真實資料夾；`groupId` 省略時放到第一層。 */
+async function addFolder(groupId: string) {
   try {
     const chosen = await api.chooseFolder(pane.value?.currentPath);
     if (!chosen) {
@@ -98,7 +148,7 @@ async function addFolder() {
       }
       return;
     }
-    if (!folders.addRoot(chosen)) {
+    if (!folders.addFolder(chosen, groupId)) {
       ui.showNotice("這個資料夾已經在清單裡了");
       return;
     }
@@ -108,10 +158,9 @@ async function addFolder() {
   }
 }
 
-/** 移除的對象：目前選取的節點所屬的根，其次是焦點窗格路徑所屬的根。 */
-function removableRoot() {
-  return folders.activeRoot() ?? folders.rootFor(pane.value?.currentPath ?? "");
-}
+/* ---------------------------------------------------------------------------
+ * 定位／排序／移除
+ * ------------------------------------------------------------------------- */
 
 /**
  * 定位：把樹移到清單裡「已選取」的那個位置。
@@ -125,8 +174,7 @@ async function locate() {
     return;
   }
 
-  const root = folders.rootFor(target);
-  if (!root) {
+  if (!folders.folderNodeFor(target)) {
     // 不在清單裡就直接問要不要加進來，比只回一句「找不到」有用。
     const accepted = await ui.confirm({
       title: "加入左側清單？",
@@ -136,16 +184,13 @@ async function locate() {
     if (!accepted) {
       return;
     }
-    if (!folders.addRoot(target)) {
+    if (!folders.addFolder(target)) {
       ui.showNotice("這個資料夾已經在清單裡了");
     }
   }
 
-  folders.setActivePath(target);
-  const resolved = folders.rootFor(target);
-  if (resolved) {
-    await folders.reveal(target, resolved.path);
-  }
+  folders.selectByPath(target);
+  await folders.reveal(target);
   await nextTick();
 
   const node = Array.from(
@@ -154,48 +199,147 @@ async function locate() {
   node?.scrollIntoView({ block: "nearest" });
 }
 
-/** 依名稱排序：排完仍然是同一份可拖曳的清單，想微調再自己拉。 */
-function sortFolders() {
-  if (folders.roots.length < 2) {
-    return;
-  }
-  folders.sortRootsByName();
-  ui.showNotice("已依名稱排序");
+/** 排序的範圍就是「選取節點所在的那一層」；沒有選取時退回到窗格路徑所在的那一層。 */
+function sortContainerId(): string {
+  const node = folders.selectedNode() ?? folders.folderNodeFor(pane.value?.currentPath ?? "");
+  return node ? (folders.containerIdOf(node.id) ?? TREE_ROOT_CONTAINER) : TREE_ROOT_CONTAINER;
 }
 
-function removeFolder() {
-  const root = removableRoot();
-  if (!root) {
-    ui.showNotice("請先在清單中選擇要移除的資料夾");
+function sortItems() {
+  const containerId = sortContainerId();
+  if (folders.nodesIn(containerId).length < 2) {
     return;
   }
-  const index = folders.rootIndexOf(root.id);
-  const removed = folders.removeRoot(root.id);
+  folders.sortNodes(containerId);
+  const group = containerId ? folders.nodeById(containerId) : null;
+  ui.showNotice(`已依名稱排序：${group ? group.label : "第一層"}`);
+}
+
+/** 移除的對象：目前選取的節點，其次是焦點窗格路徑所屬的資料夾。 */
+function removableNode(): FolderNode | null {
+  return folders.selectedNode() ?? folders.folderNodeFor(pane.value?.currentPath ?? "");
+}
+
+function removeNodeWithUndo(node: FolderNode) {
+  const removed = folders.removeNode(node.id);
   if (!removed) {
     return;
   }
-  ui.showNotice(
-    `已移除「${removed.label}」`,
-    { label: "復原", run: () => folders.insertRoot(removed, index) },
-    5000,
-  );
+  const what = node.kind === "group" ? `虛擬目錄「${node.label}」` : `「${node.label}」`;
+  ui.showNotice(`已移除${what}`, { label: "復原", run: () => folders.insertNode(removed) }, 5000);
 }
 
-function openNodeMenu(entry: FileEntry, event: MouseEvent) {
-  folders.setActivePath(entry.path);
-  menu.value = {
-    x: event.clientX,
-    y: event.clientY,
-    target: { path: entry.path, isDir: true },
-  };
-}
-
-async function onMenuSelect(id: string) {
-  const target = menu.value?.target;
-  menu.value = null;
-  if (target) {
-    await runMenu(id, { target, targets: [target] });
+async function removeGroup(node: FolderNode) {
+  const count = node.children?.length ?? 0;
+  const inside = count ? `與裡面的 ${count} 個資料夾` : "";
+  const accepted = await ui.confirm({
+    title: "移除虛擬目錄？",
+    message: `「${node.label}」${inside}會從清單移除，不會刪除實體檔案。`,
+    confirmText: "移除",
+  });
+  if (accepted) {
+    removeNodeWithUndo(node);
   }
+}
+
+function removeSelected() {
+  const node = removableNode();
+  if (!node) {
+    ui.showNotice("請先在清單中選擇要移除的項目");
+    return;
+  }
+  if (node.kind === "group") {
+    void removeGroup(node);
+    return;
+  }
+  removeNodeWithUndo(node);
+}
+
+/* ---------------------------------------------------------------------------
+ * 節點右鍵選單
+ * ------------------------------------------------------------------------- */
+
+function openNodeMenu(node: FolderNode, event: MouseEvent) {
+  folders.select(node.id);
+
+  if (node.kind === "group") {
+    openMenu(
+      event.clientX,
+      event.clientY,
+      [
+        { id: "group:rename", label: "重新命名", icon: "pencil" },
+        { id: "group:add", label: "加入資料夾到此群組", icon: "plus" },
+        { id: "group:remove", label: "移除虛擬目錄", icon: "minus", separatorBefore: true },
+      ],
+      (id) => void runGroupAction(id, node),
+    );
+    return;
+  }
+
+  // 真實資料夾：沿用檔案清單那套路徑選單，最後再加一個「搬到虛擬目錄」。
+  const target: MenuTarget = { path: node.path ?? "", isDir: true };
+  const items: MenuItem[] = menuFor({ target, targets: [target] });
+  items.push({
+    id: "node:move",
+    label: "移動到虛擬目錄…",
+    icon: "folderStack",
+    separatorBefore: true,
+    disabled: folders.groupNodes().length === 0,
+  });
+  openMenu(event.clientX, event.clientY, items, (id) => void runNodeAction(id, node, target, event));
+}
+
+async function runGroupAction(id: string, node: FolderNode) {
+  if (id === "group:rename") {
+    const label = await ui.prompt({
+      title: "重新命名虛擬目錄",
+      label: "名稱",
+      value: node.label,
+      confirmText: "重新命名",
+    });
+    if (label) {
+      folders.renameNode(node.id, label);
+    }
+    return;
+  }
+  if (id === "group:add") {
+    await addFolder(node.id);
+    return;
+  }
+  if (id === "group:remove") {
+    await removeGroup(node);
+  }
+}
+
+async function runNodeAction(
+  id: string,
+  node: FolderNode,
+  target: MenuTarget,
+  event: MouseEvent,
+) {
+  if (id !== "node:move") {
+    await runMenu(id, { target, targets: [target] });
+    return;
+  }
+  // 兩段式選單：沿用剛剛那個位置，接著列出所有虛擬目錄。
+  const original = folders.containerIdOf(node.id);
+  openMenu(
+    event.clientX,
+    event.clientY,
+    folders.groupNodes().map((group) => ({
+      id: `node:move-to:${group.id}`,
+      label: group.label,
+      icon: "folderStack",
+      disabled: group.id === original,
+    })),
+    (picked) => {
+      const groupId = picked.slice("node:move-to:".length);
+      const group = folders.nodeById(groupId);
+      if (group && folders.moveNodeToGroup(node.id, groupId)) {
+        ui.showNotice(`已將「${node.label}」移到「${group.label}」`);
+      }
+    },
+  );
 }
 </script>
 
@@ -206,18 +350,19 @@ async function onMenuSelect(id: string) {
   >
     <div class="flex h-9 shrink-0 items-center gap-0.5 border-b border-line px-1.5">
       <button
+        ref="addButton"
         type="button"
         class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
-        title="加入資料夾"
-        @click="addFolder()"
+        title="加入資料夾或新增虛擬目錄"
+        @click="openAddMenu()"
       >
         <AppIcon name="plus" :size="14" />
       </button>
       <button
         type="button"
         class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
-        title="移除資料夾"
-        @click="removeFolder()"
+        title="移除選取的資料夾或虛擬目錄"
+        @click="removeSelected()"
       >
         <AppIcon name="minus" :size="14" />
       </button>
@@ -225,8 +370,8 @@ async function onMenuSelect(id: string) {
       <button
         type="button"
         class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
-        title="依名稱排序（A→Z）"
-        @click="sortFolders()"
+        title="依名稱排序（排選取項目所在的那一層）"
+        @click="sortItems()"
       >
         <AppIcon name="sort" :size="14" />
       </button>
@@ -258,23 +403,13 @@ async function onMenuSelect(id: string) {
 
     <div ref="treeScroll" class="scroll-area min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
       <FolderTreeNode
-        v-for="(root, index) in folders.roots"
-        :key="root.id"
-        :entry="{
-          name: root.label,
-          path: root.path,
-          isDir: true,
-          isSymlink: false,
-          isHidden: false,
-          isReadonly: false,
-          size: 0,
-          modifiedMs: null,
-          createdMs: null,
-          extension: null,
-        }"
+        v-for="(node, index) in folders.roots"
+        :key="node.id"
+        :node="node"
         :depth="0"
         :pane-id="paneId"
-        :root-index="index"
+        :container-id="TREE_ROOT_CONTAINER"
+        :item-index="index"
         @contextmenu="openNodeMenu"
       />
 
@@ -284,12 +419,12 @@ async function onMenuSelect(id: string) {
         </div>
         <p class="text-base font-medium text-ink">還沒有加入資料夾</p>
         <p class="text-xs leading-relaxed text-ink-muted">
-          把工作上常用的資料夾加進來，<br />之後就能一鍵回到這裡。
+          把工作上常用的資料夾加進來，<br />之後就能一鍵回到這裡，也可以建立虛擬目錄分組。
         </p>
         <button
           type="button"
           class="mt-1 h-7 rounded-md bg-accent px-3 text-sm font-medium text-accent-ink transition-opacity duration-100 hover:opacity-90"
-          @click="addFolder()"
+          @click="openAddMenu()"
         >
           加入資料夾
         </button>
@@ -307,7 +442,7 @@ async function onMenuSelect(id: string) {
       v-if="menu"
       :x="menu.x"
       :y="menu.y"
-      :items="menuItems"
+      :items="menu.items"
       @select="onMenuSelect"
       @close="menu = null"
     />

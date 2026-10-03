@@ -64,10 +64,21 @@ export interface TabState {
 }
 
 /** 左側樹狀清單的使用者自訂資料夾根。 */
-export interface FolderRoot {
+/**
+ * 「我的資料夾」清單上的一個節點。
+ *
+ * `kind: "group"` 是虛擬目錄 —— 純粹用來分組，沒有實體路徑，只能放在第一層，
+ * 而且裡面只能是真實資料夾（只允許兩層）。
+ * `kind: "folder"` 是真實資料夾，可以放在第一層，也可以放在某個虛擬目錄裡。
+ */
+export interface FolderNode {
   id: string;
-  path: string;
   label: string;
+  kind: "folder" | "group";
+  /** 只有真實資料夾有。 */
+  path?: string;
+  /** 只有虛擬目錄有。 */
+  children?: FolderNode[];
 }
 
 export interface HistoryEntry {
