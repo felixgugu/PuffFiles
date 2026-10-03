@@ -198,6 +198,10 @@ export const useExplorerStore = defineStore("explorer", () => {
               pane.parentPath = event.parent;
               break;
             case "batch":
+              // 窗格可能在串流途中被關閉；此時直接丟棄這一批。
+              if (!entriesByPane.has(id)) {
+                return;
+              }
               entriesRef(id).value.push(...event.entries);
               triggerRef(entriesRef(id));
               recompute(id);
@@ -435,27 +439,6 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
-  async function createFolder(id: PaneId, name: string): Promise<boolean> {
-    const pane = panes[id];
-    if (!pane) {
-      return false;
-    }
-    try {
-      const created = await api.createFolder(pane.currentPath, name);
-      await refresh(id);
-      pane.selected = [created];
-      const index = visibleRef(id).value.findIndex((item) => item.path === created);
-      if (index >= 0) {
-        pane.focusedIndex = index;
-      }
-      ui.showNotice(`已建立「${name}」`);
-      return true;
-    } catch (cause) {
-      pane.error = normalizeBackendError(cause);
-      return false;
-    }
-  }
-
   /**
    * 定位用：目前選取項目所在的資料夾。
    *
@@ -493,20 +476,9 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
-  /** 工作階段還原：一次套用路徑、搜尋與排序。 */
-  function hydrate(id: PaneId, snapshot: Partial<PaneMeta>) {
-    const pane = panes[id];
-    if (!pane) {
-      return;
-    }
-    Object.assign(pane, snapshot, { id, error: null, status: "idle" as ExplorerStatus });
-  }
-
   return {
-    panes,
     createPane,
     destroyPane,
-    entriesRef,
     visibleRef,
     meta,
     load,
@@ -529,12 +501,9 @@ export const useExplorerStore = defineStore("explorer", () => {
     revealTarget,
     copyPath,
     runExternal,
-    createFolder,
     locateDirectory,
     dismissError,
     setQuery,
-    hydrate,
-    recompute,
   };
 });
 

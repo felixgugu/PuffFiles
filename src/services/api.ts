@@ -86,15 +86,6 @@ export async function revealPath(path: string): Promise<void> {
   return guarded(() => invoke("reveal_path", { path }));
 }
 
-/** 建立資料夾，成功時回傳新資料夾的完整路徑。 */
-export async function createFolder(parent: string, name: string): Promise<string> {
-  if (!isDesktopRuntime()) {
-    console.info("[mock] create folder", parent, name);
-    return `${parent}\\${name}`;
-  }
-  return guarded(() => invoke<string>("create_folder", { parent, name }));
-}
-
 /** 用外部程式開啟：PowerShell / Cmd / Notepad++ / VS Code。 */
 export async function openWith(
   path: string,

@@ -13,7 +13,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::fs::list_dir_stream,
             commands::fs::list_subdirs,
-            commands::fs::create_folder,
             commands::fs::open_path,
             commands::fs::open_with,
             commands::fs::reveal_path,

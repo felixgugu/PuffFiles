@@ -6,18 +6,6 @@ export function toBackslashes(path: string): string {
   return path.replace(/\//g, "\\");
 }
 
-export function isDriveRoot(path: string): boolean {
-  return /^[a-zA-Z]:\\?$/.test(path);
-}
-
-export function isUncRoot(path: string): boolean {
-  return /^\\\\[^\\]+\\[^\\]+\\?$/.test(path);
-}
-
-export function isRoot(path: string): boolean {
-  return isDriveRoot(path) || isUncRoot(path);
-}
-
 /** 取路徑最後一段，做為標題或名稱使用。 */
 export function fileNameOf(path: string): string {
   const normalized = toBackslashes(path).replace(/\\+$/, "");

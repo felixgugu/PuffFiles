@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { onScopeDispose, ref, type Ref } from "vue";
 
 export interface DragState {
   /** 相對於拖曳起點的位移。 */
@@ -83,6 +83,9 @@ export function useDragGesture(handlers: DragHandlers) {
     window.removeEventListener("pointerup", finish);
     window.removeEventListener("pointercancel", finish);
   }
+
+  // 元件在拖曳途中被卸載時，事件監聽不能留下來。
+  onScopeDispose(detach);
 
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0) {

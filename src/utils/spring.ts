@@ -70,26 +70,10 @@ export function isSettled(state: SpringState, target: number, epsilon = 0.001): 
   return Math.abs(state.value - target) < epsilon && Math.abs(state.velocity) < epsilon;
 }
 
-/**
- * Apple 的動量投影：用指數衰減估算「放手後會停在哪」。
- *
- * 注意這不是物理課本的 `v² / 2a`；`decelerationRate = 0.998` 是一般捲動手感，
- * 0.99 更俐落。算出落點後再吸附到最近的目標，甩動才有「丟出去」的感覺。
- */
-export function project(velocity: number, decelerationRate = 0.998): number {
-  return ((velocity / 1000) * decelerationRate) / (1 - decelerationRate);
-}
-
 /** 邊界橡皮筋：越過邊界越多，跟隨越少。 */
 export function rubberband(overshoot: number, dimension: number, constant = 0.55): number {
   if (dimension <= 0) {
     return 0;
   }
   return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
-}
-
-/** 相對速度：給需要以「剩餘距離」正規化的彈簧 API 使用。 */
-export function relativeVelocity(velocity: number, current: number, target: number): number {
-  const distance = target - current;
-  return distance === 0 ? 0 : velocity / distance;
 }

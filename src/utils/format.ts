@@ -35,7 +35,3 @@ export function formatDateTime(ms: number | null): string {
 export function formatCount(value: number): string {
   return value.toLocaleString("zh-TW");
 }
-
-export function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}

@@ -60,10 +60,10 @@ pub fn list_subdirs(path: &Path) -> AppResult<Vec<FileEntry>> {
         if entries.len() >= MAX_ENTRIES {
             break;
         }
-        if let Ok(entry) = build_entry(&item.path()) {
-            if entry.is_dir {
-                entries.push(entry);
-            }
+        if let Ok(entry) = build_entry(&item.path())
+            && entry.is_dir
+        {
+            entries.push(entry);
         }
     }
 

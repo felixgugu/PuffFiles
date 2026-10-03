@@ -5,6 +5,7 @@ import { normalizeBackendError } from "@/services/errors";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import type { FileEntry, FolderRoot } from "@/types/fs";
 import { fileNameOf, normalizeKey } from "@/utils/path";
+import { useUiStore } from "@/stores/ui";
 
 interface StoredFolders {
   roots: FolderRoot[];
@@ -19,6 +20,7 @@ const EMPTY: StoredFolders = { roots: [], expanded: [] };
  * 只處理資料夾（`list_subdirs`），子節點採懶載入 —— 展開誰才讀誰。
  */
 export const useFoldersStore = defineStore("folders", () => {
+  const ui = useUiStore();
   const stored = readJson<StoredFolders>(STORAGE_KEYS.folders, EMPTY, (value) => {
     const candidate = value as StoredFolders;
     return !!candidate && Array.isArray(candidate.roots) && Array.isArray(candidate.expanded);
@@ -29,7 +31,6 @@ export const useFoldersStore = defineStore("folders", () => {
   /** 節點路徑（正規化鍵）→ 子資料夾。 */
   const children = ref<Record<string, FileEntry[]>>({});
   const loading = ref<Record<string, boolean>>({});
-  const error = ref<string | null>(null);
   /** 樹狀清單中目前被選取的節點（供「移除資料夾」使用）。 */
   const activePath = ref("");
 
@@ -121,18 +122,18 @@ export const useFoldersStore = defineStore("folders", () => {
     await loadChildren(path);
   }
 
-  async function loadChildren(path: string, force = false) {
+  async function loadChildren(path: string) {
     const key = normalizeKey(path);
-    if (!force && (children.value[key] || loading.value[key])) {
+    if (children.value[key] || loading.value[key]) {
       return;
     }
     loading.value = { ...loading.value, [key]: true };
     try {
       const list = await api.listSubdirs(path);
       children.value = { ...children.value, [key]: list };
-      error.value = null;
     } catch (cause) {
-      error.value = normalizeBackendError(cause).message;
+      // 展開失敗要講出來，不能讓樹默默地停在舊狀態。
+      ui.showNotice(normalizeBackendError(cause).message, undefined, 4000);
       children.value = { ...children.value, [key]: [] };
     } finally {
       const next = { ...loading.value };
@@ -147,13 +148,6 @@ export const useFoldersStore = defineStore("folders", () => {
 
   function isLoading(path: string): boolean {
     return !!loading.value[normalizeKey(path)];
-  }
-
-  /** 重新整理：丟掉快取，重新讀取所有根與展開中的節點。 */
-  async function refresh() {
-    children.value = {};
-    const targets = [...roots.value.map((root) => root.path), ...expanded.value];
-    await Promise.all(targets.map((path) => loadChildren(path, true)));
   }
 
   /** 收合：只收合節點，不動資料夾清單本身。 */
@@ -183,7 +177,6 @@ export const useFoldersStore = defineStore("folders", () => {
     expanded,
     children,
     loading,
-    error,
     activePath,
     isEmpty,
     addRoot,
@@ -198,7 +191,6 @@ export const useFoldersStore = defineStore("folders", () => {
     loadChildren,
     childrenOf,
     isLoading,
-    refresh,
     collapseAll,
     reveal,
   };

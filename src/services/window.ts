@@ -39,11 +39,16 @@ export function watchMaximized(onChange: (maximized: boolean) => void): () => vo
   let pendingUnlisten: (() => void) | undefined;
 
   const sync = () => {
-    void win.isMaximized().then((maximized) => {
-      if (!disposed) {
-        onChange(maximized);
-      }
-    });
+    void win
+      .isMaximized()
+      .then((maximized) => {
+        if (!disposed) {
+          onChange(maximized);
+        }
+      })
+      .catch(() => {
+        // 取不到視窗狀態時維持目前的圖示即可，不需要打斷使用者。
+      });
   };
 
   void win.onResized(sync).then((unlisten) => {

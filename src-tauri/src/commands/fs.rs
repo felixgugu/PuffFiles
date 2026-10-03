@@ -51,19 +51,6 @@ fn send(channel: &Channel<DirEvent>, event: DirEvent) -> AppResult<()> {
     })
 }
 
-/// 在指定父層底下建立新資料夾，回傳新資料夾路徑。
-#[tauri::command]
-pub async fn create_folder(parent: String, name: String) -> AppResult<String> {
-    run_blocking(move || {
-        let name = validated_name(&name)?;
-        let parent = core::normalize(Path::new(&parent))?;
-        let target = parent.join(name);
-        std::fs::create_dir(&target).map_err(|e| AppError::from_io(e, &target))?;
-        Ok(target.to_string_lossy().into_owned())
-    })
-    .await
-}
-
 /// 以系統預設程式開啟檔案或資料夾。
 #[tauri::command]
 pub async fn open_path(path: String) -> AppResult<()> {
@@ -256,42 +243,4 @@ where
 
 fn existing_path(path: &str) -> AppResult<PathBuf> {
     core::normalize(Path::new(path))
-}
-
-/// 資料夾名稱不可為空、不含路徑分隔符，也不可是 `.` / `..`。
-fn validated_name(name: &str) -> AppResult<String> {
-    let trimmed = name.trim();
-    let invalid = |reason: &str| AppError::InvalidName {
-        reason: reason.to_string(),
-    };
-
-    if trimmed.is_empty() {
-        return Err(invalid("名稱不能是空的"));
-    }
-    if trimmed == "." || trimmed == ".." {
-        return Err(invalid("名稱不能是 . 或 .."));
-    }
-    if trimmed.contains(['/', '\\']) || trimmed.contains('\0') {
-        return Err(invalid("名稱不能包含路徑分隔符號"));
-    }
-    if trimmed.contains(['<', '>', ':', '"', '|', '?', '*']) {
-        return Err(invalid("名稱不能包含 < > : \" | ? * 等字元"));
-    }
-
-    Ok(trimmed.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn folder_names_are_sanitized() {
-        assert_eq!(validated_name("  報告 ").unwrap(), "報告");
-        assert!(validated_name("").is_err());
-        assert!(validated_name("..").is_err());
-        assert!(validated_name("a/b").is_err());
-        assert!(validated_name("a\\b").is_err());
-        assert!(validated_name("a:b").is_err());
-    }
 }
