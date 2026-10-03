@@ -586,6 +586,20 @@ export const useExplorerStore = defineStore("explorer", () => {
     ui.showNotice(copied ? "已複製路徑" : "無法複製到剪貼簿");
   }
 
+  /** 一次複製多個路徑（一行一個），多選時用。 */
+  async function copyPaths(
+    paths: string[],
+    format: "windows" | "linux" = "windows",
+  ): Promise<void> {
+    if (!paths.length) {
+      return;
+    }
+    const convert = (path: string) => (format === "linux" ? toUnixPath(path) : path);
+    const copied = await copyText(paths.map(convert).join("\r\n"));
+    const what = paths.length === 1 ? "已複製路徑" : `已複製 ${paths.length} 個路徑`;
+    ui.showNotice(copied ? what : "無法複製到剪貼簿");
+  }
+
   /**
    * 定位用：目前選取項目所在的資料夾。
    *
@@ -620,6 +634,24 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
     const entry = visibleRef(id).value.find((item) => item.path === last);
     return entry ? { path: entry.path, isDir: entry.isDir } : { path: last, isDir: false };
+  }
+
+  /**
+   * 目前選取的全部項目，依選取順序。
+   *
+   * 清單被搜尋或隱藏項目篩過時，選取中的項目可能不在畫面上；那種情況只能
+   * 假設它是檔案（與 `selectionTarget` 的退路一致）。
+   */
+  function selectionTargets(id: PaneId): { path: string; isDir: boolean }[] {
+    const pane = panes[id];
+    if (!pane?.selected.length) {
+      return [];
+    }
+    const entries = visibleRef(id).value;
+    return pane.selected.map((path) => ({
+      path,
+      isDir: entries.find((item) => item.path === path)?.isDir ?? false,
+    }));
   }
 
   function dismissError(id: PaneId) {
@@ -733,8 +765,10 @@ export const useExplorerStore = defineStore("explorer", () => {
     reveal,
     revealTarget,
     copyPath,
+    copyPaths,
     locateDirectory,
     selectionTarget,
+    selectionTargets,
     dismissError,
     createEntry,
     columnWidth,

@@ -10,6 +10,7 @@ import { useClipboardStore } from "@/stores/clipboard";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
+import type { MenuRequest } from "@/composables/usePathMenu";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { formatCount } from "@/utils/format";
 
@@ -19,7 +20,7 @@ const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
 const clipboard = useClipboardStore();
-const { fileMenu, folderMenu, run: runMenu } = usePathMenu();
+const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
 
 const ROW_HEIGHT = 24;
 /** 表頭是 sticky 而且是 in-flow，佔掉內容最前面的這一段。 */
@@ -394,13 +395,12 @@ watch(
 interface MenuState {
   x: number;
   y: number;
-  path: string;
-  kind: "file" | "folder";
+  request: MenuRequest;
 }
 
 const menu = ref<MenuState | null>(null);
 
-const menuItems = computed(() => (menu.value?.kind === "file" ? fileMenu.value : folderMenu.value));
+const menuItems = computed(() => (menu.value ? menuFor(menu.value.request) : []));
 
 function openRowMenu(entry: FileEntry, event: MouseEvent) {
   tabs.setActivePane(props.paneId);
@@ -410,12 +410,11 @@ function openRowMenu(entry: FileEntry, event: MouseEvent) {
   menu.value = {
     x: event.clientX,
     y: event.clientY,
-    path: entry.path,
-    kind: entry.isDir ? "folder" : "file",
+    request: requestFor(props.paneId, { path: entry.path, isDir: entry.isDir }),
   };
 }
 
-/** 空白處右鍵＝針對目前資料夾本身的操作。 */
+/** 空白處右鍵＝針對目前資料夾本身的操作，而且沒有任何被選取的項目。 */
 function openBlankMenu(event: MouseEvent) {
   if (isChrome(event.target)) {
     return;
@@ -424,14 +423,18 @@ function openBlankMenu(event: MouseEvent) {
   if (!pane.value.currentPath) {
     return;
   }
-  menu.value = { x: event.clientX, y: event.clientY, path: pane.value.currentPath, kind: "folder" };
+  menu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    request: blankRequest(pane.value.currentPath),
+  };
 }
 
 async function onMenuSelect(id: string) {
   const current = menu.value;
   menu.value = null;
   if (current) {
-    await runMenu(id, { path: current.path, isDir: current.kind === "folder" });
+    await runMenu(id, current.request);
   }
 }
 

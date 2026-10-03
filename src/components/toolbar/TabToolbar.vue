@@ -5,7 +5,6 @@ import SearchField from "@/components/common/SearchField.vue";
 import PathBreadcrumb from "./PathBreadcrumb.vue";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { useExplorerStore } from "@/stores/explorer";
-import { useClipboardStore } from "@/stores/clipboard";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { fileNameOf } from "@/utils/path";
@@ -19,12 +18,8 @@ import { paneSlotLabel } from "@/utils/layout";
  */
 const explorer = useExplorerStore();
 const tabs = useTabsStore();
-const clipboard = useClipboardStore();
 const settings = useSettingsStore();
 const refreshView = useRefreshView();
-
-/** 有檔案操作在跑時先擋住，避免同時開出兩個 shell 進度對話框。 */
-const canTransfer = computed(() => tabs.isSplit && !clipboard.busy);
 
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
@@ -194,46 +189,6 @@ function revealCurrent() {
           @click="option.current || !option.enabled ? undefined : option.run()"
         >
           <AppIcon :name="option.icon" :size="14" />
-        </button>
-      </div>
-
-      <!-- 窗格之間直接複製／搬移；分割時才有意義。 -->
-      <div class="ml-0.5 flex items-center gap-0.5 border-l border-line pl-1.5">
-        <button
-          type="button"
-          class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable"
-          :class="
-            canTransfer
-              ? 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
-              : 'cursor-default text-ink-faint opacity-30'
-          "
-          :aria-disabled="!canTransfer"
-          :title="
-            canTransfer
-              ? '把選取項目複製到另一窗格 (Ctrl+Shift+C)'
-              : '需要分割畫面才能送到另一邊'
-          "
-          @click="canTransfer && clipboard.transferToOtherPane('copy')"
-        >
-          <AppIcon name="copy" :size="15" />
-        </button>
-        <button
-          type="button"
-          class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable"
-          :class="
-            canTransfer
-              ? 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
-              : 'cursor-default text-ink-faint opacity-30'
-          "
-          :aria-disabled="!canTransfer"
-          :title="
-            canTransfer
-              ? '把選取項目搬移到另一窗格 (Ctrl+Shift+M)'
-              : '需要分割畫面才能送到另一邊'
-          "
-          @click="canTransfer && clipboard.transferToOtherPane('move')"
-        >
-          <AppIcon name="move" :size="15" />
         </button>
       </div>
     </div>

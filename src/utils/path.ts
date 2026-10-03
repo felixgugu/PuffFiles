@@ -19,6 +19,17 @@ export function fileStemOf(name: string): string {
   return index > 0 ? name.slice(0, index) : name;
 }
 
+/**
+ * 取小寫、含點的副檔名（`archive.7z` → `.7z`）；沒有副檔名時回傳空字串。
+ *
+ * 與後端 `Path::extension()` 一致：`.gitignore` 這類開頭是點的檔名不算有副檔名。
+ */
+export function extensionOf(path: string): string {
+  const name = fileNameOf(path);
+  const index = name.lastIndexOf(".");
+  return index > 0 ? name.slice(index).toLocaleLowerCase() : "";
+}
+
 export function joinPath(base: string, name: string): string {
   const normalized = toBackslashes(base);
   return normalized.endsWith("\\") ? `${normalized}${name}` : `${normalized}\\${name}`;

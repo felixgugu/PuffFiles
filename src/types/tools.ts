@@ -22,6 +22,11 @@ export interface ExternalTool {
   /** 終端機類工具要開新主控台視窗。 */
   newConsole: boolean;
   targets: ToolTarget[];
+  /**
+   * 只在這些副檔名上出現（含點、小寫，例如 `.7z`），不分大小寫比對。
+   * 空陣列或未設定＝不限；一旦設定就只會出現在檔案上，資料夾不算符合。
+   */
+  extensions?: string[];
   icon: IconName;
   /** 內建工具可以編輯，但不能刪除。 */
   builtin?: boolean;

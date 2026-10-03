@@ -6,6 +6,7 @@ import FolderTreeNode from "./FolderTreeNode.vue";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { useSpringValue } from "@/composables/useSpringValue";
 import { usePathMenu } from "@/composables/usePathMenu";
+import type { MenuTarget } from "@/composables/usePathMenu";
 import * as api from "@/services/api";
 import { isDesktopRuntime } from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
@@ -29,12 +30,16 @@ const folders = useFoldersStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
-const { folderMenu, run: runMenu } = usePathMenu();
+const { menuFor, run: runMenu } = usePathMenu();
 
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
 
-const menu = ref<{ x: number; y: number; path: string } | null>(null);
+const menu = ref<{ x: number; y: number; target: MenuTarget } | null>(null);
+/** 樹上的節點一定是資料夾，而且只作用於它自己（與清單的選取無關）。 */
+const menuItems = computed(() =>
+  menu.value ? menuFor({ target: menu.value.target, targets: [menu.value.target] }) : [],
+);
 const treeScroll = useTemplateRef<HTMLElement>("treeScroll");
 
 let widthAtDragStart = 0;
@@ -169,14 +174,18 @@ function removeFolder() {
 
 function openNodeMenu(entry: FileEntry, event: MouseEvent) {
   folders.setActivePath(entry.path);
-  menu.value = { x: event.clientX, y: event.clientY, path: entry.path };
+  menu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    target: { path: entry.path, isDir: true },
+  };
 }
 
 async function onMenuSelect(id: string) {
-  const target = menu.value?.path;
+  const target = menu.value?.target;
   menu.value = null;
   if (target) {
-    await runMenu(id, { path: target, isDir: true });
+    await runMenu(id, { target, targets: [target] });
   }
 }
 </script>
@@ -280,7 +289,7 @@ async function onMenuSelect(id: string) {
       v-if="menu"
       :x="menu.x"
       :y="menu.y"
-      :items="folderMenu"
+      :items="menuItems"
       @select="onMenuSelect"
       @close="menu = null"
     />

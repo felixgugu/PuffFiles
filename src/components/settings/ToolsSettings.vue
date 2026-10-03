@@ -5,6 +5,7 @@ import { copyText } from "@/services/clipboard";
 import { TOOL_ICONS, useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import type { ExternalTool, ToolTarget } from "@/types/tools";
+import { formatExtensions, normalizeExtensions } from "@/utils/tools";
 import { TOOL_VARIABLES } from "@/utils/toolVars";
 
 const settings = useSettingsStore();
@@ -20,6 +21,8 @@ const selected = computed(() => settings.tools.find((tool) => tool.id === select
  * 同步回來的值吃掉，變成「不能換行」。現在原文照存，空行由執行時過濾。
  */
 const argsDraft = ref("");
+/** 副檔名欄位同樣保留使用者輸入的原文（`.7z`、`7z`、`7z, zip` 都算）。 */
+const extDraft = ref("");
 const argsEl = useTemplateRef<HTMLTextAreaElement>("argsEl");
 const workdirEl = useTemplateRef<HTMLInputElement>("workdirEl");
 /** 點變數時要插入哪個欄位：看最後聚焦的是引數還是工作目錄。 */
@@ -29,6 +32,7 @@ watch(
   () => selected.value?.id,
   () => {
     argsDraft.value = selected.value?.args.join("\n") ?? "";
+    extDraft.value = formatExtensions(selected.value?.extensions);
     lastField.value = "args";
   },
   { immediate: true },
@@ -45,6 +49,26 @@ watch(argsDraft, (text) => {
     patch({ args: next });
   }
 });
+
+// 同上：只有正規化後真的不同才寫回。
+watch(extDraft, (text) => {
+  const tool = selected.value;
+  if (!tool) {
+    return;
+  }
+  const next = normalizeExtensions(text);
+  if (next.join(" ") !== (tool.extensions ?? []).join(" ")) {
+    patch({ extensions: next });
+  }
+});
+
+/** 清單列右邊的摘要：顯示於哪裡，以及有沒有限定副檔名。 */
+function targetSummary(tool: ExternalTool): string {
+  const where =
+    tool.targets.length === 2 ? "檔案與資料夾" : tool.targets[0] === "file" ? "僅檔案" : "僅資料夾";
+  const extensions = formatExtensions(tool.extensions);
+  return extensions ? `${where} · ${extensions}` : where;
+}
 
 /** 插入變數到最後聚焦的欄位；在引數欄位是插在游標位置。 */
 function insertVariable(name: string) {
@@ -130,8 +154,8 @@ function removeTool(id: string) {
         >
           <AppIcon :name="tool.icon" :size="15" class="shrink-0 text-ink-muted" />
           <span class="min-w-0 flex-1 truncate text-base text-ink">{{ tool.label }}</span>
-          <span class="shrink-0 text-xs text-ink-faint">
-            {{ tool.targets.length === 2 ? "檔案與資料夾" : tool.targets[0] === "file" ? "僅檔案" : "僅資料夾" }}
+          <span class="max-w-44 shrink-0 truncate text-xs text-ink-faint">
+            {{ targetSummary(tool) }}
           </span>
           <code class="max-w-40 shrink-0 truncate text-xs text-ink-faint">{{ tool.executable || "未設定" }}</code>
           <span
@@ -248,6 +272,23 @@ function removeTool(id: string) {
           </label>
         </div>
 
+        <label class="block">
+          <span class="text-sm text-ink-muted">副檔名（選填）</span>
+          <input
+            v-model="extDraft"
+            type="text"
+            spellcheck="false"
+            :disabled="!selected.targets.includes('file')"
+            placeholder=".7z .zip .rar"
+            class="mt-1 h-8 w-full rounded-md border border-line bg-canvas px-2.5 font-mono text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none disabled:opacity-50"
+          />
+          <span class="mt-1 block text-xs leading-relaxed text-ink-faint">
+            填了就只出現在這些副檔名的檔案上（不分大小寫，可用空白、逗號或分號分隔）。
+            例如 7-Zip 填 <code class="rounded bg-surface-muted px-1">.7z .zip .rar</code>；
+            留空表示所有檔案。只在「顯示於：檔案」時有意義。
+          </span>
+        </label>
+
         <div class="flex items-center gap-2">
           <span class="text-sm text-ink-muted">圖示</span>
           <button
@@ -303,6 +344,12 @@ function removeTool(id: string) {
         沒有後綴的變數是「你按右鍵的那個項目」；後綴 1／2 分別固定取左／上與右／下的窗格，
         所以可以寫出「把左邊窗格的路徑丟給右邊的工具」這種組合。取不到值的變數會展開成空字串，
         整個引數變成空的時候會被略過。
+      </p>
+      <p class="mt-2 text-xs leading-relaxed text-ink-faint">
+        多選時，單獨一行的 <code class="rounded bg-surface-muted px-1">$fullFilePath</code>
+        會展開成多個引數（每個選取項目一個），整組 .zip 交給 7-Zip 就是這個用法；
+        寫在文字中間時（例如 <code class="rounded bg-surface-muted px-1">--file=$fullFilePath</code>）
+        仍只代表右鍵的那一項。
       </p>
     </section>
   </div>

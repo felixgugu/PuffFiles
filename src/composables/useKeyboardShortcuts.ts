@@ -132,8 +132,8 @@ export function useKeyboardShortcuts() {
           }
           event.preventDefault();
           void pathMenu.run("new-folder", {
-            path: explorer.meta(paneId)?.currentPath ?? "",
-            isDir: true,
+            target: { path: explorer.meta(paneId)?.currentPath ?? "", isDir: true },
+            targets: [],
           });
           return;
         case "f":

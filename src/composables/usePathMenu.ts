@@ -1,4 +1,3 @@
-import { computed } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import { useClipboardStore } from "@/stores/clipboard";
@@ -6,9 +5,12 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import type { PaneId } from "@/types/fs";
 import type { MenuItem } from "@/types/menu";
 import type { ExternalTool, ToolVars } from "@/types/tools";
-import { fileNameOf, fileStemOf, normalizeKey, parentOf } from "@/utils/path";
+import { fileNameOf, fileStemOf, parentOf, samePath } from "@/utils/path";
+import { splitIcon } from "@/utils/layout";
+import { toolMatches } from "@/utils/tools";
 import { applyVars, buildVars } from "@/utils/toolVars";
 
 /** 右鍵選單的對象：檔案或資料夾，以及它自己的完整路徑。 */
@@ -18,10 +20,24 @@ export interface MenuTarget {
 }
 
 /**
+ * 一次右鍵的完整情境。
+ *
+ * `target` 是右鍵的那一項；在清單空白處右鍵時帶入「目前資料夾」，而 `targets`
+ * 是空的 —— 空白處代表沒有任何被選取的項目，選單只提供整組操作。
+ * `targets` 則是這次動作實際會作用的項目：右鍵的項目若在選取範圍內就是整個選取，
+ * 否則只有它自己（與檔案總管一致）。
+ */
+export interface MenuRequest {
+  target: MenuTarget;
+  targets: MenuTarget[];
+}
+
+/**
  * 右鍵選單的內容與動作。
  *
- * 檔案操作一律交給 Windows shell；外部工具則完全來自使用者的設定清單，
- * 依「檔案／資料夾」篩選，引數在執行前才把變數展開成實際路徑。
+ * 選單依「選取的數量與種類」決定內容：單一資料夾給開啟、新增與貼上，單一檔案給
+ * 開啟與外部工具，多選只留對整組有意義的動作。外部工具另外用使用者的設定
+ * （顯示於檔案／資料夾、副檔名）篩選，規則見 `utils/tools.ts`。
  */
 export function usePathMenu() {
   const explorer = useExplorerStore();
@@ -52,26 +68,18 @@ export function usePathMenu() {
     return buildVars(toVars(target), paneVars);
   }
 
-  /**
-   * 檔案操作作用的對象：右鍵的那個項目若已在選取範圍內，就作用於整個選取；
-   * 否則只作用於它自己（與檔案總管一致）。
-   */
-  function targetsFor(target: MenuTarget | null): string[] {
-    const selection = clipboard.selectionOf(tabs.activePaneId);
-    if (!target?.path) {
-      return selection;
-    }
-    const key = normalizeKey(target.path);
-    return selection.some((path) => normalizeKey(path) === key) ? selection : [target.path];
+  /** 由「右鍵的那一項」與該窗格的選取組出 request。 */
+  function requestFor(paneId: PaneId, target: MenuTarget): MenuRequest {
+    const selection = explorer.selectionTargets(paneId);
+    const picked = selection.some((item) => samePath(item.path, target.path));
+    return { target, targets: picked ? selection : [target] };
   }
 
-  function toolItems(kind: "file" | "folder"): MenuItem[] {
-    return settings.tools
-      .filter((tool) => tool.targets.includes(kind))
-      .map((tool) => ({ id: `tool:${tool.id}`, label: tool.label, icon: tool.icon }));
+  /** 清單空白處：對象是目前資料夾，但沒有任何被選取的項目。 */
+  function blankRequest(folderPath: string): MenuRequest {
+    return { target: { path: folderPath, isDir: true }, targets: [] };
   }
 
-  /** 檔案總管的習慣：新增只出現在資料夾的右鍵選單（含空白處）。 */
   function newItems(): MenuItem[] {
     return [
       { id: "new-folder", label: "建立新資料夾", icon: "folder", shortcut: "Ctrl+Shift+N" },
@@ -79,16 +87,28 @@ export function usePathMenu() {
     ];
   }
 
-  function clipboardItems(kind: "file" | "folder"): MenuItem[] {
+  function clipboardItems(kind: "file" | "folder" | "multi"): MenuItem[] {
     const items: MenuItem[] = [
       { id: "cut", label: "剪下", icon: "scissors", shortcut: "Ctrl+X" },
       { id: "copy", label: "複製", icon: "copy", shortcut: "Ctrl+C" },
     ];
+    // 貼上只對「一個明確的目的地資料夾」有意義；多選時不知道要貼到哪一個。
     if (kind === "folder") {
       items.push({ id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" });
     }
     items.push({ id: "delete", label: "刪除", icon: "trash", shortcut: "Del" });
     return items;
+  }
+
+  function pasteItem(): MenuItem {
+    return { id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" };
+  }
+
+  /** 外部工具：只留下對這組對象真正適用的。 */
+  function toolItems(targets: MenuTarget[]): MenuItem[] {
+    return settings.tools
+      .filter((tool) => toolMatches(tool, targets))
+      .map((tool) => ({ id: `tool:${tool.id}`, label: tool.label, icon: tool.icon }));
   }
 
   /** 只有分割時才提供的「送到另一邊」。 */
@@ -98,8 +118,8 @@ export function usePathMenu() {
       return [];
     }
     return [
-      { id: "transfer-copy", label: "複製到另一窗格", icon: "copy", shortcut: "Ctrl+Shift+C" },
-      { id: "transfer-move", label: "移動到另一窗格", icon: "move", shortcut: "Ctrl+Shift+M" },
+      { id: "transfer-copy", label: "複製到另一窗格", icon: "paneCopy", shortcut: "Ctrl+Shift+C" },
+      { id: "transfer-move", label: "移動到另一窗格", icon: "paneMove", shortcut: "Ctrl+Shift+M" },
     ];
   }
 
@@ -110,55 +130,113 @@ export function usePathMenu() {
     ];
   }
 
-  function appendWithSeparator(items: MenuItem[], block: MenuItem[]) {
+  function revealItem(label = "在檔案總管中顯示"): MenuItem {
+    return { id: "reveal", label, icon: "externalLink" };
+  }
+
+  function append(items: MenuItem[], block: MenuItem[]) {
     block.forEach((item, index) => {
       items.push({ ...item, separatorBefore: index === 0 ? items.length > 0 : false });
     });
   }
 
-  const folderMenu = computed<MenuItem[]>(() => {
+  /** 空白處：只提供跟「目前這個資料夾」有關的動作，加上新增與貼上。 */
+  function menuForBlank(target: MenuTarget): MenuItem[] {
     const items: MenuItem[] = [];
-    appendWithSeparator(items, newItems());
-    appendWithSeparator(items, clipboardItems("folder"));
-    appendWithSeparator(items, toolItems("folder"));
-    appendWithSeparator(items, transferItems());
-    appendWithSeparator(items, copyPathItems());
-    items.push({
-      id: "reveal",
-      label: "在檔案總管中顯示",
-      icon: "externalLink",
-      separatorBefore: true,
-    });
+    append(items, newItems());
+    append(items, [pasteItem()]);
+    append(items, toolItems([target]));
+    append(items, copyPathItems());
+    append(items, [revealItem()]);
     return items;
-  });
+  }
 
-  const fileMenu = computed<MenuItem[]>(() => {
+  /** 單一資料夾：可以進去、可以在裡面新增、也可以把它當貼上的目的地。 */
+  function menuForFolder(target: MenuTarget): MenuItem[] {
+    const items: MenuItem[] = [
+      { id: "open", label: "開啟", icon: "folderOpen" },
+      { id: "open-tab", label: "在新分頁開啟", icon: "tabNew" },
+      {
+        id: "open-pane",
+        label: "在新窗格開啟",
+        // 圖示直接反映會用哪個方向：沿用上次分割的方向（與工具列的記憶一致）。
+        icon: splitIcon(settings.lastSplit.direction),
+        // 已經分割的分頁再呼叫 split() 只會換方向，不會真的開新窗格，所以先擋住。
+        disabled: tabs.isSplit,
+      },
+    ];
+    append(items, newItems());
+    append(items, clipboardItems("folder"));
+    append(items, toolItems([target]));
+    append(items, transferItems());
+    append(items, copyPathItems());
+    append(items, [revealItem()]);
+    return items;
+  }
+
+  /** 單一檔案：沒有「新增」也沒有「貼上」，工具再依副檔名篩選。 */
+  function menuForFile(target: MenuTarget): MenuItem[] {
     const items: MenuItem[] = [{ id: "open", label: "開啟", icon: "folderOpen" }];
-    appendWithSeparator(items, clipboardItems("file"));
-    appendWithSeparator(items, toolItems("file"));
-    appendWithSeparator(items, transferItems());
-    appendWithSeparator(items, copyPathItems());
-    items.push({
-      id: "reveal",
-      label: "在檔案總管中顯示",
-      icon: "externalLink",
-      separatorBefore: true,
-    });
+    append(items, clipboardItems("file"));
+    append(items, toolItems([target]));
+    append(items, transferItems());
+    append(items, copyPathItems());
+    append(items, [revealItem()]);
     return items;
-  });
+  }
 
-  async function runTool(tool: ExternalTool, target: MenuTarget | null) {
-    const vars = varsFor(target);
+  /**
+   * 多選：只留下對「一整組」都成立的動作。
+   *
+   * 開啟、新增、貼上這類單一目標的動作都不出現；外部工具要整組都符合才會出現
+   * （例如整組都是 .zip 時的 7-Zip）。
+   */
+  function menuForSelection(request: MenuRequest): MenuItem[] {
+    const items: MenuItem[] = [];
+    append(items, clipboardItems("multi"));
+    append(items, toolItems(request.targets));
+    append(items, transferItems());
+    append(items, copyPathItems());
+    append(items, [revealItem("在檔案總管中顯示右鍵的項目")]);
+    return items;
+  }
+
+  function menuFor(request: MenuRequest): MenuItem[] {
+    if (!request.targets.length) {
+      return menuForBlank(request.target);
+    }
+    if (request.targets.length > 1) {
+      return menuForSelection(request);
+    }
+    return request.targets[0].isDir
+      ? menuForFolder(request.targets[0])
+      : menuForFile(request.targets[0]);
+  }
+
+  /**
+   * 執行外部工具。
+   *
+   * 多選時，單獨一行的 `$fullFilePath` 會展開成「每個選取項目一個引數」——
+   * 這樣 7-Zip 這類吃多個檔案的指令才有意義；其他寫法（例如 `--file=$fullFilePath`）
+   * 一律只代表右鍵的那一項。
+   */
+  async function runTool(tool: ExternalTool, request: MenuRequest) {
+    const vars = varsFor(request.target);
     const program = applyVars(tool.executable, vars).trim();
     if (!program) {
       ui.showNotice(`「${tool.label}」還沒有設定執行檔`);
       return;
     }
 
-    const args = tool.args
-      .map((arg) => applyVars(arg, vars))
+    const paths = request.targets.map((item) => item.path);
+    const args = tool.args.flatMap((arg) => {
+      if (paths.length > 1 && arg.trim() === "$fullFilePath") {
+        return paths;
+      }
       // 變數取不到值時會展開成空字串，這種引數直接丟掉，不要送空引數給程式。
-      .filter((arg) => arg.trim() !== "");
+      const value = applyVars(arg, vars).trim();
+      return value ? [value] : [];
+    });
     const workingDirectory = applyVars(tool.workingDirectory, vars).trim();
 
     try {
@@ -169,12 +247,8 @@ export function usePathMenu() {
   }
 
   /** 建立新項目：先問名稱，再交給後端；檔名預設只選取主檔名。 */
-  async function createEntry(kind: "folder" | "file", target: MenuTarget | null) {
-    const folder = target?.isDir
-      ? target.path
-      : target
-        ? (parentOf(target.path) ?? "")
-        : explorer.meta(tabs.activePaneId)?.currentPath ?? "";
+  async function createEntry(kind: "folder" | "file", target: MenuTarget) {
+    const folder = target.isDir ? target.path : (parentOf(target.path) ?? "");
     if (!folder) {
       return;
     }
@@ -194,18 +268,22 @@ export function usePathMenu() {
     await explorer.createEntry(tabs.activePaneId, folder, name, kind);
   }
 
-  async function run(id: string, target: MenuTarget | null) {
+  async function run(id: string, request: MenuRequest) {
     const paneId = tabs.activePaneId;
+    const { target } = request;
+    // 空白處沒有被選取的項目時，動作的對象就是目前資料夾自己。
+    const paths = request.targets.length
+      ? request.targets.map((item) => item.path)
+      : [target.path];
 
     if (id.startsWith("tool:")) {
       const tool = settings.tools.find((item) => item.id === id.slice(5));
       if (tool) {
-        await runTool(tool, target);
+        await runTool(tool, request);
       }
       return;
     }
 
-    const path = target?.path;
     switch (id) {
       case "new-folder":
         await createEntry("folder", target);
@@ -214,16 +292,16 @@ export function usePathMenu() {
         await createEntry("file", target);
         return;
       case "cut":
-        await clipboard.put(targetsFor(target), true);
+        await clipboard.put(paths, true);
         return;
       case "copy":
-        await clipboard.put(targetsFor(target), false);
+        await clipboard.put(paths, false);
         return;
       case "paste":
-        await clipboard.paste(paneId, target?.isDir ? target.path : undefined);
+        await clipboard.paste(paneId, target.isDir ? target.path : undefined);
         return;
       case "delete":
-        await clipboard.removePaths(targetsFor(target));
+        await clipboard.removePaths(paths);
         return;
       case "transfer-copy":
         await clipboard.transferToOtherPane("copy");
@@ -231,30 +309,28 @@ export function usePathMenu() {
       case "transfer-move":
         await clipboard.transferToOtherPane("move");
         return;
-      default:
-        break;
-    }
-
-    if (!path) {
-      return;
-    }
-    switch (id) {
       case "open":
-        await explorer.openPath(path);
-        break;
+        await explorer.openPath(target.path);
+        return;
+      case "open-tab":
+        tabs.newTab(target.path);
+        return;
+      case "open-pane":
+        tabs.split(settings.lastSplit.direction, target.path);
+        return;
       case "copy-windows":
-        await explorer.copyPath(path, "windows");
-        break;
+        await explorer.copyPaths(paths, "windows");
+        return;
       case "copy-linux":
-        await explorer.copyPath(path, "linux");
-        break;
+        await explorer.copyPaths(paths, "linux");
+        return;
       case "reveal":
-        await explorer.revealTarget(path);
-        break;
+        await explorer.revealTarget(target.path);
+        return;
       default:
-        break;
+        return;
     }
   }
 
-  return { folderMenu, fileMenu, run };
+  return { menuFor, requestFor, blankRequest, run };
 }

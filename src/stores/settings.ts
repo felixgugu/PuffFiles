@@ -137,7 +137,12 @@ const DEFAULTS: StoredSettings = {
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
 
 function cloneTools(tools: ExternalTool[]): ExternalTool[] {
-  return tools.map((tool) => ({ ...tool, args: [...tool.args], targets: [...tool.targets] }));
+  return tools.map((tool) => ({
+    ...tool,
+    args: [...tool.args],
+    targets: [...tool.targets],
+    extensions: [...(tool.extensions ?? [])],
+  }));
 }
 
 function seedTools(raw: Partial<StoredSettings> & LegacySettings): ExternalTool[] {
@@ -310,6 +315,8 @@ export const useSettingsStore = defineStore("settings", () => {
       workingDirectory: "$fullFolderPath",
       newConsole: false,
       targets: ["file"],
+      // 留空＝所有檔案都會出現；填了才依副檔名篩選。
+      extensions: [],
       icon: "program",
     };
     tools.value = [...tools.value, tool];

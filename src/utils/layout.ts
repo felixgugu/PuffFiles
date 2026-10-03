@@ -13,11 +13,16 @@ export interface LayoutShape {
  * - `splitColumns`：垂直分割（左右並排，中間是一條垂直分隔線）
  * - `splitRows`：水平分割（上下堆疊，中間是一條水平分隔線）
  */
+/** 分割方向對應的圖示：`row` 是左右並排，`column` 是上下堆疊。 */
+export function splitIcon(direction: SplitDirection): IconName {
+  return direction === "row" ? "splitColumns" : "splitRows";
+}
+
 export function layoutIcon(layout: LayoutShape): IconName {
   if (layout.paneIds.length < 2) {
     return "layoutSingle";
   }
-  return layout.direction === "row" ? "splitColumns" : "splitRows";
+  return splitIcon(layout.direction);
 }
 
 export function layoutLabel(layout: LayoutShape): string {
