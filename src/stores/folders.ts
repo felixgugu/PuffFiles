@@ -238,8 +238,7 @@ export const useFoldersStore = defineStore("folders", () => {
 
   /** 加入一個真實資料夾；已存在（全樹去重）時回傳 `false`。 */
   function addFolder(path: string, groupId = TREE_ROOT_CONTAINER): boolean {
-    const key = normalizeKey(path);
-    if (!path || folderNodes().some((node) => normalizeKey(node.path ?? "") === key)) {
+    if (hasFolderPath(path)) {
       return false;
     }
     const node: FolderNode = {
@@ -253,6 +252,20 @@ export const useFoldersStore = defineStore("folders", () => {
     setPathExpanded(path, true);
     void loadChildren(path);
     return true;
+  }
+
+  /**
+   * 樹上是否已經有這個路徑的真實資料夾（含虛擬目錄裡的節點）。
+   *
+   * 只比對「完整的路徑」，不做前綴比對 —— 已經是清單資料夾的子資料夾仍可
+   * 加入清單，成為獨立節點；`addFolder()` 的去重規則就是這一份。
+   */
+  function hasFolderPath(path: string): boolean {
+    const key = normalizeKey(path);
+    if (!path || !key) {
+      return false;
+    }
+    return folderNodes().some((node) => normalizeKey(node.path ?? "") === key);
   }
 
   /** 建立一個虛擬目錄（第一層、預設展開）。 */
@@ -521,6 +534,7 @@ export const useFoldersStore = defineStore("folders", () => {
     selectByPath,
     selectedNode,
     addFolder,
+    hasFolderPath,
     addGroup,
     renameNode,
     isAliasTarget,

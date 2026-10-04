@@ -4,10 +4,12 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import ContextMenu from "@/components/overlays/ContextMenu.vue";
 import FileTableRow from "./FileTableRow.vue";
+import { ADD_TO_FOLDERS_ID, useAddToFolders } from "@/composables/useAddToFolders";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useExplorerStore } from "@/stores/explorer";
+import { TREE_ROOT_CONTAINER } from "@/stores/folders";
 import { COLUMN_FIT_MAX, useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import type { MenuRequest } from "@/composables/usePathMenu";
@@ -23,6 +25,7 @@ const settings = useSettingsStore();
 const tabs = useTabsStore();
 const clipboard = useClipboardStore();
 const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
+const addToFolders = useAddToFolders();
 
 const ROW_BASE_HEIGHT = 24;
 /** 列高跟著字級縮放，否則放大字級時文字會擠出虛擬清單的固定列高。 */
@@ -448,11 +451,31 @@ interface MenuState {
   x: number;
   y: number;
   request: MenuRequest;
+  /** 「加入我的資料夾」會原地換成第二段選單，這一段用來挑容器。 */
+  stage: "main" | "container";
 }
 
 const menu = ref<MenuState | null>(null);
 
-const menuItems = computed(() => (menu.value ? menuFor(menu.value.request) : []));
+const menuItems = computed(() => {
+  const state = menu.value;
+  if (!state) {
+    return [];
+  }
+  if (state.stage === "container") {
+    return addToFolders.containerItems();
+  }
+  const items = menuFor(state.request);
+  const { targets, target } = state.request;
+  // 只有單一資料夾（或空白處的目前資料夾）才有東西可加；多選時不知道要加哪一個。
+  if (targets.length === 1 && targets[0].isDir) {
+    return addToFolders.place(items, targets[0].path, "afterOpen");
+  }
+  if (!targets.length && target.isDir) {
+    return addToFolders.place(items, target.path, "end");
+  }
+  return items;
+});
 
 function openRowMenu(entry: FileEntry, event: MouseEvent) {
   tabs.setActivePane(props.paneId);
@@ -463,6 +486,7 @@ function openRowMenu(entry: FileEntry, event: MouseEvent) {
     x: event.clientX,
     y: event.clientY,
     request: requestFor(props.paneId, { path: entry.path, isDir: entry.isDir }),
+    stage: "main",
   };
 }
 
@@ -479,15 +503,36 @@ function openBlankMenu(event: MouseEvent) {
     x: event.clientX,
     y: event.clientY,
     request: blankRequest(props.paneId, pane.value.currentPath),
+    stage: "main",
   };
 }
 
 async function onMenuSelect(id: string) {
   const current = menu.value;
-  menu.value = null;
-  if (current) {
-    await runMenu(id, current.request);
+  if (!current) {
+    return;
   }
+
+  // 「加入我的資料夾」：先挑容器；清單上沒有虛擬目錄就直接進第一層。
+  if (id === ADD_TO_FOLDERS_ID) {
+    if (!addToFolders.needsContainerPick()) {
+      menu.value = null;
+      await addToFolders.add(current.request.target.path, TREE_ROOT_CONTAINER);
+      return;
+    }
+    menu.value = { ...current, stage: "container" };
+    return;
+  }
+
+  menu.value = null;
+  if (current.stage === "container") {
+    const containerId = addToFolders.containerOf(id);
+    if (containerId !== null) {
+      await addToFolders.add(current.request.target.path, containerId);
+    }
+    return;
+  }
+  await runMenu(id, current.request);
 }
 
 function sortBy(column: ColumnId) {
