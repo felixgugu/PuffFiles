@@ -74,7 +74,7 @@ cd src-tauri; cargo clippy   # 後端 lint
 ### 視窗與版面
 
 - 無邊框 Windows 11 風格外框：標題列＝分頁區｜瀏覽紀錄／設定｜視窗控制鈕，拖曳空白處可移動視窗。
-- 分頁：`Ctrl+T`／`Ctrl+W`／`Ctrl+Tab`／`Ctrl+1..9`、中鍵關閉、拖曳排序；關閉最後一個分頁會開一個新的。
+- 分頁：`Ctrl+N`／`Ctrl+W`／`Ctrl+Tab`／`Ctrl+1..9`、中鍵關閉、拖曳排序；關閉最後一個分頁會開一個新的。
 - 每個分頁都能左右或上下分割（`Ctrl+\`／`Ctrl+Shift+\`）。兩個窗格各自擁有路徑、選取、
   排序與欄寬；分割方向會記住，下次沿用；分頁／窗格／路徑／版面可設定為啟動時還原。
 
@@ -167,7 +167,7 @@ cd src-tauri; cargo clippy   # 後端 lint
 - 狀態列在單窗與分割時排列一致：完整路徑靠左，項目數／已選取資訊靠右；分割時一個窗格一行，
   點一行就能切換到該窗格。
 - `F5` 重新整理、`F6` 在窗格之間切換焦點（單窗時切換左側樹）、`Backspace` 上一層、
-  `Alt+←`／`Alt+→` 上／下一頁、`Ctrl+F` 搜尋、`Ctrl+L` 輸入路徑、`Ctrl+T`／`Ctrl+W`／
+  `Alt+←`／`Alt+→` 上／下一頁、`Ctrl+F` 搜尋、`Ctrl+L` 輸入路徑、`Ctrl+N`／`Ctrl+W`／
   `Ctrl+Tab`／`Ctrl+1..9` 分頁、`Ctrl+\`／`Ctrl+Shift+\` 分割、`Ctrl+A`／`Ctrl+X`／
   `Ctrl+C`／`Ctrl+V`、`Del` 刪除、`Space` 在窗格開啟檢視器、`Ctrl+Shift+N` 新增資料夾、
   `Ctrl+Shift+C`／`Ctrl+Shift+M` 送到另一窗格。

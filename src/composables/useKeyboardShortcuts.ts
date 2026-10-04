@@ -90,7 +90,11 @@ export function useKeyboardShortcuts() {
      */
     if (viewer.isOpen(paneId)) {
       if (modifier) {
-        if (!["t", "T", "w", "W", "\\", "|", "Tab", "l", "L"].includes(key)) {
+        // 只放行分頁／版面層級的操作；Ctrl+Shift+N（建立新資料夾）是清單操作，不在此列。
+        const allowed =
+          ["w", "W", "\\", "|", "Tab", "l", "L"].includes(key) ||
+          ((key === "n" || key === "N") && !shiftKey);
+        if (!allowed) {
           return;
         }
       } else if (key === "F5") {
@@ -109,11 +113,6 @@ export function useKeyboardShortcuts() {
 
     if (modifier) {
       switch (key) {
-        case "t":
-        case "T":
-          event.preventDefault();
-          tabs.newTab();
-          return;
         case "w":
         case "W":
           event.preventDefault();
@@ -165,15 +164,16 @@ export function useKeyboardShortcuts() {
           return;
         case "n":
         case "N":
-          if (!shiftKey) {
-            break;
-          }
           event.preventDefault();
-          void pathMenu.run("new-folder", {
-            paneId,
-            target: { path: explorer.meta(paneId)?.currentPath ?? "", isDir: true },
-            targets: [],
-          });
+          if (shiftKey) {
+            void pathMenu.run("new-folder", {
+              paneId,
+              target: { path: explorer.meta(paneId)?.currentPath ?? "", isDir: true },
+              targets: [],
+            });
+          } else {
+            tabs.newTab();
+          }
           return;
         case "f":
         case "F":

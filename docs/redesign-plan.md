@@ -106,7 +106,7 @@ AppShell
 
 ### 3.2 分頁區
 
-- `Ctrl+T` 新分頁、`Ctrl+W` 關閉、`Ctrl+Tab` / `Ctrl+Shift+Tab` 循環、`Ctrl+1..9` 跳頁、中鍵關閉。
+- `Ctrl+N` 新分頁、`Ctrl+W` 關閉、`Ctrl+Tab` / `Ctrl+Shift+Tab` 循環、`Ctrl+1..9` 跳頁、中鍵關閉。
 - 分頁標題＝焦點窗格的資料夾名稱；tooltip 顯示完整路徑。
 - 拖曳排序（spring、帶速度交接，可直接甩到定點）。
 - 關閉最後一個分頁＝開一個新分頁（不關閉視窗，符合直覺且不會「把自己關掉」）。

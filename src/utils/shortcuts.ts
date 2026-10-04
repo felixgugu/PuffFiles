@@ -23,7 +23,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "分頁與版面",
     items: [
-      { keys: ["Ctrl+T"], label: "開新分頁" },
+      { keys: ["Ctrl+N"], label: "開新分頁" },
       { keys: ["Ctrl+W"], label: "關閉分頁" },
       { keys: ["Ctrl+Shift+W"], label: "關閉窗格（窗格剩一個時等於關閉分頁）" },
       { keys: ["Ctrl+Tab", "Ctrl+Shift+Tab"], label: "下一個／上一個分頁" },

@@ -146,7 +146,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
     <button
       type="button"
       class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
-      title="新增分頁 (Ctrl+T)"
+      title="新增分頁 (Ctrl+N)"
       @click="tabs.newTab()"
     >
       <AppIcon name="plus" :size="14" />
