@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { IconName } from "@/components/common/icons";
+import ShortcutList from "./ShortcutList.vue";
 import ToolsSettings from "./ToolsSettings.vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
@@ -400,6 +401,8 @@ async function selectSection(id: SectionId) {
                 </dd>
               </div>
             </dl>
+
+            <ShortcutList />
           </div>
         </div>
       </div>

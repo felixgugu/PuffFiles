@@ -171,6 +171,8 @@ cd src-tauri; cargo clippy   # 後端 lint
   `Ctrl+Tab`／`Ctrl+1..9` 分頁、`Ctrl+\`／`Ctrl+Shift+\` 分割、`Ctrl+A`／`Ctrl+X`／
   `Ctrl+C`／`Ctrl+V`、`Del` 刪除、`Space` 在窗格開啟檢視器、`Ctrl+Shift+N` 新增資料夾、
   `Ctrl+Shift+C`／`Ctrl+Shift+M` 送到另一窗格。
+- 完整清單（分頁與版面／導覽／檢視器／選取／剪貼簿與檔案／對話框與浮層）在
+  **設定 → 關於 → 快速鍵**，說明文字就在按鍵旁邊。
 
 ## 架構重點
 
