@@ -511,3 +511,22 @@ Markdown 檢視器目前把 ` ```mermaid ` 區塊當一般程式碼區塊顯示�
 - 若日後要做，建議：lazy `import("mermaid")`、`securityLevel: "strict"`、
   `htmlLabels: false`、主題跟隨 `.dark`、失敗時保留原始碼（沿用「檢視器絕不空白」原則），
   並先驗證 Tauri 內嵌資產裡的 lazy chunk 在 portable exe 內載入正常。
+
+### PDF 檢視器（2026-10-04 決議：先不做，交給系統預設程式）
+
+檢視器目前不處理 `.pdf`（`fileKind.ts` 的 `document` 類），按「開啟」會交給系統預設程式。
+用 **WebView2 內建 PDF viewer** 的作法已經評估過，結論是**先不做**：
+
+- **關鍵事實**：wry 預設傳 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`，
+  其中 `msPdfOOUI` 就是 Edge／WebView2 的 PDF 檢視器 UI —— 所以 Tauri 應用預設看不到 PDF，
+  不是 WebView2 不支援（本機 runtime 154.0.4258.53 內含 `mspdf.dll` 與 `PdfPreview`）。
+  要開就得在 `tauri.conf.json` 的視窗設定加 `additionalBrowserArgs` 覆寫，而覆寫會蓋掉預設值，
+  必須自己補回 `msWebOOUI,msSmartScreenProtection`（`tauri-utils` 的 `WindowConfig` 註解已明講）。
+- **成本其實很低**：可完整重用檢視器管線（`read_image` 的 base64 分塊串流、Blob URL、
+  `viewerKindOfPath` 的 kind 分派、自動重載、右鍵與 `Space` 入口），只要多一個 `pdf` kind 與
+  一個 `<iframe :src="blobUrl">`；**零新增依賴、exe 不變大**，粗估含 spike 約半天。
+- **唯一風險**：覆寫參數後，內建 viewer 在 `blob:` 的 iframe 內是否正常（工具列、翻頁、
+  文字選取、右鍵）；要先 spike 實測。備案是另開獨立 `WebviewWindow`（top-level 一定可行）
+  或 pdf.js（自製工具列、+約 1 MB gzip，成本數天）。
+- **另一個取捨**：blob 路徑的記憶體約為檔案大小的 2.3 倍（base64＋bytes＋Blob）；
+  要省記憶體得開 `assetProtocol` 放寬 WebView 的檔案讀取範圍，安全面變大，不建議。
