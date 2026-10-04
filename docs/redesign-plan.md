@@ -495,3 +495,19 @@ interface PaneState {
    一個控制代碼，所以要先決定上限（例如只監控可見範圍）。
 3. **樹與清單的自動更新連動**：外部新增資料夾時，清單會更新，但樹要等收合再展開
    才看到。連動需要把監控事件同時餵給 `stores/folders.ts` 的子項快取。
+
+### Mermaid 圖表（2026-10-04 決議：先不做，交給程式碼編輯器）
+
+Markdown 檢視器目前把 ` ```mermaid ` 區塊當一般程式碼區塊顯示原始碼。內嵌渲染已經評估過，
+結論是**先不做**——要看圖就交給 VS Code 之類的程式碼工具：
+
+- mermaid 12 用 Vite 8 打包（含一個 flowchart 範例）：**114 個 chunk、raw 4.86 MB、
+  gzip 1.40 MB**；主 entry 幾乎不變（38 KB），成本全在 lazy chunk。
+- Tauri 2 預設以 brotli 內嵌前端資產（`compression` 預設開啟，見 `tauri-utils/assets.rs`），
+  換算單檔 exe 約 **+1.2～1.4 MB**（4.97 MB → 約 6.3 MB）。
+- **不需要 markdown-it plugin**：自訂 fence 規則已經輸出 `class="language-mermaid"`，
+  plugin 做的事就是「fence → 容器 → 呼叫 mermaid」，我們自己十幾行就能做；
+  除非另外決定要換掉自帶渲染器（CommonMark 相容性），否則不該把兩件事綁在一起。
+- 若日後要做，建議：lazy `import("mermaid")`、`securityLevel: "strict"`、
+  `htmlLabels: false`、主題跟隨 `.dark`、失敗時保留原始碼（沿用「檢視器絕不空白」原則），
+  並先驗證 Tauri 內嵌資產裡的 lazy chunk 在 portable exe 內載入正常。

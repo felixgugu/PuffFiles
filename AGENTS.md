@@ -157,6 +157,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、WebView2 能解的圖檔
   （`VIEWER_IMAGE_EXTENSIONS`）、以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
+- **Mermaid**：` ```mermaid ` 區塊目前只顯示原始碼（不渲染）；是否內嵌 mermaid 的評估與
+  實測數字見 `docs/redesign-plan.md` §11，決議是先不做、交給程式碼編輯器。
 - **渲染保證**：`utils/markdown.ts` 是零依賴的純函數；每一輪區塊解析都保證往前推進
   （避免卡死），任何例外都會退回「警告＋原始文字」。**檢視器永遠不會只留一片空白**：
   內容為空但檔案有大小時，store 會直接顯示讀取錯誤。
