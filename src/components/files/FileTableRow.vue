@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { ColumnId, FileEntry } from "@/types/fs";
-import { colorFor, iconFor, kindLabel } from "@/utils/fileKind";
-import { formatBytes, formatDateTime } from "@/utils/format";
+import { cellText } from "@/utils/fileCells";
+import { colorFor, iconFor } from "@/utils/fileKind";
 
-const props = defineProps<{
+defineProps<{
   entry: FileEntry;
   columns: ColumnId[];
   selected: boolean;
@@ -18,39 +17,6 @@ defineEmits<{
   activate: [];
   contextmenu: [event: MouseEvent];
 }>();
-
-const attributes = computed(() => {
-  const values: string[] = [];
-  if (props.entry.isReadonly) {
-    values.push("唯讀");
-  }
-  if (props.entry.isHidden) {
-    values.push("隱藏");
-  }
-  if (props.entry.isSymlink) {
-    values.push("連結");
-  }
-  return values.join("・");
-});
-
-function cellText(column: ColumnId): string {
-  switch (column) {
-    case "kind":
-      return kindLabel(props.entry);
-    case "size":
-      return props.entry.isDir ? "—" : formatBytes(props.entry.size);
-    case "modified":
-      return formatDateTime(props.entry.modifiedMs);
-    case "created":
-      return formatDateTime(props.entry.createdMs);
-    case "attributes":
-      return attributes.value;
-    case "path":
-      return props.entry.path;
-    default:
-      return "";
-  }
-}
 </script>
 
 <template>
@@ -96,7 +62,7 @@ function cellText(column: ColumnId): string {
         class="min-w-0 truncate tabular-nums"
         :class="column === 'path' ? 'text-ink-faint' : 'text-ink-muted'"
       >
-        {{ cellText(column) }}
+        {{ cellText(column, entry) }}
       </div>
     </div>
   </div>

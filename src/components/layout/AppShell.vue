@@ -31,7 +31,7 @@ onMounted(async () => {
     <WindowChrome />
 
     <div class="relative flex min-h-0 flex-1 flex-col">
-      <!-- 每個分頁只有一條路徑功能列，永遠指向焦點窗格。 -->
+      <!-- 每個分頁只有一條路徑列，永遠指向焦點窗格。 -->
       <TabToolbar />
       <WorkspaceView />
       <StatusBar />

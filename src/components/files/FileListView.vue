@@ -8,11 +8,13 @@ import { useDragGesture } from "@/composables/useDragGesture";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useExplorerStore } from "@/stores/explorer";
-import { useSettingsStore } from "@/stores/settings";
+import { COLUMN_FIT_MAX, useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import type { MenuRequest } from "@/composables/usePathMenu";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
+import { cellText } from "@/utils/fileCells";
 import { formatCount } from "@/utils/format";
+import { measureText, widestText } from "@/utils/textMetrics";
 
 const props = defineProps<{ paneId: PaneId }>();
 
@@ -101,6 +103,54 @@ const columnDrag = useDragGesture({
 function startResize(column: ColumnId, event: PointerEvent) {
   resizing.value = column;
   columnDrag.onPointerDown(event);
+}
+
+/*
+ * 雙擊欄寬把手＝自動調整到最寬內容（Alt+雙擊＝回復該欄預設寬度）。
+ *
+ * 開銷常數對應 FileTableRow 與表頭的 class，改版面時要一起改：
+ * 每格 px-1＝8px；名稱欄前面還有圖示 15px 與 gap-2 8px；清單裡有符號連結時
+ * 再加「連結」徽章與它的 gap-2（約 36px）；表頭按鈕也是 px-1，排序時多一個
+ * chevron 11px＋gap-1 4px。
+ */
+const CELL_PADDING = 8;
+const NAME_LEADING = 15 + 8;
+const NAME_SYMLINK_BADGE = 36;
+const HEADER_SORT_ICON = 11 + 4;
+/** 次像素與 tabular-nums 的保險：寧可多一兩 px 也不要截字。 */
+const FIT_SLACK = 2;
+
+/** canvas 用的 CSS font 字串；取自實際元素，字型與字級設定改了也跟著準。 */
+function fontOf(element: HTMLElement | null): string {
+  if (!element) {
+    return "";
+  }
+  const style = getComputedStyle(element);
+  return `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+}
+
+/**
+ * 量的是「目前清單」的全部項目（已套用搜尋與顯示隱藏項目），不是畫面上那幾十列，
+ * 所以捲到哪裡雙擊、結果都一樣；文字走 canvas 量測，兩萬筆也只是一次短暫計算。
+ */
+function fitColumn(column: ColumnId, event: MouseEvent) {
+  if (event.altKey) {
+    explorer.resetColumnWidth(props.paneId, column);
+    return;
+  }
+  const header = scrollEl.value?.querySelector<HTMLElement>("[data-header]") ?? null;
+  const extra =
+    CELL_PADDING +
+    (column === "name"
+      ? NAME_LEADING + (rows.value.some((entry) => entry.isSymlink) ? NAME_SYMLINK_BADGE : 0)
+      : 0);
+  const content = widestText(rows.value.map((entry) => cellText(column, entry)), fontOf(scrollEl.value));
+  const headerNeed =
+    measureText(COLUMN_LABELS[column], fontOf(header)) +
+    CELL_PADDING +
+    (pane.value.sortKey === column ? HEADER_SORT_ICON : 0);
+  const next = Math.ceil(Math.max(content + extra, headerNeed) + FIT_SLACK);
+  explorer.setColumnWidth(props.paneId, column, Math.min(next, COLUMN_FIT_MAX));
 }
 
 const start = computed(() =>
@@ -428,7 +478,7 @@ function openBlankMenu(event: MouseEvent) {
   menu.value = {
     x: event.clientX,
     y: event.clientY,
-    request: blankRequest(pane.value.currentPath),
+    request: blankRequest(props.paneId, pane.value.currentPath),
   };
 }
 
@@ -488,7 +538,7 @@ function sortBy(column: ColumnId) {
           </button>
 
           <!--
-            欄寬拖曳把手：1:1 跟手，雙擊回復預設寬度。
+            欄寬拖曳把手：1:1 跟手，雙擊自動調整到最寬內容、Alt+雙擊回復預設寬度。
             這裡刻意不畫線 —— 把手置中在格線上，1px 的線在非整數縮放下會落到
             格線左邊，讓表頭那條線看起來比資料列的粗且偏移。改用左右對稱的
             底色提示（w-2 / -right-1），只表達「這裡可以抓」與「這欄改過」。
@@ -500,9 +550,9 @@ function sortBy(column: ColumnId) {
                 ? 'bg-accent/50'
                 : 'bg-transparent hover:bg-accent/25'
             "
-            :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬，雙擊回復預設`"
+            :title="`拖曳調整「${COLUMN_LABELS[column]}」欄寬；雙擊自動調到最寬內容，Alt+雙擊回復預設`"
             @pointerdown="startResize(column, $event)"
-            @dblclick="explorer.resetColumnWidth(paneId, column)"
+            @dblclick="fitColumn(column, $event)"
           />
         </div>
       </div>

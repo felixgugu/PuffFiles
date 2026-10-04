@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import FolderTreePanel from "@/components/tree/FolderTreePanel.vue";
 import BrowserPane from "./BrowserPane.vue";
@@ -18,50 +18,19 @@ const tabs = useTabsStore();
 const settings = useSettingsStore();
 
 const paneArea = useTemplateRef<HTMLElement>("paneArea");
-/**
- * 量測的是「外層」而不是窗格區。
- *
- * 窗格區的寬度會被「樹顯示／隱藏」改變，如果用窗格區的寬度來決定要不要顯示樹，
- * 就會變成：藏起來 → 變寬 → 又顯示 → 變窄 → 又藏起來，無限震盪
- * （ResizeObserver 迴圈錯誤會每秒噴上百次）。外層寬度不受樹影響，是穩定的輸入。
- */
-const root = useTemplateRef<HTMLElement>("root");
-const outerWidth = ref(1600);
-const outerHeight = ref(900);
-let observer: ResizeObserver | null = null;
-
-onMounted(() => {
-  const element = root.value;
-  if (!element) {
-    return;
-  }
-  outerWidth.value = element.clientWidth;
-  outerHeight.value = element.clientHeight;
-  observer = new ResizeObserver(() => {
-    outerWidth.value = element.clientWidth;
-    outerHeight.value = element.clientHeight;
-  });
-  observer.observe(element);
-});
-
-onBeforeUnmount(() => observer?.disconnect());
 
 const paneIds = computed(() => tabs.activeTab?.paneIds ?? []);
 const direction = computed(() => tabs.activeTab?.direction ?? "row");
 const isSplit = computed(() => paneIds.value.length > 1);
 const ratio = computed(() => tabs.activeTab?.ratio ?? 0.5);
 
-/** 窗格被壓得太小時讓樹退場，但使用者的收合狀態不會被破壞。 */
-const tooCramped = computed(() => {
-  const share = isSplit.value ? Math.min(ratio.value, 1 - ratio.value) : 1;
-  if (direction.value === "column") {
-    return outerHeight.value * share < 220;
-  }
-  // 用「樹還顯示著」的寬度判斷：一旦退場就不會自己彈回來，直到視窗真的變寬。
-  return (outerWidth.value - settings.treeWidth) * share < 340;
-});
-
-const showTree = computed(() => !settings.treeCollapsed && !tooCramped.value);
+/**
+ * 樹只由使用者自己收合（樹工具列的收合側欄或 F6）。
+ *
+ * 分割比例與視窗尺寸都不會讓它退場：上下分割根本不壓縮寬度，收掉樹也換不到高度；
+ * 左右分割把窗格壓窄時，判定「太擠」而自動消失同樣會讓版面自己跳動。
+ */
+const showTree = computed(() => !settings.treeCollapsed);
 
 const ratioSpring = useSpringValue(0.5, SPRINGS.panel);
 
@@ -164,7 +133,7 @@ function resetRatio() {
 </script>
 
 <template>
-  <div ref="root" class="flex min-h-0 flex-1">
+  <div class="flex min-h-0 flex-1">
     <FolderTreePanel v-if="showTree" />
 
     <div v-else class="flex w-9 shrink-0 flex-col items-center border-r border-line bg-rail pt-2">

@@ -143,6 +143,7 @@ export function useKeyboardShortcuts() {
           }
           event.preventDefault();
           void pathMenu.run("new-folder", {
+            paneId,
             target: { path: explorer.meta(paneId)?.currentPath ?? "", isDir: true },
             targets: [],
           });

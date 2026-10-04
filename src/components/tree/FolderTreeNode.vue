@@ -302,13 +302,6 @@ function forwardContextMenu(node: FolderNode, event: MouseEvent) {
         >
           這個虛擬目錄還沒有資料夾
         </p>
-        <p
-          v-if="!isGroup && !loading && !folderChildren.length"
-          class="py-1 text-xs text-ink-faint"
-          :style="{ paddingLeft: `${18 + depth * 12}px` }"
-        >
-          沒有子資料夾
-        </p>
       </div>
     </div>
   </div>

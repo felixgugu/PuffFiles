@@ -50,8 +50,8 @@ PuffFiles/
 │  ├─ components/
 │  │  ├─ chrome/               # 無邊框標題列：WindowChrome、TabStrip、ChromeActions、WindowControls
 │  │  ├─ layout/               # AppShell、StatusBar
-│  │  ├─ workspace/            # WorkspaceView、BrowserPane（單／雙窗格版面）
-│  │  ├─ tree/                 # FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
+│  │  ├─ workspace/            # 工作區：WorkspaceView（樹面板＋窗格區）、BrowserPane（窗格）
+│  │  ├─ tree/                 # 資料夾樹面板：FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
 │  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
 │  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
@@ -153,5 +153,49 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   禁止跨組件任意深層 Prop Drilling 或直接修改外部非自身負責之狀態。
 - **無副作用與模組邊界**：`utils/` 必須維持無副作用的純函數，不依賴 Vue 響應式狀態或後端 IPC；
   平台整合（Shell／剪貼簿／目錄監控）一律放在 `src-tauri/src/core/`，不可混進 `commands/`。
+- **命名用語**：UI 區塊與版面功能的名稱以第 5 節為唯一來源；寫文案、tooltip 或註解前先查表，
+  不要另造同義詞（例如把「左右分割」寫成「垂直分割」）。
 - **檔案系統路徑**：Rust 端回傳的是 `display_path()` 處理過的一般路徑（去掉 `\\?\`）；
   要交給 Shell API 前若拿到 canonicalize 的結果，務必先過 `display_path()`，否則會踩 `0x80070057`。
+
+## 5. 版面區塊與命名用語
+
+這一節是 UI 區塊與版面功能的**唯一命名來源**。文件、註解、UI 字串與 tooltip 一律照這裡的說法，
+不要為了順口另造新詞。
+
+### 5.1 區塊（由外而內）
+
+| 正式名稱 | 範圍 | 實作 |
+| --- | --- | --- |
+| 標題列（Window Chrome） | 視窗最上方整條、可拖曳；內含分頁列、紀錄／設定動作、視窗控制 | `components/chrome/` |
+| 分頁列（Tab Strip） | 標題列內的分頁籤與新增鈕 | `chrome/TabStrip.vue` |
+| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜版面切換 | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
+| 工作區（Workspace） | 路徑列與狀態列之間：左邊「資料夾樹面板」＋右邊「窗格區」 | `workspace/WorkspaceView.vue` |
+| 資料夾樹面板（Folder Tree Panel） | 左側「我的資料夾」；頂端是**樹工具列**（加入／移除／別名／排序／定位／收合全部／收合側欄），右緣是寬度把手 | `tree/FolderTreePanel.vue` |
+| 窗格（Pane） | 工作區裡的瀏覽單元，目前只裝檔案清單；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
+| 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
+| 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |
+| 設定頁（Settings） | 整頁浮層：蓋住路徑列與工作區、保留標題列 | `settings/SettingsView.vue` |
+
+- 「工具列」這個詞不再單獨使用：上方那條叫**路徑列**，左側樹面板那排按鈕叫**樹工具列**。
+- **資料夾樹面板的可見性只有一個來源**：`settings.treeCollapsed`（使用者按樹工具列的收合側欄或
+  F6）。不做任何依寬度／高度的自動退場 —— 分割比例與視窗尺寸都不會讓它自己消失。
+
+### 5.2 版面與分割
+
+| 正式名稱 | `TabState.direction` | 窗格位置 | 圖示 | 分隔線 |
+| --- | --- | --- | --- | --- |
+| 單一窗格 | （`paneIds.length === 1`） | 只有一個 | `layoutSingle` | 無 |
+| 左右分割 | `"row"` | `paneIds[0]`＝左、`paneIds[1]`＝右 | `splitColumns` | 垂直分隔線 |
+| 上下分割 | `"column"` | `paneIds[0]`＝上、`paneIds[1]`＝下 | `splitRows` | 水平分隔線 |
+
+- **分割模式一律以窗格排列方向命名**（左右／上下）；「垂直／水平」只拿來形容分隔線與圖示形狀，
+  不當作模式名稱。
+- `"row"`／`"column"` 是純程式碼值（`SplitDirection`），**不代表列／欄**；對應關係就是上表，
+  UI 與文件一律講左右分割／上下分割。
+- **窗格位置標籤**＝左／右（左右分割）或上／下（上下分割），由 `utils/layout.ts` 的
+  `paneSlotLabel()` 產生。狀態列、路徑列的位置標籤、右鍵選單的「在○窗格開啟」都共用它，
+  不可各自造詞。
+- **焦點窗格**：任何時刻只有一個窗格是焦點；鍵盤操作、路徑列與資料夾樹都跟著它。
+- **分割**是動詞（把一個分頁切成兩個窗格），**窗格**是名詞（那個窗格本身）；
+  兩顆分割按鈕的正式名稱是「左右分割」與「上下分割」。

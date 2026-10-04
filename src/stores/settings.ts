@@ -93,7 +93,10 @@ export const COLUMN_MIN: Record<ColumnId, number> = {
   path: 140,
 };
 
-/** 最小寬度要放得下工具列的七顆按鈕（加入／移除／別名／排序／定位／收合全部／收合側欄）。 */
+/** 「雙擊自動調整欄寬」的上限：超長路徑不該把欄位撐到看不完；拖曳不受此限。 */
+export const COLUMN_FIT_MAX = 600;
+
+/** 最小寬度要放得下樹工具列的七顆按鈕（加入／移除／別名／排序／定位／收合全部／收合側欄）。 */
 export const TREE_MIN_WIDTH = 224;
 export const TREE_MAX_WIDTH = 460;
 

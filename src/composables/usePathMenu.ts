@@ -9,7 +9,7 @@ import type { PaneId } from "@/types/fs";
 import type { MenuItem } from "@/types/menu";
 import type { ExternalTool, ToolVars } from "@/types/tools";
 import { fileNameOf, fileStemOf, parentOf, samePath } from "@/utils/path";
-import { splitIcon } from "@/utils/layout";
+import { paneSlotLabel, splitIcon } from "@/utils/layout";
 import { toolMatches } from "@/utils/tools";
 import { applyVars, buildVars } from "@/utils/toolVars";
 
@@ -28,6 +28,8 @@ export interface MenuTarget {
  * 否則只有它自己（與檔案總管一致）。
  */
 export interface MenuRequest {
+  /** 這個選單是「哪個窗格」開的；分割模式下決定會開到哪一邊。 */
+  paneId: PaneId;
   target: MenuTarget;
   targets: MenuTarget[];
 }
@@ -72,12 +74,27 @@ export function usePathMenu() {
   function requestFor(paneId: PaneId, target: MenuTarget): MenuRequest {
     const selection = explorer.selectionTargets(paneId);
     const picked = selection.some((item) => samePath(item.path, target.path));
-    return { target, targets: picked ? selection : [target] };
+    return { paneId, target, targets: picked ? selection : [target] };
   }
 
   /** 清單空白處：對象是目前資料夾，但沒有任何被選取的項目。 */
-  function blankRequest(folderPath: string): MenuRequest {
-    return { target: { path: folderPath, isDir: true }, targets: [] };
+  function blankRequest(paneId: PaneId, folderPath: string): MenuRequest {
+    return { paneId, target: { path: folderPath, isDir: true }, targets: [] };
+  }
+
+  /**
+   * 相對某個窗格的「另一個窗格」；未分割時回 `null`。
+   *
+   * 每分頁最多兩個窗格，所以非自己的那一個就是鄰居；它實際在左／右／上／下
+   * 由 `paneSlotLabel()` 依分割方向算出來，說法與狀態列、路徑列的位置標籤一致。
+   */
+  function neighborPaneId(paneId: PaneId): PaneId | null {
+    const tab = tabs.activeTab;
+    // 選單開著時窗格被收掉（`paneId` 已不在版面上）就當成未分割，走原本的新窗格路徑。
+    if (!tab || !tab.paneIds.includes(paneId)) {
+      return null;
+    }
+    return tab.paneIds.find((id) => id !== paneId) ?? null;
   }
 
   function newItems(): MenuItem[] {
@@ -152,17 +169,18 @@ export function usePathMenu() {
   }
 
   /** 單一資料夾：可以進去、可以在裡面新增、也可以把它當貼上的目的地。 */
-  function menuForFolder(target: MenuTarget): MenuItem[] {
+  function menuForFolder(target: MenuTarget, paneId: PaneId): MenuItem[] {
+    // 分割時直接說出會開到哪一邊；單一窗格時沿用上次分割的方向（與路徑列的版面切換一致）。
+    const neighbor = neighborPaneId(paneId);
+    const tab = tabs.activeTab;
     const items: MenuItem[] = [
       { id: "open", label: "開啟", icon: "folderOpen" },
       { id: "open-tab", label: "在新分頁開啟", icon: "tabNew" },
       {
         id: "open-pane",
-        label: "在新窗格開啟",
-        // 圖示直接反映會用哪個方向：沿用上次分割的方向（與工具列的記憶一致）。
-        icon: splitIcon(settings.lastSplit.direction),
-        // 已經分割的分頁再呼叫 split() 只會換方向，不會真的開新窗格，所以先擋住。
-        disabled: tabs.isSplit,
+        label: neighbor && tab ? `在${paneSlotLabel(tab, neighbor)}窗格開啟` : "在新窗格開啟",
+        // 圖示直接反映會用哪個方向：沿用上次分割的方向（與路徑列的版面切換一致）。
+        icon: splitIcon(neighbor && tab ? tab.direction : settings.lastSplit.direction),
       },
     ];
     append(items, newItems());
@@ -209,7 +227,7 @@ export function usePathMenu() {
       return menuForSelection(request);
     }
     return request.targets[0].isDir
-      ? menuForFolder(request.targets[0])
+      ? menuForFolder(request.targets[0], request.paneId)
       : menuForFile(request.targets[0]);
   }
 
@@ -315,9 +333,17 @@ export function usePathMenu() {
       case "open-tab":
         tabs.newTab(target.path);
         return;
-      case "open-pane":
+      case "open-pane": {
+        const neighbor = neighborPaneId(request.paneId);
+        if (neighbor) {
+          // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊，焦點一起移過去。
+          tabs.setActivePane(neighbor);
+          await explorer.navigate(neighbor, target.path);
+          return;
+        }
         tabs.split(settings.lastSplit.direction, target.path);
         return;
+      }
       case "copy-windows":
         await explorer.copyPaths(paths, "windows");
         return;

@@ -121,7 +121,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
       @pointerup="onPointerUp($event, tab.id)"
       @auxclick="onMiddleClick($event, tab.id)"
     >
-      <!-- 圖示直接反映版面：一般／垂直分割／水平分割。 -->
+      <!-- 圖示直接反映版面：單一窗格／左右分割／上下分割。 -->
       <AppIcon
         :name="layoutIcon(tab)"
         :size="13"

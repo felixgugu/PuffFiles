@@ -37,7 +37,7 @@ const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
 
 /**
- * 工具列「別名」的對象：先看清單中選取的節點，沒有選取時用焦點窗格路徑回推。
+ * 樹工具列「別名」的對象：先看清單中選取的節點，沒有選取時用焦點窗格路徑回推。
  * 只有第一層的真實資料夾（含虛擬目錄下的第一層）合格，其餘一律停用。
  */
 const aliasCandidate = computed(
@@ -117,7 +117,7 @@ watch(
  * 加入資料夾／虛擬目錄
  * ------------------------------------------------------------------------- */
 
-/** 工具列的＋：先問要建立虛擬目錄，還是直接加入真實資料夾。 */
+/** 樹工具列的＋：先問要建立虛擬目錄，還是直接加入真實資料夾。 */
 function openAddMenu() {
   const rect = addButton.value?.getBoundingClientRect();
   openMenu(
@@ -310,7 +310,7 @@ function openNodeMenu(node: FolderNode, event: MouseEvent) {
 
   // 真實資料夾：沿用檔案清單那套路徑選單，最後再加一個「搬到虛擬目錄」。
   const target: MenuTarget = { path: node.path ?? "", isDir: true };
-  const items: MenuItem[] = menuFor({ target, targets: [target] });
+  const items: MenuItem[] = menuFor({ paneId: paneId.value, target, targets: [target] });
   items.push({
     id: "node:move",
     label: "移動到虛擬目錄…",
@@ -350,7 +350,7 @@ async function runNodeAction(
   event: MouseEvent,
 ) {
   if (id !== "node:move") {
-    await runMenu(id, { target, targets: [target] });
+    await runMenu(id, { paneId: paneId.value, target, targets: [target] });
     return;
   }
   // 兩段式選單：沿用剛剛那個位置，接著列出所有虛擬目錄。
