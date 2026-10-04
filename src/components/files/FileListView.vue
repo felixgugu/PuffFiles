@@ -22,7 +22,9 @@ const tabs = useTabsStore();
 const clipboard = useClipboardStore();
 const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
 
-const ROW_HEIGHT = 24;
+const ROW_BASE_HEIGHT = 24;
+/** 列高跟著字級縮放，否則放大字級時文字會擠出虛擬清單的固定列高。 */
+const rowHeight = computed(() => Math.round(ROW_BASE_HEIGHT * settings.fontScale));
 /** 表頭是 sticky 而且是 in-flow，佔掉內容最前面的這一段。 */
 const HEADER_HEIGHT = 28;
 const OVERSCAN = 6;
@@ -102,17 +104,17 @@ function startResize(column: ColumnId, event: PointerEvent) {
 }
 
 const start = computed(() =>
-  Math.max(0, Math.floor((scrollTop.value - HEADER_HEIGHT) / ROW_HEIGHT) - OVERSCAN),
+  Math.max(0, Math.floor((scrollTop.value - HEADER_HEIGHT) / rowHeight.value) - OVERSCAN),
 );
 const end = computed(() =>
   Math.min(
     rows.value.length,
-    Math.ceil((scrollTop.value + viewportHeight.value - HEADER_HEIGHT) / ROW_HEIGHT) + OVERSCAN,
+    Math.ceil((scrollTop.value + viewportHeight.value - HEADER_HEIGHT) / rowHeight.value) + OVERSCAN,
   ),
 );
 const slice = computed(() => rows.value.slice(start.value, Math.max(end.value, 0)));
-const offsetY = computed(() => start.value * ROW_HEIGHT);
-const totalHeight = computed(() => rows.value.length * ROW_HEIGHT);
+const offsetY = computed(() => start.value * rowHeight.value);
+const totalHeight = computed(() => rows.value.length * rowHeight.value);
 
 const isEmpty = computed(() => pane.value.status !== "loading" && rows.value.length === 0);
 
@@ -185,7 +187,7 @@ function toContentPoint(clientX: number, clientY: number) {
 }
 
 function indexAt(contentY: number, clamp = false): number {
-  const raw = Math.floor(contentY / ROW_HEIGHT);
+  const raw = Math.floor(contentY / rowHeight.value);
   if (clamp) {
     return Math.min(Math.max(raw, 0), Math.max(rows.value.length - 1, 0));
   }
@@ -379,8 +381,8 @@ watch(
     if (!element) {
       return;
     }
-    const top = index * ROW_HEIGHT;
-    const bottom = top + ROW_HEIGHT;
+    const top = index * rowHeight.value;
+    const bottom = top + rowHeight.value;
     const visibleTop = element.scrollTop + HEADER_HEIGHT;
     const visibleBottom = element.scrollTop + element.clientHeight;
 
@@ -448,7 +450,7 @@ function sortBy(column: ColumnId) {
 <template>
   <div
     class="relative flex min-h-0 min-w-0 flex-1 flex-col"
-    :style="{ '--file-columns': gridTemplate, '--row-height': `${ROW_HEIGHT}px` }"
+    :style="{ '--file-columns': gridTemplate, '--row-height': `${rowHeight}px` }"
   >
     <div
       ref="scroll"

@@ -2,6 +2,7 @@
 import { onMounted } from "vue";
 import NoticeToast from "@/components/common/NoticeToast.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
+import ChoiceDialog from "@/components/common/ChoiceDialog.vue";
 import PromptDialog from "@/components/common/PromptDialog.vue";
 import WindowChrome from "@/components/chrome/WindowChrome.vue";
 import StatusBar from "@/components/layout/StatusBar.vue";
@@ -54,6 +55,7 @@ onMounted(async () => {
 
     <NoticeToast />
     <ConfirmDialog />
+    <ChoiceDialog />
     <PromptDialog />
   </div>
 </template>

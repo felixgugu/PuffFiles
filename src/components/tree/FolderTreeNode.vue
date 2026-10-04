@@ -4,7 +4,9 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import { useSpringValue } from "@/composables/useSpringValue";
 import { useExplorerStore } from "@/stores/explorer";
 import { useFoldersStore } from "@/stores/folders";
+import { useSettingsStore } from "@/stores/settings";
 import type { FolderNode, PaneId } from "@/types/fs";
+import { folderDisplayName } from "@/utils/folders";
 import { SPRINGS } from "@/utils/spring";
 import { samePath } from "@/utils/path";
 
@@ -26,8 +28,11 @@ const emit = defineEmits<{
 
 const folders = useFoldersStore();
 const explorer = useExplorerStore();
+const settings = useSettingsStore();
 
 const isGroup = computed(() => props.node.kind === "group");
+/** 有別名時套用設定裡的顯示格式；沒有別名的節點（含檔案系統子資料夾）就是原名。 */
+const displayName = computed(() => folderDisplayName(props.node, settings.aliasTemplate));
 const draggable = computed(() => props.containerId !== undefined && props.itemIndex !== undefined);
 const expanded = computed(() => folders.isExpanded(props.node));
 const isActive = computed(() => folders.activeId === props.node.id);
@@ -251,7 +256,7 @@ function forwardContextMenu(node: FolderNode, event: MouseEvent) {
         class="mr-1.5 shrink-0"
         :class="isGroup ? 'text-ink-muted' : 'text-accent/85'"
       />
-      <span class="min-w-0 flex-1 truncate" :title="node.label">{{ node.label }}</span>
+      <span class="min-w-0 flex-1 truncate" :title="displayName">{{ displayName }}</span>
     </div>
 
     <!--

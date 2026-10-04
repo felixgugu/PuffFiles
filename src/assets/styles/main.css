@@ -9,7 +9,7 @@
  */
 @theme {
   --font-sans:
-    "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    var(--font-ui, "Segoe UI Variable Text"), "Segoe UI", system-ui, -apple-system,
     "Microsoft JhengHei UI", "Noto Sans TC", sans-serif;
 
   --color-canvas: oklch(0.984 0.002 265);
@@ -61,6 +61,19 @@
   --text-lg--letter-spacing: -0.01em;
 }
 
+/*
+ * 使用者字級：--font-scale 由 settings store 寫在 <html> 上，這裡只把文字權杖
+ * 重新換算一次。刻意不縮放間距與尺寸權杖——字放大、版面不跟著膨脹，
+ * 超過預設值時清單列高再由 JS 依同一個倍率調高。
+ */
+:root {
+  --text-2xs: calc(0.625rem * var(--font-scale, 1));
+  --text-xs: calc(0.6875rem * var(--font-scale, 1));
+  --text-sm: calc(0.75rem * var(--font-scale, 1));
+  --text-base: calc(0.8125rem * var(--font-scale, 1));
+  --text-lg: calc(0.9375rem * var(--font-scale, 1));
+}
+
 .dark {
   --color-canvas: oklch(0.19 0.008 265);
   --color-surface: oklch(0.225 0.009 265);
@@ -99,14 +112,13 @@
     margin: 0;
     overflow: hidden;
     font-family: var(--font-sans);
-    font-size: 0.875rem;
     -webkit-font-smoothing: antialiased;
     /* 桌面應用程式的外框不應該可以被拖曳選取 */
     user-select: none;
     /* 無邊框視窗：整個視窗由 WebView 填滿。 */
     background: var(--color-canvas);
     /* 介面基準字級；所有字級都會覆寫它，這裡只影響沒有指定大小的元素。 */
-    font-size: 0.8125rem;
+    font-size: var(--text-base);
   }
 
   input,

@@ -36,6 +36,17 @@ const { menuFor, run: runMenu } = usePathMenu();
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
 
+/**
+ * 工具列「別名」的對象：先看清單中選取的節點，沒有選取時用焦點窗格路徑回推。
+ * 只有第一層的真實資料夾（含虛擬目錄下的第一層）合格，其餘一律停用。
+ */
+const aliasCandidate = computed(
+  () => folders.selectedNode() ?? folders.folderNodeFor(pane.value?.currentPath ?? ""),
+);
+const aliasTarget = computed(() =>
+  folders.isAliasTarget(aliasCandidate.value) ? aliasCandidate.value : null,
+);
+
 /** 三種選單（加入、節點、移動到虛擬目錄）共用同一個實例，各自帶自己的處理函式。 */
 interface TreeMenu {
   x: number;
@@ -215,6 +226,27 @@ function sortItems() {
   ui.showNotice(`已依名稱排序：${group ? group.label : "第一層"}`);
 }
 
+/** 設定／修改／清除別名；留空即清除。 */
+async function editAlias() {
+  const node = aliasTarget.value;
+  if (!node) {
+    return;
+  }
+  const input = await ui.prompt({
+    title: "設定別名",
+    label: `「${node.label}」的別名（留空可清除）`,
+    placeholder: "例如：工作",
+    value: node.alias ?? "",
+    confirmText: "套用",
+    allowEmpty: true,
+  });
+  if (input === null || !folders.setAlias(node.id, input)) {
+    return;
+  }
+  const alias = input.trim();
+  ui.showNotice(alias ? `已將「${node.label}」的別名設為「${alias}」` : `已清除「${node.label}」的別名`);
+}
+
 /** 移除的對象：目前選取的節點，其次是焦點窗格路徑所屬的資料夾。 */
 function removableNode(): FolderNode | null {
   return folders.selectedNode() ?? folders.folderNodeFor(pane.value?.currentPath ?? "");
@@ -365,6 +397,15 @@ async function runNodeAction(
         @click="removeSelected()"
       >
         <AppIcon name="minus" :size="14" />
+      </button>
+      <button
+        type="button"
+        class="flex size-7 active:scale-95 shrink-0 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+        :disabled="!aliasTarget"
+        title="設定別名（第一層的真實資料夾）"
+        @click="editAlias()"
+      >
+        <AppIcon name="tag" :size="14" />
       </button>
       <span class="flex-1" />
       <button

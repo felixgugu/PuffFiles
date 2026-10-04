@@ -28,7 +28,7 @@ watch(
 
 function confirm() {
   const value = draft.value.trim();
-  if (value) {
+  if (value || ui.promptState?.allowEmpty) {
     ui.resolvePrompt(value);
   }
 }
@@ -72,7 +72,7 @@ function confirm() {
           <button
             type="button"
             class="pressable h-8 rounded-md bg-accent px-3 text-base font-medium text-accent-ink hover:opacity-90 active:opacity-80 disabled:opacity-40"
-            :disabled="!draft.trim()"
+            :disabled="!ui.promptState.allowEmpty && !draft.trim()"
             @click="confirm"
           >
             {{ ui.promptState.confirmText ?? "確定" }}

@@ -22,6 +22,23 @@ export interface PromptOptions {
   confirmText?: string;
   /** 聚焦時只選取到第幾個字（例如檔名只選主檔名、不選副檔名）。 */
   selectTo?: number;
+  /** 允許送出空字串（清除語意）；預設 false，空的輸入不能按確定。 */
+  allowEmpty?: boolean;
+}
+
+/** 多選項對話框的一個按鈕。 */
+export interface ChoiceOption {
+  id: string;
+  label: string;
+  /** primary＝強調色、danger＝危險色，其餘是次要按鈕。 */
+  tone?: "default" | "primary" | "danger";
+}
+
+export interface ChoiceOptions {
+  title: string;
+  message?: string;
+  /** 第一個選項會取得焦點，所以請把最安全（通常是取消）的放第一個。 */
+  options: ChoiceOption[];
 }
 
 /**
@@ -38,9 +55,11 @@ export const useUiStore = defineStore("ui", () => {
   const historyOpen = ref(false);
   const confirmState = ref<ConfirmOptions | null>(null);
   const promptState = ref<PromptOptions | null>(null);
+  const choiceState = ref<ChoiceOptions | null>(null);
 
   let confirmResolver: ((value: boolean) => void) | null = null;
   let promptResolver: ((value: string | null) => void) | null = null;
+  let choiceResolver: ((value: string | null) => void) | null = null;
 
   /** 開一個確認對話框並等待使用者回答；同時只會有一個。 */
   function confirm(options: ConfirmOptions): Promise<boolean> {
@@ -70,6 +89,21 @@ export const useUiStore = defineStore("ui", () => {
     promptState.value = null;
     promptResolver?.(value);
     promptResolver = null;
+  }
+
+  /** 開一個多選項對話框並等待使用者選擇；取消回傳 null。同時只會有一個。 */
+  function choose(options: ChoiceOptions): Promise<string | null> {
+    choiceResolver?.(null);
+    choiceState.value = options;
+    return new Promise((resolve) => {
+      choiceResolver = resolve;
+    });
+  }
+
+  function resolveChoice(id: string | null) {
+    choiceState.value = null;
+    choiceResolver?.(id);
+    choiceResolver = null;
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -108,6 +142,9 @@ export const useUiStore = defineStore("ui", () => {
     promptState,
     prompt,
     resolvePrompt,
+    choiceState,
+    choose,
+    resolveChoice,
     showNotice,
     dismissNotice,
     requestSearchFocus,

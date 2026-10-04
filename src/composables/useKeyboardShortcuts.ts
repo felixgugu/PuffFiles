@@ -3,6 +3,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
+import { useToolEditorStore } from "@/stores/toolEditor";
 import { useUiStore } from "@/stores/ui";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
@@ -18,6 +19,7 @@ export function useKeyboardShortcuts() {
   const tabs = useTabsStore();
   const ui = useUiStore();
   const settings = useSettingsStore();
+  const toolEditor = useToolEditorStore();
   const refreshView = useRefreshView();
   const clipboard = useClipboardStore();
   const pathMenu = usePathMenu();
@@ -33,6 +35,15 @@ export function useKeyboardShortcuts() {
   function onKeydown(event: KeyboardEvent) {
     const { key, altKey, ctrlKey, metaKey, shiftKey } = event;
     const modifier = ctrlKey || metaKey;
+
+    // 多選項對話框開著時只處理它自己的按鍵（Esc＝取消）。
+    if (ui.choiceState) {
+      if (key === "Escape") {
+        event.preventDefault();
+        ui.resolveChoice(null);
+      }
+      return;
+    }
 
     // 確認對話框開著時只處理它自己的按鍵。
     if (ui.confirmState) {
@@ -216,7 +227,12 @@ export function useKeyboardShortcuts() {
         break;
       case "Escape":
         if (ui.settingsOpen) {
-          ui.settingsOpen = false;
+          // 關設定前先問過「外部工具」的未儲存草稿。
+          void toolEditor.leaveSection().then((canLeave) => {
+            if (canLeave) {
+              ui.settingsOpen = false;
+            }
+          });
         } else if (ui.historyOpen) {
           ui.historyOpen = false;
         } else {

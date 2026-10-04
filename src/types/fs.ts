@@ -75,6 +75,11 @@ export interface FolderNode {
   id: string;
   label: string;
   kind: "folder" | "group";
+  /**
+   * 只有第一層的真實資料夾（含虛擬目錄下的第一層）會有。設定後，
+   * 左側清單改用設定裡的格式字串顯示，不影響其他位置。
+   */
+  alias?: string;
   /** 只有真實資料夾有。 */
   path?: string;
   /** 只有虛擬目錄有。 */

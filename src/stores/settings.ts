@@ -3,6 +3,10 @@ import { computed, ref, watch, watchEffect } from "vue";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import type { ColumnId, SortDirection, SortKey, SplitDirection } from "@/types/fs";
 import type { ExternalTool } from "@/types/tools";
+import { FONT_SIZE_DEFAULT, clampFontSize, normalizeFontFamily } from "@/utils/font";
+import { DEFAULT_ALIAS_TEMPLATE } from "@/utils/folders";
+
+export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
 
 export type ThemeMode = "light" | "dark" | "system";
 export type MotionPreference = "full" | "system" | "reduced";
@@ -89,12 +93,18 @@ export const COLUMN_MIN: Record<ColumnId, number> = {
   path: 140,
 };
 
-/** 最小寬度要放得下工具列的六顆按鈕（加入／移除／排序／定位／收合全部／收合側欄）。 */
-export const TREE_MIN_WIDTH = 192;
+/** 最小寬度要放得下工具列的七顆按鈕（加入／移除／別名／排序／定位／收合全部／收合側欄）。 */
+export const TREE_MIN_WIDTH = 224;
 export const TREE_MAX_WIDTH = 460;
 
 interface StoredSettings {
   themeMode: ThemeMode;
+  /** 自訂字型家族；留空＝使用系統預設字型。 */
+  fontFamily: string;
+  /** 介面基準字級（px）。 */
+  fontSize: number;
+  /** 左側清單的別名顯示格式；留空＝使用預設格式。 */
+  aliasTemplate: string;
   showHidden: boolean;
   columns: ColumnId[];
   columnWidths: Record<string, number>;
@@ -121,6 +131,9 @@ interface LegacySettings {
 
 const DEFAULTS: StoredSettings = {
   themeMode: "system",
+  fontFamily: "",
+  fontSize: FONT_SIZE_DEFAULT,
+  aliasTemplate: DEFAULT_ALIAS_TEMPLATE,
   showHidden: false,
   columns: ["name", "kind", "size", "modified"],
   columnWidths: { ...COLUMN_DEFAULTS },
@@ -167,12 +180,19 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     ? raw.columns.filter((id): id is ColumnId => COLUMN_IDS.has(id))
     : [];
   const tools = Array.isArray(raw.tools) && raw.tools.length ? cloneTools(raw.tools) : seedTools(raw);
+  const fontFamily = typeof raw.fontFamily === "string" ? raw.fontFamily : "";
+  const fontSize = typeof raw.fontSize === "number" ? clampFontSize(raw.fontSize) : FONT_SIZE_DEFAULT;
+  const aliasTemplate =
+    typeof raw.aliasTemplate === "string" ? raw.aliasTemplate : DEFAULT_ALIAS_TEMPLATE;
 
   return {
     ...DEFAULTS,
     ...raw,
     columns: columns.length ? columns : DEFAULTS.columns,
     tools,
+    fontFamily,
+    fontSize,
+    aliasTemplate,
   };
 }
 
@@ -187,6 +207,9 @@ export const useSettingsStore = defineStore("settings", () => {
   );
 
   const themeMode = ref<ThemeMode>(stored.themeMode);
+  const fontFamily = ref(stored.fontFamily);
+  const fontSize = ref(stored.fontSize);
+  const aliasTemplate = ref(stored.aliasTemplate);
   const showHidden = ref(stored.showHidden);
   const columns = ref<ColumnId[]>(stored.columns);
   const columnWidths = ref<Record<string, number>>({
@@ -231,21 +254,36 @@ export const useSettingsStore = defineStore("settings", () => {
     () => motion.value === "reduced" || (motion.value === "system" && prefersReducedMotion.value),
   );
 
+  /** 字級縮放倍率；設計權杖與清單列高都靠它換算。 */
+  const fontScale = computed(() => fontSize.value / FONT_SIZE_DEFAULT);
+
   watchEffect(() => {
     document.documentElement.classList.toggle("dark", isDark.value);
     document.documentElement.classList.toggle("reduce-motion", reduceMotion.value);
+
+    const style = document.documentElement.style;
+    const family = normalizeFontFamily(fontFamily.value);
+    if (family) {
+      style.setProperty("--font-ui", family);
+    } else {
+      style.removeProperty("--font-ui");
+    }
+    style.setProperty("--font-scale", String(fontScale.value));
   });
 
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
         writeJson(STORAGE_KEYS.settings, {
           themeMode: themeMode.value,
+          fontFamily: fontFamily.value,
+          fontSize: fontSize.value,
+          aliasTemplate: aliasTemplate.value,
           showHidden: showHidden.value,
           columns: columns.value,
           columnWidths: columnWidths.value,
@@ -266,6 +304,20 @@ export const useSettingsStore = defineStore("settings", () => {
 
   function toggleTheme() {
     themeMode.value = isDark.value ? "light" : "dark";
+  }
+
+  function setFontSize(value: number) {
+    fontSize.value = clampFontSize(value);
+  }
+
+  /** 回到系統預設字型與基準字級。 */
+  function resetFont() {
+    fontFamily.value = "";
+    fontSize.value = FONT_SIZE_DEFAULT;
+  }
+
+  function resetAliasTemplate() {
+    aliasTemplate.value = DEFAULT_ALIAS_TEMPLATE;
   }
 
   function toggleColumn(id: ColumnId) {
@@ -306,9 +358,9 @@ export const useSettingsStore = defineStore("settings", () => {
     lastSplit.value = { path, direction };
   }
 
-  function addTool(): ExternalTool {
+  /** 建立工具；`initial` 讓編輯器一次寫入整份草稿（id 一律由這裡產生）。 */
+  function addTool(initial: Partial<ExternalTool> = {}): ExternalTool {
     const tool: ExternalTool = {
-      id: `tool-${Date.now().toString(36)}`,
       label: "新工具",
       executable: "",
       args: ["$fullFilePath"],
@@ -319,6 +371,8 @@ export const useSettingsStore = defineStore("settings", () => {
       // 留空＝所有檔案都會出現；填了才依副檔名篩選。
       extensions: [],
       icon: "program",
+      ...initial,
+      id: `tool-${Date.now().toString(36)}`,
     };
     tools.value = [...tools.value, tool];
     return tool;
@@ -340,6 +394,9 @@ export const useSettingsStore = defineStore("settings", () => {
 
   return {
     themeMode,
+    fontFamily,
+    fontSize,
+    aliasTemplate,
     showHidden,
     columns,
     columnWidths,
@@ -355,7 +412,11 @@ export const useSettingsStore = defineStore("settings", () => {
     isDark,
     reduceMotion,
     prefersReducedMotion,
+    fontScale,
     toggleTheme,
+    setFontSize,
+    resetFont,
+    resetAliasTemplate,
     toggleColumn,
     resetColumnWidths,
     setTreeWidth,

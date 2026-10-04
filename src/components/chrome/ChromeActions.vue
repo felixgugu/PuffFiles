@@ -3,13 +3,21 @@ import { onBeforeUnmount, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import HistoryPanel from "@/components/overlays/HistoryPanel.vue";
 import { useUiStore } from "@/stores/ui";
+import { useToolEditorStore } from "@/stores/toolEditor";
 
 const ui = useUiStore();
+const toolEditor = useToolEditorStore();
 const root = useTemplateRef<HTMLElement>("root");
 
-/** 開設定時順手收起紀錄選單，兩個浮層不要疊在一起。 */
-function toggleSettings() {
+/**
+ * 開設定時順手收起紀錄選單，兩個浮層不要疊在一起。
+ * 關閉前要先問過「外部工具」的未儲存草稿（和返回、Esc 同一道守衛）。
+ */
+async function toggleSettings() {
   ui.historyOpen = false;
+  if (ui.settingsOpen && !(await toolEditor.leaveSection())) {
+    return;
+  }
   ui.settingsOpen = !ui.settingsOpen;
 }
 

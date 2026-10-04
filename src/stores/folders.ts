@@ -4,7 +4,9 @@ import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import type { FileEntry, FolderNode } from "@/types/fs";
+import { folderDisplayName } from "@/utils/folders";
 import { fileNameOf, normalizeKey } from "@/utils/path";
+import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 
 interface StoredFolders {
@@ -66,7 +68,14 @@ function normalizeNode(raw: Partial<FolderNode> | null | undefined): FolderNode 
   if (!path) {
     return null;
   }
-  return { id: id || nextId("root"), label: label || fileNameOf(path) || path, kind: "folder", path };
+  const alias = typeof raw.alias === "string" && raw.alias.trim() ? raw.alias.trim() : undefined;
+  return {
+    id: id || nextId("root"),
+    label: label || fileNameOf(path) || path,
+    kind: "folder",
+    alias,
+    path,
+  };
 }
 
 /**
@@ -77,6 +86,7 @@ function normalizeNode(raw: Partial<FolderNode> | null | undefined): FolderNode 
  * 懶載入 —— 展開誰才讀誰。
  */
 export const useFoldersStore = defineStore("folders", () => {
+  const settings = useSettingsStore();
   const ui = useUiStore();
   const stored = readJson<StoredFolders>(STORAGE_KEYS.folders, EMPTY, (value) => {
     const candidate = value as StoredFolders;
@@ -268,6 +278,26 @@ export const useFoldersStore = defineStore("folders", () => {
     return true;
   }
 
+  /**
+   * 只有「清單上的第一層真實資料夾」能設別名：第一層（容器是空字串）與
+   * 虛擬目錄裡的孩子（容器是該虛擬目錄的 id）。檔案系統的子資料夾不在樹上、
+   * `containerIdOf` 會回 `null`，所以自然不合格。
+   */
+  function isAliasTarget(node: FolderNode | null | undefined): boolean {
+    return !!node && node.kind === "folder" && containerIdOf(node.id) !== null;
+  }
+
+  /** 設定或清除別名（空字串＝清除）；對象不合格時回傳 `false`。 */
+  function setAlias(id: string, alias: string): boolean {
+    const node = nodeById(id);
+    if (!node || !isAliasTarget(node)) {
+      return false;
+    }
+    const trimmed = alias.trim();
+    node.alias = trimmed || undefined;
+    return true;
+  }
+
   /** 從清單移除節點（不會動到實體檔案）；回傳的資訊供「復原」使用。 */
   function removeNode(id: string): RemovedNode | null {
     const ref = treeRefs().find((item) => item.node.id === id);
@@ -331,9 +361,12 @@ export const useFoldersStore = defineStore("folders", () => {
    */
   function sortNodes(containerId: string) {
     const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+    const template = settings.aliasTemplate;
     updateContainer(
       containerId,
-      [...nodesIn(containerId)].sort((a, b) => collator.compare(a.label, b.label)),
+      [...nodesIn(containerId)].sort((a, b) =>
+        collator.compare(folderDisplayName(a, template), folderDisplayName(b, template)),
+      ),
     );
   }
 
@@ -490,6 +523,8 @@ export const useFoldersStore = defineStore("folders", () => {
     addFolder,
     addGroup,
     renameNode,
+    isAliasTarget,
+    setAlias,
     removeNode,
     insertNode,
     moveNode,
