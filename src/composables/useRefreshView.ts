@@ -1,5 +1,6 @@
 import { useExplorerStore } from "@/stores/explorer";
 import { useFoldersStore } from "@/stores/folders";
+import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 
 /**
@@ -11,8 +12,13 @@ import type { PaneId } from "@/types/fs";
 export function useRefreshView() {
   const explorer = useExplorerStore();
   const folders = useFoldersStore();
+  const viewer = useViewerStore();
 
   return function refreshView(paneId: PaneId): Promise<void> {
+    // 檢視器窗格的「重新整理」是重新讀這個檔案，不是重讀底層資料夾。
+    if (viewer.isOpen(paneId)) {
+      return viewer.reload(paneId);
+    }
     return Promise.all([explorer.refresh(paneId), folders.refresh()]).then(() => undefined);
   };
 }

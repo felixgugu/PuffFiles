@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { isDesktopRuntime } from "@/services/api";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
+import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { formatBytes, formatCount } from "@/utils/format";
 import { paneSlotLabel } from "@/utils/layout";
@@ -14,6 +15,7 @@ import { paneSlotLabel } from "@/utils/layout";
  */
 const explorer = useExplorerStore();
 const tabs = useTabsStore();
+const viewer = useViewerStore();
 
 const isMock = !isDesktopRuntime();
 
@@ -22,6 +24,17 @@ const isSplit = computed(() => paneIds.value.length > 1);
 const activePane = computed(() => explorer.meta(tabs.activePaneId));
 
 function summaryOf(paneId: PaneId, withFilterHint: boolean): string {
+  const viewing = viewer.of(paneId);
+  if (viewing) {
+    const parts = [viewing.name];
+    if (viewing.size > 0) {
+      parts.push(formatBytes(viewing.size));
+    }
+    if (viewing.encoding) {
+      parts.push(viewing.encoding);
+    }
+    return `檢視中：${parts.join(" · ")}`;
+  }
   const selection = explorer.selectionSummary(paneId);
   if (selection.count > 0) {
     return `已選取 ${formatCount(selection.count)} 個項目 · ${formatBytes(selection.size)}`;

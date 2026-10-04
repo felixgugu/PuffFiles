@@ -97,6 +97,93 @@ export function samePath(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
 }
 
+/**
+ * 把 Markdown 裡的連結或圖片位址接成 Windows 絕對路徑。
+ *
+ * 支援 `./`、`../`、`/`（相對於磁碟／網路根）與本來就是絕對的路徑，
+ * 也接受 `%20` 這類 URL 編碼。解析不出來（基準資料夾是空的）時回傳空字串。
+ */
+export function resolveLocalPath(baseDir: string, reference: string): string {
+  const raw = safeDecode(reference.trim().replace(/^file:\/\//i, ""));
+  if (!raw) {
+    return "";
+  }
+
+  const normalized = toBackslashes(raw);
+  if (/^[a-zA-Z]:[\\/]/.test(raw) || normalized.startsWith("\\\\")) {
+    return normalizeSegments(normalized);
+  }
+  // 帶 scheme 的網址（http、data…）不是本機路徑，呼叫端應該先處理掉。
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) {
+    return "";
+  }
+
+  const base = toBackslashes(baseDir);
+  if (!base) {
+    return "";
+  }
+
+  // 開頭的 `\` 代表「這個磁碟／網路分享的根」，不是相對於目前資料夾。
+  const root = normalized.startsWith("\\") ? (rootOf(base) ?? base) : base;
+  return normalizeSegments(joinPath(root, normalized.replace(/^\\+/, "")));
+}
+
+/** 取磁碟機或網路分享的根（`C:\`、`\\server\share\`）；不是絕對路徑時回 null。 */
+function rootOf(path: string): string | null {
+  const unc = /^\\\\([^\\]+)\\([^\\]+)/.exec(path);
+  if (unc) {
+    return `\\\\${unc[1]}\\${unc[2]}\\`;
+  }
+  const drive = /^([a-zA-Z]):/.exec(path);
+  return drive ? `${drive[1]}:\\` : null;
+}
+
+/** 收掉 `.` 與 `..`，並把 UNC／磁碟機前綴接回去。 */
+function normalizeSegments(path: string): string {
+  let prefix = "";
+  let rest = path;
+
+  const unc = /^\\\\([^\\]+)\\([^\\]+)/.exec(path);
+  if (unc) {
+    prefix = `\\\\${unc[1]}\\${unc[2]}`;
+    rest = path.slice(unc[0].length);
+  } else {
+    const drive = /^([a-zA-Z]:)/.exec(path);
+    if (drive) {
+      prefix = drive[1];
+      rest = path.slice(drive[0].length);
+    }
+  }
+
+  const parts: string[] = [];
+  for (const part of rest.split("\\")) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+
+  if (!prefix) {
+    return parts.join("\\");
+  }
+  return parts.length ? `${prefix}\\${parts.join("\\")}` : `${prefix}\\`;
+}
+
+function safeDecode(value: string): string {
+  if (!value.includes("%")) {
+    return value;
+  }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function appendSegments(base: PathSegment[], root: string, parts: string[]): PathSegment[] {
   let current = root;
   for (const part of parts) {

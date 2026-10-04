@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("這個路徑不是資料夾：{path}")]
     NotADirectory { path: String },
 
+    #[error("這個路徑不是檔案：{path}")]
+    NotAFile { path: String },
+
     #[error("路徑格式不正確：{path}")]
     InvalidPath { path: String },
 
@@ -73,6 +76,7 @@ impl Serialize for AppError {
             Self::NotFound { path } => ("notFound", Some(path.as_str())),
             Self::PermissionDenied { path } => ("permissionDenied", Some(path.as_str())),
             Self::NotADirectory { path } => ("notADirectory", Some(path.as_str())),
+            Self::NotAFile { path } => ("notAFile", Some(path.as_str())),
             Self::InvalidPath { path } => ("invalidPath", Some(path.as_str())),
             Self::AlreadyExists { path } => ("alreadyExists", Some(path.as_str())),
             Self::InvalidName { .. } => ("invalidName", None),

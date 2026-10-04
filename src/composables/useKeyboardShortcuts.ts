@@ -5,8 +5,10 @@ import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useToolEditorStore } from "@/stores/toolEditor";
 import { useUiStore } from "@/stores/ui";
+import { useViewerStore } from "@/stores/viewer";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
+import type { PaneId } from "@/types/fs";
 
 /**
  * 全域快速鍵。
@@ -23,6 +25,7 @@ export function useKeyboardShortcuts() {
   const refreshView = useRefreshView();
   const clipboard = useClipboardStore();
   const pathMenu = usePathMenu();
+  const viewer = useViewerStore();
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return (
@@ -79,6 +82,30 @@ export function useKeyboardShortcuts() {
     }
 
     const paneId = tabs.activePaneId;
+
+    /*
+     * 檢視器窗格聚焦時，清單類的快速鍵（選取、剪貼、刪除）一律不攔截 ——
+     * 那些動作在畫面上看不到，攔下來只會誤傷文字選取與 Ctrl+C 複製。
+     * 分頁／版面層級的操作（Ctrl+W、Ctrl+Tab、Ctrl+\…）維持可用。
+     */
+    if (viewer.isOpen(paneId)) {
+      if (modifier) {
+        if (!["t", "T", "w", "W", "\\", "|", "Tab", "l", "L"].includes(key)) {
+          return;
+        }
+      } else if (key === "F5") {
+        event.preventDefault();
+        void viewer.reload(paneId);
+        return;
+      } else if (key === "Escape" && !ui.settingsOpen && !ui.historyOpen) {
+        event.preventDefault();
+        viewer.close(paneId);
+        return;
+      } else if (key !== "F6" && key !== "Escape") {
+        // Escape 在有浮層時往下走，讓設定頁／瀏覽紀錄先關閉。
+        return;
+      }
+    }
 
     if (modifier) {
       switch (key) {
@@ -192,6 +219,10 @@ export function useKeyboardShortcuts() {
         event.preventDefault();
         void explorer.activate(paneId, explorer.focusedEntry(paneId));
         break;
+      case " ":
+        event.preventDefault();
+        openViewerPane(paneId);
+        break;
       case "ArrowDown":
         event.preventDefault();
         explorer.moveFocus(paneId, 1);
@@ -257,6 +288,28 @@ export function useKeyboardShortcuts() {
       return;
     }
     settings.toggleTree();
+  }
+
+  /**
+   * Space：把焦點列的項目開到檢視器窗格。
+   *
+   * 走的是跟右鍵選單「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，
+   * 所以不支援的檔案類型會直接顯示提示，不會有任何副作用。
+   */
+  function openViewerPane(paneId: PaneId) {
+    const entry = explorer.focusedEntry(paneId);
+    if (!entry) {
+      return;
+    }
+    if (entry.isDir) {
+      ui.showNotice("檢視器只能開啟檔案");
+      return;
+    }
+    void pathMenu.run("open-pane", {
+      paneId,
+      target: { path: entry.path, isDir: false },
+      targets: [{ path: entry.path, isDir: false }],
+    });
   }
 
 

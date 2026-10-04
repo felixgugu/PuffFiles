@@ -4,6 +4,7 @@ import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import { useExplorerStore } from "@/stores/explorer";
 import { useHistoryStore } from "@/stores/history";
 import { useSettingsStore } from "@/stores/settings";
+import { useViewerStore } from "@/stores/viewer";
 import type { PaneId, SplitDirection, TabState } from "@/types/fs";
 
 interface SessionPane {
@@ -38,6 +39,7 @@ export const useTabsStore = defineStore("tabs", () => {
   const explorer = useExplorerStore();
   const settings = useSettingsStore();
   const history = useHistoryStore();
+  const viewer = useViewerStore();
 
   const tabs = ref<TabState[]>([]);
   const activeTabId = ref<string>("");
@@ -168,6 +170,13 @@ export const useTabsStore = defineStore("tabs", () => {
     const tab = activeTab.value;
     if (!tab || tab.paneIds.length < 2) {
       return;
+    }
+    // 檢視器是暫時的：收起分割時優先留下檔案清單那一邊，兩邊都是檢視器才留焦點窗格。
+    if (viewer.isOpen(tab.activePaneId)) {
+      const other = tab.paneIds.find((id) => id !== tab.activePaneId);
+      if (other && !viewer.isOpen(other)) {
+        tab.activePaneId = other;
+      }
     }
     collapsing.value = true;
   }

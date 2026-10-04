@@ -40,6 +40,7 @@ PuffFiles/
 │  │  ├─ history.ts            # 瀏覽紀錄（MRU，含分割版面）
 │  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
 │  │  ├─ system.ts             # 磁碟機、快速存取位置（只用於啟動時的起始路徑）
+│  │  ├─ viewer.ts             # 檢視器：內容讀取、圖片 blob URL、外部變更自動重載
 │  │  └─ ui.ts                 # 通知、確認／輸入對話框、焦點請求、浮層開關
 │  ├─ composables/
 │  │  ├─ useKeyboardShortcuts.ts # 全域快速鍵（分頁、分割、剪貼簿、檔案操作）
@@ -54,10 +55,11 @@ PuffFiles/
 │  │  ├─ tree/                 # 資料夾樹面板：FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
 │  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
 │  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
+│  │  ├─ viewer/               # ViewerPane、MarkdownView、ImageView、TextView
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind / layout / spring / tools / toolVars）
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
@@ -67,14 +69,16 @@ PuffFiles/
       ├─ main.rs               # Windows 子系統設定 + 呼叫 lib::run
       ├─ lib.rs                # Builder、外掛註冊、invoke_handler 清單
       ├─ error.rs              # AppError（thiserror）+ 自訂 Serialize 為 {kind,message,path}
-      ├─ model.rs              # FileEntry / DirListing / DirEvent / DriveInfo / QuickLocation
+      ├─ model.rs              # FileEntry / DirListing / DirEvent / ViewerEvent / DriveInfo / QuickLocation
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
       │  ├─ shell.rs           # IFileOperation 檔案操作、CF_HDROP 剪貼簿
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
+      │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
       │  └─ oplog.rs           # 檔案操作紀錄（%LOCALAPPDATA%\PuffFile\logs）
       └─ commands/
          ├─ fs.rs              # list_dir_stream、list_subdirs、建立資料夾／檔案、外部工具、reveal
+         ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
          ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
          └─ system.rs          # list_drives、quick_locations
@@ -140,6 +144,38 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 外部工具依 `toolMatches()`（顯示於檔案／資料夾、副檔名篩選）過濾；樹的節點選單另外由
 `FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
 
+### 3.5 檢視器（Viewer）
+
+檢視器是**窗格內容模式之一**，不是第三種版面：窗格預設顯示檔案清單，被檢視器佔用時
+改顯示內容，關閉後回到同一個資料夾的清單。狀態住在 `stores/viewer.ts`（以 PaneId 為鍵），
+與 `explorer` 的瀏覽狀態分開，但生命週期綁在一起：
+
+- **入口**：`usePathMenu` 對支援的檔案加上 `open-pane`（單一窗格＝「在新窗格開啟」，
+  分割時＝「在○窗格開啟」，說法與資料夾一致）。未分割時 `tabs.split()` 建立的新窗格
+  沿用來源窗格的資料夾，檢視器再疊上去；已分割時直接把內容開在相鄰窗格。
+  **焦點一律留在原本的檔案清單**（連續用方向鍵＋`Space` 快速換檔案預覽）；
+  點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
+- **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、WebView2 能解的圖檔
+  （`VIEWER_IMAGE_EXTENSIONS`）、以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
+- **渲染保證**：`utils/markdown.ts` 是零依賴的純函數；每一輪區塊解析都保證往前推進
+  （避免卡死），任何例外都會退回「警告＋原始文字」。**檢視器永遠不會只留一片空白**：
+  內容為空但檔案有大小時，store 會直接顯示讀取錯誤。
+- **讀取**：`services/api.ts` 的 `readViewerFile` → 後端 `read_viewer_file`
+  （`core/viewer.rs`）。文字回編碼後的字串片段（UTF-8 → Big5／GBK → lossy），
+  圖片回 base64 片段（每塊 3 的倍數，可直接串接）；**不設大小上限**。
+- **關閉時機**：Esc、標頭關閉鈕、窗格被銷毀、以及任何「使用者主動換位置」的導覽
+  （`explorer.navigate／goBack／goForward／goUp`）。清單類的重新整理（剪貼簿完成後的
+  `refreshPanes`）刻意不關閉檢視器。
+- **自動重載**：開啟後以 `viewer:<paneId>` 為 id 監控檔案所在資料夾（與窗格的監控
+  完全隔離），只有這個檔案的事件才去抖 250ms 後重載；刪除時顯示錯誤狀態。
+- **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
+  只保留 Esc（關閉）、F5（重新載入）、F6 與分頁／版面層級的操作。
+  在檔案清單按 `Space`＝把焦點列的檔案開到檢視器窗格（與右鍵 `open-pane` 同一條路徑）；
+  資料夾或不支援的類型只顯示提示，不做任何事。
+- **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`）—— 淡化是給沒有焦點的
+  檔案清單用的，檢視器是「旁邊的顯示區」，任何時候都維持正常對比。
+- 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。
+
 ## 4. 開發與修改規範
 
 - **模組職責與行數控制**：單一程式碼檔案行數建議控制在 400 行以內；若邏輯膨脹應拆分為
@@ -172,12 +208,15 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜版面切換 | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
 | 工作區（Workspace） | 路徑列與狀態列之間：左邊「資料夾樹面板」＋右邊「窗格區」 | `workspace/WorkspaceView.vue` |
 | 資料夾樹面板（Folder Tree Panel） | 左側「我的資料夾」；頂端是**樹工具列**（加入／移除／別名／排序／定位／收合全部／收合側欄），右緣是寬度把手 | `tree/FolderTreePanel.vue` |
-| 窗格（Pane） | 工作區裡的瀏覽單元，目前只裝檔案清單；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
+| 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
 | 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
+| 檢視器（Viewer） | 窗格內容模式：顯示 Markdown、圖檔或純文字，可關閉回到檔案清單 | `viewer/ViewerPane.vue` |
 | 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |
 | 設定頁（Settings） | 整頁浮層：蓋住路徑列與工作區、保留標題列 | `settings/SettingsView.vue` |
 
 - 「工具列」這個詞不再單獨使用：上方那條叫**路徑列**，左側樹面板那排按鈕叫**樹工具列**。
+- **檢視器**是窗格內容模式的名稱（動詞用法沿用「開啟」）；不要寫成「預覽窗格」「預覽器」。
+  開啟到窗格時的說法與資料夾共用：單一窗格是「在新窗格開啟」，分割時是「在左／右／上／下窗格開啟」。
 - **資料夾樹面板的可見性只有一個來源**：`settings.treeCollapsed`（使用者按樹工具列的收合側欄或
   F6）。不做任何依寬度／高度的自動退場 —— 分割比例與視窗尺寸都不會讓它自己消失。
 

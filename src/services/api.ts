@@ -16,6 +16,7 @@ import {
   mockListDirectory,
   mockListSubdirs,
   mockReadClipboard,
+  mockReadViewerFile,
   mockWriteClipboard,
 } from "./mock";
 import type {
@@ -24,6 +25,7 @@ import type {
   FileEntry,
   QuickLocation,
 } from "@/types/fs";
+import type { ViewerStreamEvent } from "@/types/viewer";
 
 export function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -49,6 +51,36 @@ export async function listDirectory(
 
   try {
     await invoke("list_dir_stream", { path, onEvent: channel });
+  } catch (error) {
+    throw toBackendError(error);
+  }
+}
+
+/**
+ * 串流讀取檢視器內容；`onEvent` 會被依序呼叫 start → chunk* → done。
+ *
+ * 文字檔送解碼後的字串片段，圖片送 base64 片段（後端保證每塊都是 3 的倍數，
+ * 直接串接就是完整的 base64）。
+ */
+export async function readViewerFile(
+  path: string,
+  onEvent: (event: ViewerStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!isDesktopRuntime()) {
+    await mockReadViewerFile(path, onEvent, signal);
+    return;
+  }
+
+  const channel = new Channel<ViewerStreamEvent>();
+  channel.onmessage = (event) => {
+    if (!signal?.aborted) {
+      onEvent(event);
+    }
+  };
+
+  try {
+    await invoke("read_viewer_file", { path, onEvent: channel });
   } catch (error) {
     throw toBackendError(error);
   }

@@ -126,6 +126,14 @@
     user-select: text;
   }
 
+  /*
+   * 檢視器的內容區（Markdown／純文字）也要能選取複製。
+   * `data-native-menu` 同時代表「這裡保留原生右鍵選單」，與 main.ts 的攔截例外同一套標記。
+   */
+  [data-native-menu] {
+    user-select: text;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 1px;

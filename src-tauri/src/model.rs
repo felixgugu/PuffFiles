@@ -21,6 +21,31 @@ pub enum DirEvent {
     Done { total: usize, truncated: bool },
 }
 
+/// 串流讀取檢視器內容時的進度事件。
+///
+/// 文字檔送 `encoding`、圖片送 `mime`，前端依這個欄位決定要組字串還是 Blob；
+/// 內容一律分批（`Chunk`）送出，超大檔才不會變成一個巨大的 IPC 酬載。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ViewerEvent {
+    Start {
+        path: String,
+        name: String,
+        size: u64,
+        modified_ms: Option<u64>,
+        /// 文字檔實際使用的編碼名稱（例如 `UTF-8`、`Big5`）。
+        encoding: Option<String>,
+        /// 圖片的 MIME 類型（例如 `image/png`）。
+        mime: Option<String>,
+    },
+    /// 文字是解碼後的字串片段；圖片是原始位元組的 base64 片段。
+    Chunk {
+        text: Option<String>,
+        base64: Option<String>,
+    },
+    Done,
+}
+
 /// 目錄中的單一項目。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

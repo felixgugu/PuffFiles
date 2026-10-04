@@ -5,6 +5,7 @@ import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import type { MenuItem } from "@/types/menu";
 import type { ExternalTool, ToolVars } from "@/types/tools";
@@ -12,6 +13,7 @@ import { fileNameOf, fileStemOf, parentOf, samePath } from "@/utils/path";
 import { paneSlotLabel, splitIcon } from "@/utils/layout";
 import { toolMatches } from "@/utils/tools";
 import { applyVars, buildVars } from "@/utils/toolVars";
+import { viewerKindOfPath } from "@/utils/viewer";
 
 /** 右鍵選單的對象：檔案或資料夾，以及它自己的完整路徑。 */
 export interface MenuTarget {
@@ -47,6 +49,7 @@ export function usePathMenu() {
   const tabs = useTabsStore();
   const ui = useUiStore();
   const clipboard = useClipboardStore();
+  const viewer = useViewerStore();
 
   function toVars(target: MenuTarget | null): ToolVars | null {
     if (!target?.path) {
@@ -193,8 +196,19 @@ export function usePathMenu() {
   }
 
   /** 單一檔案：沒有「新增」也沒有「貼上」，工具再依副檔名篩選。 */
-  function menuForFile(target: MenuTarget): MenuItem[] {
+  function menuForFile(target: MenuTarget, paneId: PaneId): MenuItem[] {
     const items: MenuItem[] = [{ id: "open", label: "開啟", icon: "folderOpen" }];
+    // 支援的檔案（Markdown／圖檔／純文字）多一個「在窗格開啟」，說法與資料夾完全一致。
+    if (viewerKindOfPath(target.path)) {
+      const neighbor = neighborPaneId(paneId);
+      const tab = tabs.activeTab;
+      items.push({
+        id: "open-pane",
+        label: neighbor && tab ? `在${paneSlotLabel(tab, neighbor)}窗格開啟` : "在新窗格開啟",
+        icon: splitIcon(neighbor && tab ? tab.direction : settings.lastSplit.direction),
+        shortcut: "Space",
+      });
+    }
     append(items, clipboardItems("file"));
     append(items, toolItems([target]));
     append(items, transferItems());
@@ -228,7 +242,7 @@ export function usePathMenu() {
     }
     return request.targets[0].isDir
       ? menuForFolder(request.targets[0], request.paneId)
-      : menuForFile(request.targets[0]);
+      : menuForFile(request.targets[0], request.paneId);
   }
 
   /**
@@ -335,13 +349,35 @@ export function usePathMenu() {
         return;
       case "open-pane": {
         const neighbor = neighborPaneId(request.paneId);
-        if (neighbor) {
+        // 不支援的檔案（例如 .pdf、.mp4）只提示，不先分割出一個空窗格。
+        if (!target.isDir && !viewerKindOfPath(target.path)) {
+          ui.showNotice("這個檔案類型還沒有檢視器");
+          return;
+        }
+        if (target.isDir && neighbor) {
           // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊，焦點一起移過去。
           tabs.setActivePane(neighbor);
           await explorer.navigate(neighbor, target.path);
           return;
         }
-        tabs.split(settings.lastSplit.direction, target.path);
+        if (target.isDir) {
+          tabs.split(settings.lastSplit.direction, target.path);
+          return;
+        }
+        // 檔案：新窗格沿用目前窗格的資料夾（也就是這個檔案所在的資料夾），
+        // 再把內容疊上去；關閉檢視器就會回到同一個資料夾的清單。
+        //
+        // 焦點刻意**留在檔案清單**：這樣可以連續用方向鍵換檔案、按 Space 更新檢視器。
+        // 分割建立新窗格時它會先成為焦點，所以這裡立刻把焦點交還給來源窗格。
+        if (neighbor) {
+          await viewer.open(neighbor, target.path);
+          return;
+        }
+        const source = request.paneId;
+        tabs.split(settings.lastSplit.direction, explorer.meta(source)?.currentPath ?? "");
+        const created = tabs.activePaneId;
+        tabs.setActivePane(source);
+        await viewer.open(created, target.path);
         return;
       }
       case "copy-windows":

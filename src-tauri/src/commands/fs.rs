@@ -303,7 +303,7 @@ fn spawn(mut command: std::process::Command, program: &str) -> AppResult<()> {
 }
 
 /// 阻斷式 I/O 一律丟到背景執行緒，避免卡住 WebView 主執行緒。
-async fn run_blocking<T, F>(job: F) -> AppResult<T>
+pub(crate) async fn run_blocking<T, F>(job: F) -> AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce() -> AppResult<T> + Send + 'static,

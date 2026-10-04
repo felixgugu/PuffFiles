@@ -18,6 +18,7 @@ pub fn run() {
             commands::fs::open_path,
             commands::fs::run_external,
             commands::fs::reveal_path,
+            commands::viewer::read_viewer_file,
             commands::shell::clipboard_files,
             commands::shell::set_clipboard_files,
             commands::shell::clear_clipboard,

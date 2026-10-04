@@ -6,7 +6,9 @@
  */
 
 import type { DirStreamEvent, DriveInfo, FileEntry, QuickLocation } from "@/types/fs";
+import type { ViewerStreamEvent } from "@/types/viewer";
 import { fileNameOf, joinPath, parentOf } from "@/utils/path";
+import { viewerKindOfPath } from "@/utils/viewer";
 
 const now = Date.now();
 
@@ -130,6 +132,134 @@ export async function mockListDirectory(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 模擬 `read_viewer_file`。
+ *
+ * Markdown 刻意包含標題、表格、程式碼區塊、相對圖片與相對連結，
+ * 這樣在瀏覽器裡就能把檢視器的每個分支走過一遍。
+ */
+export async function mockReadViewerFile(
+  path: string,
+  onEvent: (event: ViewerStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await delay(60);
+  if (signal?.aborted) {
+    return;
+  }
+
+  const kind = viewerKindOfPath(path);
+  const name = fileNameOf(path);
+  const base = {
+    path,
+    name,
+    size: 0,
+    modifiedMs: now,
+  };
+
+  if (kind === "image") {
+    const svg = mockImageSvg(name);
+    const bytes = new TextEncoder().encode(svg);
+    onEvent({
+      ...base,
+      type: "start",
+      size: bytes.length,
+      encoding: null,
+      mime: "image/svg+xml",
+    });
+    for (let index = 0; index < bytes.length; index += 48 * 1024) {
+      await delay(20);
+      if (signal?.aborted) {
+        return;
+      }
+      onEvent({
+        type: "chunk",
+        text: null,
+        base64: bytesToBase64(bytes.slice(index, index + 48 * 1024)),
+      });
+    }
+    onEvent({ type: "done" });
+    return;
+  }
+
+  const text = kind === "markdown" ? mockMarkdown(name) : mockPlainText(name);
+  const bytes = new TextEncoder().encode(text);
+  onEvent({
+    ...base,
+    type: "start",
+    size: bytes.length,
+    encoding: "UTF-8",
+    mime: null,
+  });
+  for (let index = 0; index < text.length; index += 32 * 1024) {
+    await delay(20);
+    if (signal?.aborted) {
+      return;
+    }
+    onEvent({ type: "chunk", text: text.slice(index, index + 32 * 1024), base64: null });
+  }
+  onEvent({ type: "done" });
+}
+
+function mockMarkdown(name: string): string {
+  return `# ${name}
+
+這是**瀏覽器預覽模式**的假 Markdown，用來檢查檢視器的排版。
+
+| 欄位 | 說明 |
+| --- | ---: |
+| 標題 | 麵包屑與狀態列 |
+| 圖片 | 相對路徑會走 IPC 讀取 |
+
+## 清單
+
+1. 第一項
+2. 第二項
+   - 巢狀項目
+   - 另一個巢狀項目
+
+> 引用區塊也會被渲染成獨立的樣式。
+
+## 程式碼
+
+\`\`\`ts
+const answer = 42;
+\`\`\`
+
+行內 \`程式碼\`、*斜體*、**粗體**、~~刪除線~~，還有自動連結 https://example.com 。
+
+![相對路徑圖片](./photo.png)
+
+[相對連結：notes.txt](./notes.txt)
+`;
+}
+
+function mockPlainText(name: string): string {
+  const lines = [`${name}（瀏覽器預覽模式的假文字檔）`, ""];
+  for (let index = 1; index <= 40; index++) {
+    lines.push(`${String(index).padStart(2, "0")}｜這是一行測試文字，用來確認等寬字與換行。`);
+  }
+  return lines.join("\n");
+}
+
+/** 用 SVG 假裝一張圖片，讓 Mock 模式也有真的點陣內容可以縮放。 */
+function mockImageSvg(name: string): string {
+  const hue = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="hsl(${hue} 55% 62%)"/>
+  <circle cx="980" cy="180" r="150" fill="hsl(${(hue + 40) % 360} 70% 78%)" opacity="0.7"/>
+  <text x="60" y="640" font-family="Segoe UI, sans-serif" font-size="64" fill="white">${name}</text>
+</svg>`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 /** 瀏覽器開發用的假剪貼簿，讓前端流程可以在沒有 Tauri 的情況下走完。 */

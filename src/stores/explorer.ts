@@ -5,6 +5,7 @@ import { copyText } from "@/services/clipboard";
 import { normalizeBackendError, type AppErrorView } from "@/services/errors";
 import { COLUMN_DEFAULTS, COLUMN_MIN, useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
+import { useViewerStore } from "@/stores/viewer";
 import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
 import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
@@ -50,6 +51,7 @@ const EAGER_SORT_LIMIT = 2000;
 export const useExplorerStore = defineStore("explorer", () => {
   const settings = useSettingsStore();
   const ui = useUiStore();
+  const viewer = useViewerStore();
 
   const panes = reactive<Record<PaneId, PaneMeta>>({});
   const entriesByPane = new Map<PaneId, ShallowRef<FileEntry[]>>();
@@ -105,6 +107,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     controllers.get(id)?.abort();
     controllers.delete(id);
     stopWatch(id);
+    viewer.destroy(id);
     entriesByPane.delete(id);
     visibleByPane.delete(id);
     delete panes[id];
@@ -371,6 +374,8 @@ export const useExplorerStore = defineStore("explorer", () => {
     if (!pane) {
       return Promise.resolve();
     }
+    // 使用者主動換位置＝離開檢視器；清單類的重新整理（例如剪貼簿完成後）不會關掉它。
+    viewer.close(id);
     if (!target || target === pane.currentPath) {
       return refresh(id);
     }
@@ -387,6 +392,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     if (!pane || !target) {
       return Promise.resolve();
     }
+    viewer.close(id);
     pane.backStack = pane.backStack.slice(0, -1);
     pane.forwardStack = [...pane.forwardStack, pane.currentPath];
     return load(id, target);
@@ -398,6 +404,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     if (!pane || !target) {
       return Promise.resolve();
     }
+    viewer.close(id);
     pane.forwardStack = pane.forwardStack.slice(0, -1);
     pane.backStack = [...pane.backStack, pane.currentPath];
     return load(id, target);

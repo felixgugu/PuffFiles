@@ -7,6 +7,7 @@ import { useRefreshView } from "@/composables/useRefreshView";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
+import { useViewerStore } from "@/stores/viewer";
 import { fileNameOf } from "@/utils/path";
 import { paneSlotLabel } from "@/utils/layout";
 
@@ -19,6 +20,7 @@ import { paneSlotLabel } from "@/utils/layout";
 const explorer = useExplorerStore();
 const tabs = useTabsStore();
 const settings = useSettingsStore();
+const viewer = useViewerStore();
 const refreshView = useRefreshView();
 
 const paneId = computed(() => tabs.activePaneId);
@@ -111,10 +113,24 @@ const navButtons = computed(() => {
 });
 
 function revealCurrent() {
+  // 檢視器窗格聚焦時，「顯示於總管」指的是正在看的那個檔案。
+  const viewing = viewer.of(paneId.value);
+  if (viewing) {
+    void explorer.revealTarget(viewing.path);
+    return;
+  }
   const entry = explorer.focusedEntry(paneId.value);
   if (entry) {
     void explorer.reveal(entry);
   }
+}
+
+/** 在檢視器窗格打字搜尋＝回到檔案清單，否則搜尋結果會看不到。 */
+function onSearch(value: string) {
+  if (viewer.isOpen(paneId.value)) {
+    viewer.close(paneId.value);
+  }
+  explorer.setQuery(paneId.value, value);
 }
 </script>
 
@@ -158,7 +174,7 @@ function revealCurrent() {
     <SearchField
       :model-value="pane.query"
       class="w-52"
-      @update:model-value="explorer.setQuery(paneId, $event)"
+      @update:model-value="onSearch"
     />
 
     <div class="flex shrink-0 items-center gap-0.5">

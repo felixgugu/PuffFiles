@@ -3,6 +3,7 @@ export type AppErrorKind =
   | "notFound"
   | "permissionDenied"
   | "notADirectory"
+  | "notAFile"
   | "invalidPath"
   | "invalidName"
   | "alreadyExists"
@@ -14,6 +15,7 @@ const TITLES: Record<AppErrorKind, string> = {
   notFound: "找不到這個位置",
   permissionDenied: "沒有存取權限",
   notADirectory: "這不是資料夾",
+  notAFile: "這不是檔案",
   invalidPath: "路徑無效",
   invalidName: "名稱不合法",
   alreadyExists: "名稱重複",
