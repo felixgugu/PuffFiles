@@ -9,6 +9,8 @@ import { useViewerStore } from "@/stores/viewer";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
 import type { PaneId } from "@/types/fs";
+import { samePath } from "@/utils/path";
+import { nextViewableFileIndex } from "@/utils/viewer";
 
 /**
  * 全域快速鍵。
@@ -301,23 +303,61 @@ export function useKeyboardShortcuts() {
    * 「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，差別只在這裡帶入
    * `keepFocus` —— 焦點留在原清單，才能用方向鍵＋`Space` 連續掃描同一個資料夾。
    * 不支援的檔案類型會直接顯示提示，不會有任何副作用。
+   *
+   * **智慧前進**：焦點的檔案若已經開在另一窗格的檢視器裡，按 `Space` 的意圖是
+   * 「看下一個」而不是重新載入同一個檔案，所以自動前進到清單中下一個能用檢視器
+   * 開啟的檔案（跳過資料夾與不支援的類型），焦點與選取一起移動。已經是清單裡
+   * 最後一個可預覽的檔案時停在原地，不做任何事。
    */
   function openFocusedInPane(paneId: PaneId) {
     const entry = explorer.focusedEntry(paneId);
     if (!entry) {
       return;
     }
+
+    let target = entry;
+    if (isPreviewedInNeighbor(paneId, entry.path)) {
+      const list = explorer.visibleRef(paneId).value;
+      const current = list.findIndex((item) => item.path === entry.path);
+      const next = nextViewableFileIndex(list, current);
+      if (next < 0) {
+        return;
+      }
+      target = list[next];
+      // 焦點與選取一起移動：畫面上「正在看哪一個」只會有一種說法，
+      // 而且會沿用清單自己的 watcher 把新的一列捲進可視範圍。
+      explorer.select(paneId, target.path, "replace");
+    }
+
     void pathMenu.run(
       "open-pane",
       {
         paneId,
-        target: { path: entry.path, isDir: entry.isDir },
-        targets: [{ path: entry.path, isDir: entry.isDir }],
+        target: { path: target.path, isDir: target.isDir },
+        targets: [{ path: target.path, isDir: target.isDir }],
       },
       { keepFocus: true },
     );
   }
 
+  /**
+   * 這個檔案是不是已經開在「另一個窗格」的檢視器裡。
+   *
+   * 每分頁最多兩個窗格，所以相對焦點窗格的那一個就是鄰居；未分割時沒有鄰居。
+   * 檢視器還在 loading 也算已開啟 —— 連續按 `Space` 才不會把上一鍵的結果漏掉。
+   */
+  function isPreviewedInNeighbor(paneId: PaneId, path: string): boolean {
+    const tab = tabs.activeTab;
+    if (!tab || !tab.paneIds.includes(paneId)) {
+      return false;
+    }
+    const neighbor = tab.paneIds.find((id) => id !== paneId) ?? null;
+    if (!neighbor) {
+      return false;
+    }
+    const state = viewer.of(neighbor);
+    return !!state && samePath(state.path, path);
+  }
 
   onMounted(() => window.addEventListener("keydown", onKeydown));
   onUnmounted(() => window.removeEventListener("keydown", onKeydown));

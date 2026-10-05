@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue";
-import * as api from "@/services/api";
+import ViewerNotice from "./ViewerNotice.vue";
+import { useLocalNavigation } from "@/composables/useLocalNavigation";
 import { useExplorerStore } from "@/stores/explorer";
-import { useUiStore } from "@/stores/ui";
 import { useViewerStore } from "@/stores/viewer";
+import { loadViewerBlobUrl } from "@/services/viewerResource";
 import type { PaneId } from "@/types/fs";
+import { highlightCode, languageForToken, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
 import { renderMarkdown } from "@/utils/markdown";
 import { fileNameOf, parentOf } from "@/utils/path";
 
@@ -19,7 +21,7 @@ const props = defineProps<{ paneId: PaneId }>();
 
 const explorer = useExplorerStore();
 const viewer = useViewerStore();
-const ui = useUiStore();
+const { openLocalTarget } = useLocalNavigation();
 
 const state = computed(() => viewer.of(props.paneId));
 const content = useTemplateRef<HTMLElement>("content");
@@ -27,6 +29,19 @@ const content = useTemplateRef<HTMLElement>("content");
 const rendered = computed(() =>
   renderMarkdown(state.value?.text ?? "", parentOf(state.value?.path ?? "") ?? ""),
 );
+
+/**
+ * 檔案太大就跳過圍籬高亮。
+ *
+ * 只有真的有圍籬時才提示 —— 沒有程式碼區塊的長篇 Markdown 不該出現這一行。
+ */
+const skippedHighlight = computed(() => {
+  const current = state.value;
+  if (!current || current.size <= MAX_HIGHLIGHT_BYTES) {
+    return false;
+  }
+  return /^ {0,3}(`{3,}|~{3,})/m.test(current.text);
+});
 
 /** 路徑 → blob URL；與畫面無關，所以不用響應式。 */
 const blobs = new Map<string, string>();
@@ -41,24 +56,13 @@ function releaseBlobs() {
   loading.clear();
 }
 
-/** 相對圖片一律走 IPC 讀取，轉成 blob URL 後才交給 <img>。 */
+/** 相對圖片一律走 IPC 讀取（與 HTML 預覽共用同一條），轉成 blob URL 後才交給 <img>。 */
 async function loadImage(path: string): Promise<string> {
-  const chunks: string[] = [];
-  let mime = "application/octet-stream";
-  await api.readViewerFile(path, (event) => {
-    if (event.type === "start") {
-      mime = event.mime ?? mime;
-    } else if (event.type === "chunk" && event.base64) {
-      chunks.push(event.base64);
-    }
-  });
-
-  const binary = atob(chunks.join(""));
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let index = 0; index < binary.length; index++) {
-    bytes[index] = binary.charCodeAt(index);
+  const resource = await loadViewerBlobUrl(path);
+  if (!resource) {
+    throw new Error(`讀不到圖片內容：${fileNameOf(path) || path}`);
   }
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  return resource.url;
 }
 
 function missingImage(path: string): HTMLElement {
@@ -108,6 +112,30 @@ async function applyImages() {
   }
 }
 
+/**
+ * 把 ``` 區塊換成 highlight.js 的彩色版本。
+ *
+ * `renderMarkdown` 產出的是已經轉義過的字串，這裡讀回 `textContent`（等於原始程式碼）
+ * 再交給 hljs；回傳的 HTML 同樣是轉義過的，所以直接寫回 `innerHTML` 是安全的。
+ */
+function applyCodeHighlight() {
+  const root = content.value;
+  if (!root || skippedHighlight.value) {
+    return;
+  }
+  for (const code of root.querySelectorAll<HTMLElement>("pre.md-pre > code")) {
+    const token = /language-([\w+#.-]+)/.exec(code.className)?.[1] ?? "";
+    const language = languageForToken(token);
+    if (!language) {
+      continue;
+    }
+    const html = highlightCode(code.textContent ?? "", language);
+    if (html !== null) {
+      code.innerHTML = html;
+    }
+  }
+}
+
 watch(
   rendered,
   async () => {
@@ -115,6 +143,7 @@ watch(
     releaseBlobs();
     await nextTick();
     void applyImages();
+    applyCodeHighlight();
   },
   { immediate: true, flush: "post" },
 );
@@ -140,48 +169,22 @@ function onClick(event: MouseEvent) {
 
   const local = anchor.dataset.viewerLocal;
   if (local) {
-    void navigateLocal(local);
+    void openLocalTarget(props.paneId, local);
   }
 }
-
-/**
- * 相對連結：關掉檢視器、在該窗格導覽到目標所在的資料夾並選取它。
- *
- * 目標是資料夾時再往下一層 —— 需要先載入父層清單才知道它是什麼。
- */
-async function navigateLocal(target: string) {
-  const paneId = props.paneId;
-  const parent = parentOf(target);
-  viewer.close(paneId);
-
-  if (!parent) {
-    await explorer.navigate(paneId, target);
-    return;
-  }
-
-  await explorer.navigate(paneId, parent);
-  const entry = explorer.visibleRef(paneId).value.find((item) => item.path === target);
-  if (!entry) {
-    ui.showNotice(`找不到連結目標：${fileNameOf(target) || target}`);
-    return;
-  }
-  if (entry.isDir) {
-    await explorer.navigate(paneId, entry.path);
-    return;
-  }
-  explorer.select(paneId, entry.path);
-}
-
 </script>
 
 <template>
-  <div
-    ref="content"
-    data-native-menu
-    class="markdown scroll-area min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5"
-    @click="onClick"
-    v-html="rendered.html"
-  />
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+    <ViewerNotice v-if="skippedHighlight" text="檔案過大，已略過語法高亮" />
+    <div
+      ref="content"
+      data-native-menu
+      class="markdown code-highlight scroll-area min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5"
+      @click="onClick"
+      v-html="rendered.html"
+    />
+  </div>
 </template>
 
 <style scoped>

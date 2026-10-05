@@ -226,10 +226,10 @@ function forwardContextMenu(node: FolderNode, event: MouseEvent) {
         draggable ? 'cursor-grab' : '',
         dragging ? 'z-10 opacity-95 shadow-md' : '',
         isCurrent
-          ? 'bg-accent-soft text-ink'
+          ? 'bg-accent-soft text-tree-ink-strong'
           : isActive
-            ? 'bg-surface-hover text-ink'
-            : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink',
+            ? 'bg-surface-hover text-tree-ink-strong'
+            : 'text-tree-ink hover:bg-surface-hover active:bg-pressed hover:text-tree-ink-strong',
       ]"
       :style="{ paddingLeft: `${6 + depth * 12}px` }"
       @click="activate"

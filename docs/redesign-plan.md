@@ -266,16 +266,20 @@ Markdown／圖檔／純文字可以在**另一個窗格**直接看內容 —— 
 - **入口與說法**：與資料夾共用同一套 `open-pane`。單一窗格＝「在新窗格開啟」，沿用
   `settings.lastSplit.direction`，新窗格沿用來源窗格的資料夾；已分割＝「在左／右／上／下
   窗格開啟」，直接開在相鄰窗格。**焦點留在檔案清單**，方向鍵＋`Space` 就能連續預覽同一個
-  資料夾裡的檔案；焦點要進到檢視器（Esc、Ctrl+C、Ctrl+W）得先點它。
+  資料夾裡的檔案；目前顯示中的那一個再按 `Space` 會自動前進到下一個可預覽的檔案
+  （跳過資料夾與不支援的類型，焦點與選取一起移動），最後一個則停在原地。
+  焦點要進到檢視器（Esc、Ctrl+C、Ctrl+W）得先點它。
 - **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`），維持正常對比。
-- **支援範圍**：`.md`／`.markdown`、WebView2 能顯示的圖檔（png／jpg／jpeg／jfif／gif／
-  bmp／webp／svg／ico／avif），以及 `fileKind.ts` 歸類為文字／程式碼的檔案。
+- **支援範圍**：`.md`／`.markdown`、`.html`／`.htm`（靜態預覽，見 §11）、WebView2 能顯示的
+  圖檔（png／jpg／jpeg／jfif／gif／bmp／webp／svg／ico／avif），以及 `fileKind.ts`
+  歸類為文字／程式碼的檔案。
 - **Markdown 渲染**：`utils/markdown.ts`（自帶、零依賴；原本要用的 markdown-it 在離線環境
   裝不了，介面刻意保持可替換）。涵蓋標題、清單、表格、引用、程式碼區塊、刪除線、
   自動連結、連結與圖片，**不執行原始 HTML**；相對路徑的圖片走 IPC 讀取後以 blob URL 內嵌，
   相對連結關閉檢視器、在該窗格導覽到目標資料夾並選取。
 - **圖片**：fit 置中、滾輪以游標為錨點縮放、拖曳平移、雙擊切換 fit／實際大小。
-- **純文字**：等寬、自動換行、標示偵測到的編碼（UTF-8／UTF-16 BOM 或 NUL 特徵／Big5／GBK）。
+- **純文字**：等寬、自動換行、標示偵測到的編碼（UTF-8／UTF-16 BOM 或 NUL 特徵／Big5／GBK）；
+  `fileKind.ts` 的「程式碼」類另外做語法高亮（見 §11）。
 - **讀取**：`read_viewer_file`（`core/viewer.rs` + `commands/viewer.rs`）分批串流；
   **不設大小上限**（已與使用者確認），代價是超大檔會吃記憶體。
 - **外部變更**：以 `viewer:<paneId>` 為 id 監控檔案所在資料夾（與窗格的監控隔離），
@@ -543,3 +547,53 @@ Markdown 檢視器目前把 ` ```mermaid ` 區塊當一般程式碼區塊顯示�
   或 pdf.js（自製工具列、+約 1 MB gzip，成本數天）。
 - **另一個取捨**：blob 路徑的記憶體約為檔案大小的 2.3 倍（base64＋bytes＋Blob）；
   要省記憶體得開 `assetProtocol` 放寬 WebView 的檔案讀取範圍，安全面變大，不建議。
+
+### HTML 靜態預覽（2026-10-05 決議：做，靜態且離線）
+
+`.html` 以前只能當純文字看（`code` 類），`.htm` 甚至完全打不開。現在兩者都走 `html` kind，
+在窗格裡直接**靜態預覽**，標頭可切回原始碼：
+
+- **不執行 JavaScript**：`HtmlView` 用 `iframe[srcdoc]`，`sandbox` 只給 `allow-same-origin`。
+  `allow-same-origin` 是必要的 —— 只有同源，父層才能進 `contentDocument` 做資源改寫與事件轉介；
+  而沒有 `allow-scripts`，框內就永遠不會有腳本能用到這個同源身分。
+  `utils/html.ts` 另外把 `<script>`／`<base>`／meta refresh／`on*` 拿掉，讓 DOM 本身也是靜態的。
+- **不載入遠端資源**：http(s)、protocol-relative 與其他 scheme 一律不載入（不連外、不洩漏
+  使用者開了哪個檔）；`<iframe>`／`<embed>`／`<object>`／`<video>`／`<audio>` 拿掉來源屬性。
+- **本機相對資源走既有 IPC**：圖片與字型由 `read_viewer_file` 讀成 blob URL；外部 CSS 讀成文字、
+  改寫它自己的 `url()` 與 `@import`（深度上限 5、以路徑去重防環）後再變成 `text/css` blob。
+  因為不開 `assetProtocol`，WebView 的讀檔範圍沒有放寬 —— 與 PDF 那條的取捨一致。
+- **後端零改動**：`.html` 走既有的文字串流（含 Big5／GBK 偵測），`read_viewer_file` 一個字都沒動。
+- **提示條**：偵測到 `<script>` 或有略過的資源時，在內容上方說明「預覽為靜態模式」與略過數量；
+  需要 JS 的頁面因此不會只留一片空白。
+- **已知限制**：不做完整瀏覽器（沒有網址列／多頁瀏覽）、表單不送出、`@import` 超過 5 層或成環
+  不載入；切換模式或檔案自動重載會重建 iframe，捲動位置回到頂端。
+- **待桌面驗證**：`srcdoc` ＋ `sandbox="allow-same-origin"` 下父層取得 `contentDocument`、
+  框內載入 blob URL、以及重送到母視窗的 keydown（Esc／F5／F6）。若 WebView2 不支援，
+  備案是改用窗格內的 Shadow DOM 渲染、資源全部內嵌 `data:` URI（放棄框內事件轉介）。
+
+### 語法高亮（2026-10-05 決議：做，highlight.js ＋精選語言）
+
+檢視器的程式碼檔與 Markdown 圍籬區塊加上語法高亮。評估過後**不做** lazy chunk、
+**不匯入** highlight.js 全量語言：
+
+- **專案本身**：25.0k stars、未封存，`11.12.0` 於 2026-08-12 發佈、8 月仍有 commit，
+  npm 週下載 4,550 萬，BSD-3-Clause（Vue 文法為 CC0-1.0）。
+- **體積（實測）**：官方 `highlight.min.js` 其實只有 **36 種語言**（124.5 KB min／
+  gzip 42.4 KB）；**全量 193 種**在 Vite 打包後是 **1.2 MB min／gzip 404 KB** —— 是前者
+  的 9 倍，所以改成 `lib/common`＋38 種精選語言（PowerShell、bat／cmd、stylus、
+  Dockerfile、nginx、properties、cmake…）：**541.6 KB min／gzip 188 KB／brotli 169 KB**，
+  portable exe 由 4.99 MB 增至約 5.07 MB。`vite.config.ts` 因此把 `chunkSizeWarningLimit`
+  提高到 700 kB（並在註解說明這是刻意的）。
+- **不用 lazy chunk**：單檔 exe 的 lazy chunk 先前已被列為待驗風險，而這些文法 gzip 後
+  只有 169 KB，不值得為它引入非同步載入與空白等待。
+- **主題自製**：`main.css` 新增 `--color-syntax-*` 權杖（淺／深各一組，皆在 canvas 上達
+  WCAG AA），`.code-highlight .hljs-*` 對照表把 token 對到權杖；不用官方主題，顏色才跟
+  App 一致。
+- **1 MB 門檻**：highlight.js 是同步 API，超過 `MAX_HIGHLIGHT_BYTES` 就整份當純文字並顯示
+  「檔案過大，已略過語法高亮」。
+- **Vue 文法自己內嵌**：官方生態的 `highlightjs-vue@1.0.0` 發佈到 npm 的 dist 是壞的
+  （`require()` 只拿到空物件），所以把那份 CC0 文法放進 `utils/vueGrammar.ts`，並補上
+  `<script setup lang="ts">` 這種現代寫法（原版只認 `<script>` 與 `<script lang="ts">`）。
+- **不做 `highlightAuto`**：自動偵測昂貴且結果不穩；認不得的副檔名維持純文字。
+- **授權**：`highlight.js` 是 BSD-3-Clause、Vue 文法 CC0-1.0；目前只在這裡記錄，
+  若日後要公開發佈，需在「關於」或隨附檔案補上 BSD-3 的版權聲明。

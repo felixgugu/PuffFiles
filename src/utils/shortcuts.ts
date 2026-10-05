@@ -49,7 +49,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "檢視器",
     note: "焦點在檢視器窗格時，Esc 與 F5 作用於檢視器本身；清單類快速鍵會停用，文字才能正常選取複製。",
     items: [
-      { keys: ["Space"], label: "把焦點列的檔案開到檢視器窗格（焦點留在清單）" },
+      {
+        keys: ["Space"],
+        label: "把焦點列的檔案開到檢視器窗格；已經在另一邊顯示時改開下一個（焦點留在清單）",
+      },
       { keys: ["Esc"], label: "關閉檢視器" },
       { keys: ["F5"], label: "重新載入檢視器內容" },
     ],

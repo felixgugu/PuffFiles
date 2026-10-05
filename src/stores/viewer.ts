@@ -4,7 +4,7 @@ import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import { useUiStore } from "@/stores/ui";
 import type { PaneId } from "@/types/fs";
-import type { ViewerState } from "@/types/viewer";
+import type { ViewerMode, ViewerState } from "@/types/viewer";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
 import { viewerKindOfPath } from "@/utils/viewer";
 
@@ -228,6 +228,8 @@ export const useViewerStore = defineStore("viewer", () => {
       path,
       name: fileNameOf(path) || path,
       kind,
+      // HTML 預設先給使用者看畫面；要讀原始碼再從標頭切換。
+      mode: "preview",
       status: "loading",
       error: null,
       text: "",
@@ -237,6 +239,14 @@ export const useViewerStore = defineStore("viewer", () => {
       modifiedMs: null,
     };
     await load(paneId);
+  }
+
+  /** 切換 HTML 的「預覽／原始碼」；其他種類沒有切換鈕，呼叫也只是改一個沒人讀的欄位。 */
+  function setMode(paneId: PaneId, mode: ViewerMode) {
+    const state = views[paneId];
+    if (state) {
+      state.mode = mode;
+    }
   }
 
   function reload(paneId: PaneId): Promise<void> {
@@ -281,7 +291,7 @@ export const useViewerStore = defineStore("viewer", () => {
     );
   }
 
-  return { views, of, isOpen, open, reload, retarget, close, destroy };
+  return { views, of, isOpen, open, reload, setMode, retarget, close, destroy };
 });
 
 function base64ToBytes(chunks: string[]): Uint8Array<ArrayBuffer> {

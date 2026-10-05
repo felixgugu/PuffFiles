@@ -162,8 +162,20 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   沿用來源窗格的資料夾，檢視器再疊上去；已分割時直接把內容開在相鄰窗格。
   **焦點一律留在原本的檔案清單**（連續用方向鍵＋`Space` 快速換檔案預覽）；
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
-- **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、WebView2 能解的圖檔
-  （`VIEWER_IMAGE_EXTENSIONS`）、以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
+- **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
+  WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、以及 `fileKind.ts` 歸類為
+  `text`／`code` 的純文字檔。
+- **語法高亮**：`utils/codeHighlight.ts` 用 highlight.js（`lib/common` ＋精選語言，**不匯入
+  全量 193 種**）替 `fileKind.ts` 的「程式碼」類上色，Markdown 的圍籬區塊與 HTML 的原始碼
+  模式共用同一條；顏色是 `main.css` 的 `--color-syntax-*` 權杖（淺／深色各一組）。
+  超過 `MAX_HIGHLIGHT_BYTES`（1 MB）就整份當純文字並顯示提示 —— highlight.js 是同步 API，
+  丟大檔進去會凍住 UI。
+- **HTML 靜態預覽**：`HtmlView` 以 `iframe[srcdoc]` 呈現，`sandbox` 只給 `allow-same-origin`
+  （不給 `allow-scripts`）—— 頁面**不執行 JavaScript**、**不載入 http(s) 遠端資源**；
+  `utils/html.ts` 先移除 `<script>`／`<base>`／meta refresh／`on*`，再由父層進入
+  `contentDocument` 把相對路徑的圖片、外部 CSS 與 CSS 內的 `url()`／`@import` 換成
+  經 IPC 讀取的 blob URL。標頭的切換鈕在「預覽／原始碼」之間切換（`ViewerState.mode`），
+  預設是預覽；有 `<script>` 或略過的資源時在內容上方顯示提示條。
 - **Mermaid**：` ```mermaid ` 區塊目前只顯示原始碼（不渲染）；是否內嵌 mermaid 的評估與
   實測數字見 `docs/redesign-plan.md` §11，決議是先不做、交給程式碼編輯器。
 - **PDF**：不進檢視器（`.pdf` 屬 `document` 類），交給系統預設程式。內嵌 WebView2 PDF
@@ -185,6 +197,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   在檔案清單按 `Space`＝把焦點列的項目預覽到另一窗格（走右鍵 `open-pane` 同一條路徑，
   但帶 `keepFocus`）：資料夾在新窗格開成一般清單、支援的檔案開檢視器，**焦點一律留在
   原清單**，才能連續用方向鍵＋`Space` 掃描；不支援的類型只顯示提示，不做任何事。
+  **智慧前進**：焦點的檔案若已經開在另一窗格的檢視器裡，按 `Space` 會自動前進到清單中
+  下一個能用檢視器開啟的檔案（跳過資料夾與不支援的類型，`utils/viewer.ts` 的
+  `nextViewableFileIndex`），焦點與選取一起移動；已經是最後一個時停在原地、不做任何事。
 - **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`）—— 淡化是給沒有焦點的
   檔案清單用的，檢視器是「旁邊的顯示區」，任何時候都維持正常對比。
 - 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。

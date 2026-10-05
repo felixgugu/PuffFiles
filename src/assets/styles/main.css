@@ -26,12 +26,31 @@
   --color-ink: oklch(0.3 0.012 265);
   --color-ink-muted: oklch(0.45 0.014 265);
   --color-ink-faint: oklch(0.54 0.012 265);
+  /*
+   * 左側資料夾樹的清單文字：淺色佈景一律純黑（比 ink 更明確），
+   * 深色佈景再退回原本的三級灰，維持既有的濃淡層級。
+   */
+  --color-tree-ink: oklch(0 0 0);
+  --color-tree-ink-strong: oklch(0 0 0);
   /* 藍：當文字用要 4.5:1（含 accent-soft 上的小標籤），白字疊在上面也還有 5.3:1。 */
   --color-accent: oklch(0.53 0.155 252);
   --color-accent-ink: oklch(1 0 0);
   --color-accent-soft: oklch(0.95 0.028 252);
   --color-danger: oklch(0.55 0.19 25);
   --color-danger-soft: oklch(0.96 0.03 25);
+
+  /*
+   * 語法高亮（highlight.js）：每一色都要在 canvas 上達 WCAG AA 4.5:1。
+   * 只給檢視器用，不參與 App 其他地方的配色。
+   */
+  --color-syntax-keyword: oklch(0.5 0.16 292);
+  --color-syntax-string: oklch(0.47 0.12 152);
+  --color-syntax-number: oklch(0.52 0.13 62);
+  --color-syntax-title: oklch(0.5 0.15 252);
+  --color-syntax-comment: oklch(0.56 0.02 220);
+  --color-syntax-tag: oklch(0.52 0.16 22);
+  --color-syntax-attr: oklch(0.5 0.11 205);
+  --color-syntax-meta: oklch(0.55 0.06 300);
 
   /* 按壓狀態：比 hover 再深（深色主題再淺）一階。 */
   --color-pressed: oklch(0.935 0.005 265);
@@ -90,11 +109,22 @@
   --color-ink: oklch(0.94 0.004 265);
   --color-ink-muted: oklch(0.74 0.01 265);
   --color-ink-faint: oklch(0.62 0.012 265);
+  --color-tree-ink: var(--color-ink-muted);
+  --color-tree-ink-strong: var(--color-ink);
   --color-accent: oklch(0.72 0.13 252);
   --color-accent-ink: oklch(0.18 0.02 265);
   --color-accent-soft: oklch(0.32 0.06 252);
   --color-danger: oklch(0.72 0.16 25);
   --color-danger-soft: oklch(0.3 0.06 25);
+
+  --color-syntax-keyword: oklch(0.79 0.12 292);
+  --color-syntax-string: oklch(0.8 0.11 152);
+  --color-syntax-number: oklch(0.84 0.1 72);
+  --color-syntax-title: oklch(0.78 0.12 252);
+  --color-syntax-comment: oklch(0.63 0.02 220);
+  --color-syntax-tag: oklch(0.78 0.12 22);
+  --color-syntax-attr: oklch(0.8 0.09 205);
+  --color-syntax-meta: oklch(0.75 0.05 300);
 
   --color-pressed: oklch(0.33 0.014 265);
 
@@ -105,6 +135,76 @@
 
   --color-canvas-dim: oklch(0.175 0.008 265);
   --color-ink-fainter: oklch(0.52 0.012 265);
+}
+
+/*
+ * 語法高亮（highlight.js）的 class 對照表。
+ *
+ * `code-highlight` 由 TextView／MarkdownView 掛在程式碼容器上，樣式因此只影響
+ * 檢視器內容；`.hljs-params`、`.hljs-subst` 這類容器刻意不上色，讓裡面遞迴的
+ * 關鍵字／字串自己決定顏色。
+ */
+.code-highlight .hljs-comment,
+.code-highlight .hljs-quote {
+  color: var(--color-syntax-comment);
+  font-style: italic;
+}
+
+.code-highlight .hljs-keyword,
+.code-highlight .hljs-selector-tag,
+.code-highlight .hljs-doctag,
+.code-highlight .hljs-meta .hljs-keyword {
+  color: var(--color-syntax-keyword);
+}
+
+.code-highlight .hljs-string,
+.code-highlight .hljs-regexp,
+.code-highlight .hljs-symbol,
+.code-highlight .hljs-bullet,
+.code-highlight .hljs-addition,
+.code-highlight .hljs-template-tag,
+.code-highlight .hljs-template-variable {
+  color: var(--color-syntax-string);
+}
+
+.code-highlight .hljs-number,
+.code-highlight .hljs-literal,
+.code-highlight .hljs-link {
+  color: var(--color-syntax-number);
+}
+
+.code-highlight .hljs-title,
+.code-highlight .hljs-title.class_,
+.code-highlight .hljs-title.function_,
+.code-highlight .hljs-section,
+.code-highlight .hljs-built_in,
+.code-highlight .hljs-type {
+  color: var(--color-syntax-title);
+}
+
+.code-highlight .hljs-tag,
+.code-highlight .hljs-name,
+.code-highlight .hljs-selector-id,
+.code-highlight .hljs-deletion {
+  color: var(--color-syntax-tag);
+}
+
+.code-highlight .hljs-attr,
+.code-highlight .hljs-attribute,
+.code-highlight .hljs-property,
+.code-highlight .hljs-selector-class,
+.code-highlight .hljs-selector-attr,
+.code-highlight .hljs-variable {
+  color: var(--color-syntax-attr);
+}
+
+.code-highlight .hljs-meta {
+  color: var(--color-syntax-meta);
+}
+
+.code-highlight .hljs-operator,
+.code-highlight .hljs-punctuation {
+  color: var(--color-ink-muted);
 }
 
 @layer base {

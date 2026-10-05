@@ -55,11 +55,13 @@ const FOLDER_NAMES = ["專案", "文件", "下載", "圖片", "音樂", "backup"
 const FILE_NAMES = [
   "readme.md",
   "app.ts",
+  "App.vue",
   "簡報.pdf",
   "財報.xlsx",
   "demo.mp4",
   "photo.png",
   "notes.txt",
+  "index.html",
   "archive.zip",
   "setup.exe",
   "unknown.dat",
@@ -198,7 +200,16 @@ export async function mockReadViewerFile(
     return;
   }
 
-  const text = kind === "markdown" ? mockMarkdown(name) : mockPlainText(name);
+  const text =
+    kind === "markdown"
+      ? mockMarkdown(name)
+      : kind === "html"
+        ? mockHtml(name)
+        : name.endsWith(".vue")
+          ? mockVue()
+          : name.endsWith(".ts")
+            ? mockTypeScript()
+            : mockPlainText(name);
   const bytes = new TextEncoder().encode(text);
   onEvent({
     ...base,
@@ -247,6 +258,109 @@ const answer = 42;
 ![相對路徑圖片](./photo.png)
 
 [相對連結：notes.txt](./notes.txt)
+`;
+}
+
+/**
+ * 假 HTML：一段本機樣式、一張相對圖片、一個遠端資源與一個 `<script>`。
+ *
+ * 這樣在瀏覽器裡就能同時看到「會載入的」「被略過的」與「不執行 JS」三種情境，
+ * 提示條的計數也驗得到。
+ */
+function mockHtml(name: string): string {
+  return `<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>${name}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; line-height: 1.7; color: #1f2937; }
+    h1 { color: #0f766e; }
+    .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px 16px; }
+    .bg { background-image: url("./photo.png"); height: 40px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>${name}</h1>
+  <p>這是瀏覽器預覽模式的假 HTML，用來檢查檢視器的靜態預覽。</p>
+  <div class="card">
+    <p>相對路徑的圖片會走 IPC 讀取後內嵌：</p>
+    <img src="./photo.png" alt="相對圖片" width="160">
+    <div class="bg"></div>
+  </div>
+  <p>遠端資源不會載入：<img src="https://example.com/remote.png" alt="遠端圖片"></p>
+  <script>document.body.append("這段文字不該出現");</script>
+</body>
+</html>
+`;
+}
+
+/** 假 TypeScript：關鍵字、型別、字串、數字、註解都要出現，才看得出高亮效果。 */
+function mockTypeScript(): string {
+  return `import { computed, ref } from "vue";
+
+/** 一格檔案清單的資料。 */
+export interface FileRow {
+  name: string;
+  size: number;
+  isDir: boolean;
+}
+
+const PAGE_SIZE = 256;
+
+export function createRows(names: string[]): FileRow[] {
+  // 目錄列的大小固定是 0
+  return names.map((name, index) => ({
+    name,
+    size: index * PAGE_SIZE,
+    isDir: !name.includes("."),
+  }));
+}
+
+export async function loadRows(path: string): Promise<FileRow[]> {
+  const response = await fetch(\`/api/list?path=\${encodeURIComponent(path)}\`);
+  if (!response.ok) {
+    throw new Error(\`讀取失敗：\${response.status}\`);
+  }
+  return (await response.json()) as FileRow[];
+}
+
+const rows = ref<FileRow[]>(createRows(["a.ts", "b", "c.md"]));
+export const count = computed(() => rows.value.length);
+`;
+}
+
+/** 假 Vue 單檔元件：三段（template／script setup lang="ts"／style scoped）都要驗到。 */
+function mockVue(): string {
+  return `<script setup lang="ts">
+import { computed, ref } from "vue";
+
+interface Item {
+  id: number;
+  label: string;
+}
+
+const items = ref<Item[]>([
+  { id: 1, label: "第一項" },
+  { id: 2, label: "第二項" },
+]);
+const count = computed(() => items.value.length);
+</script>
+
+<template>
+  <ul class="list">
+    <li v-for="item in items" :key="item.id">{{ item.label }}</li>
+  </ul>
+  <p>共 {{ count }} 項</p>
+</template>
+
+<style scoped>
+.list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #0f766e;
+}
+</style>
 `;
 }
 

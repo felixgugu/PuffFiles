@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import ErrorBanner from "@/components/common/ErrorBanner.vue";
+import HtmlView from "./HtmlView.vue";
 import ImageView from "./ImageView.vue";
 import MarkdownView from "./MarkdownView.vue";
 import TextView from "./TextView.vue";
@@ -24,6 +25,10 @@ const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
 
 const extension = computed(() => extensionOf(state.value?.path ?? ""));
+
+/** 只有 HTML 有兩種顯示模式；切換鈕也只對它出現。 */
+const isHtml = computed(() => state.value?.kind === "html");
+const previewing = computed(() => isHtml.value && state.value?.mode === "preview");
 
 const icon = computed(() =>
   iconFor({ isDir: false, isSymlink: false, extension: extension.value }),
@@ -58,6 +63,14 @@ function openWithDefault() {
   }
 }
 
+function toggleMode() {
+  const current = state.value;
+  if (!current || current.kind !== "html") {
+    return;
+  }
+  viewer.setMode(props.paneId, current.mode === "preview" ? "source" : "preview");
+}
+
 function reveal() {
   const current = state.value;
   if (current) {
@@ -79,6 +92,15 @@ function reveal() {
       <span v-else-if="detail" class="min-w-0 truncate text-xs text-ink-faint">{{ detail }}</span>
 
       <div class="ml-auto flex shrink-0 items-center gap-0.5">
+        <button
+          v-if="isHtml"
+          type="button"
+          class="flex size-7 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
+          :title="previewing ? '看原始碼' : '看預覽'"
+          @click="toggleMode"
+        >
+          <AppIcon :name="previewing ? 'code' : 'eye'" :size="15" />
+        </button>
         <button
           type="button"
           class="flex size-7 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
@@ -129,6 +151,7 @@ function reveal() {
     </div>
 
     <MarkdownView v-else-if="state.kind === 'markdown'" :pane-id="paneId" />
+    <HtmlView v-else-if="state.kind === 'html' && state.mode === 'preview'" :pane-id="paneId" />
     <ImageView v-else-if="state.kind === 'image'" :pane-id="paneId" />
     <TextView v-else :pane-id="paneId" />
   </div>

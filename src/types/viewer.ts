@@ -1,7 +1,13 @@
 import type { AppErrorView } from "@/services/errors";
 
 /** 檢視器支援的內容種類。 */
-export type ViewerKind = "markdown" | "image" | "text";
+export type ViewerKind = "markdown" | "html" | "image" | "text";
+
+/**
+ * HTML 的顯示模式：`preview` 是靜態預覽（不執行 JavaScript），`source` 是原始碼。
+ * 其他種類固定是 `preview`，切換鈕也只對 HTML 出現。
+ */
+export type ViewerMode = "preview" | "source";
 
 /** 後端 `read_viewer_file` 透過 Tauri Channel 推送的事件。 */
 export type ViewerStreamEvent =
@@ -26,9 +32,11 @@ export interface ViewerState {
   path: string;
   name: string;
   kind: ViewerKind;
+  /** 只有 HTML 會用到；開啟時一律從 `preview` 開始。 */
+  mode: ViewerMode;
   status: ViewerStatus;
   error: AppErrorView | null;
-  /** Markdown 原始碼或純文字內容。 */
+  /** Markdown／HTML 原始碼或純文字內容。 */
   text: string;
   /** 文字檔的實際編碼；圖片為 null。 */
   encoding: string | null;
