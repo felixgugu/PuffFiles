@@ -18,13 +18,19 @@
   --color-surface-hover: oklch(0.955 0.004 265);
   --color-line: oklch(0.92 0.005 265);
   --color-line-strong: oklch(0.86 0.006 265);
+  /*
+   * 文字三級灰（淺色佈景）：每一級都要在淺灰底（surface-muted／rail／canvas-dim）上
+   * 達到 WCAG AA 的 4.5:1，所以比「看起來淡」再暗一階：
+   * ink 12+／ink-muted 6.8+／ink-faint 4.6+。深色佈景的值不受影響。
+   */
   --color-ink: oklch(0.3 0.012 265);
-  --color-ink-muted: oklch(0.55 0.014 265);
-  --color-ink-faint: oklch(0.68 0.012 265);
-  --color-accent: oklch(0.63 0.155 252);
+  --color-ink-muted: oklch(0.45 0.014 265);
+  --color-ink-faint: oklch(0.54 0.012 265);
+  /* 藍：當文字用要 4.5:1（含 accent-soft 上的小標籤），白字疊在上面也還有 5.3:1。 */
+  --color-accent: oklch(0.53 0.155 252);
   --color-accent-ink: oklch(1 0 0);
   --color-accent-soft: oklch(0.95 0.028 252);
-  --color-danger: oklch(0.6 0.19 25);
+  --color-danger: oklch(0.55 0.19 25);
   --color-danger-soft: oklch(0.96 0.03 25);
 
   /* 按壓狀態：比 hover 再深（深色主題再淺）一階。 */
@@ -38,7 +44,7 @@
 
   /* 未使用中的窗格：底色與三級文字各再退一階。 */
   --color-canvas-dim: oklch(0.968 0.003 265);
-  --color-ink-fainter: oklch(0.78 0.01 265);
+  --color-ink-fainter: oklch(0.65 0.01 265);
 
   /*
    * 型排：字距與行高跟著字級走，不用每個地方各自指定。

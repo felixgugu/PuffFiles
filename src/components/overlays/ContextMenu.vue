@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
         <div v-if="item.separatorBefore" class="my-0.5 h-px bg-line" />
         <button
           type="button"
-          class="flex w-full items-center gap-2.5 px-2.5 py-1 text-left text-sm pressable disabled:opacity-40"
+          class="group flex w-full items-center gap-2.5 px-2.5 py-1 text-left text-sm pressable disabled:opacity-40"
           :class="
             item.disabled
               ? 'text-ink-faint'
@@ -115,7 +115,14 @@ onBeforeUnmount(() => {
         >
           <AppIcon v-if="item.icon" :name="item.icon" :size="14" class="shrink-0 opacity-80" />
           <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
-          <span v-if="item.shortcut" class="shrink-0 text-2xs opacity-60">{{ item.shortcut }}</span>
+          <!--
+            快速鍵提示用 ink-faint（不疊透明度）：疊透明度會把它洗成 <4.5:1 的灰，
+            在白色選單底上讀不清楚；滑過（accent 底）時跟著變成 accent-ink。
+          -->
+          <span
+            v-if="item.shortcut"
+            class="shrink-0 text-2xs text-ink-faint group-hover:text-accent-ink"
+          >{{ item.shortcut }}</span>
         </button>
       </template>
     </div>

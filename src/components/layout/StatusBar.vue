@@ -94,7 +94,7 @@ const rows = computed<StatusRow[]>(() => {
         <span v-if="row.loading" class="shrink-0 text-accent">正在讀取…</span>
         <span
           v-if="isMock && index === rows.length - 1"
-          class="shrink-0 rounded bg-amber-500/15 px-1.5 text-amber-600 dark:text-amber-400"
+          class="shrink-0 rounded bg-amber-500/15 px-1.5 text-amber-800 dark:text-amber-400"
         >
           瀏覽器預覽模式
         </span>
@@ -110,7 +110,7 @@ const rows = computed<StatusRow[]>(() => {
       <span v-if="activePane?.status === 'loading'" class="shrink-0 text-accent">正在讀取…</span>
       <span
         v-if="isMock"
-        class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400"
+        class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 dark:text-amber-400"
       >
         瀏覽器預覽模式
       </span>

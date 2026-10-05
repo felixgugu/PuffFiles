@@ -323,6 +323,13 @@ Markdown／圖檔／純文字可以在**另一個窗格**直接看內容 —— 
 `prefers-reduced-transparency` → 材質轉不透明、關閉 blur；
 `prefers-contrast: more` → 近不透明底 + 明確邊框。設定頁也提供「動態效果」覆寫（三態）。
 
+淺色佈景的文字對比（2026-10-05 調整）：三級文字灰都調深，確保在最淺的灰底
+（`surface-muted`／`rail`／`canvas-dim`）上仍達 WCAG AA 的 4.5:1 —— `ink` 12+、
+`ink-muted` 6.8、`ink-faint` 4.6；`accent` 當文字用（含 `accent-soft` 上的小標籤）≥4.5:1，
+白字疊在 accent 上 ≥5.3:1；`danger` ≥4.6:1。深色佈景的權杖不動；未使用窗格的
+第三級文字（`ink-fainter`）維持刻意降階（約 3:1，非焦點內容）。選單的快速鍵提示不再
+疊 `opacity`，改用 `ink-faint`，滑過時跟著變 `accent-ink`。
+
 ### 字體排印
 
 - 沿用系統字（`Segoe UI Variable`），已具備 optical sizing 與字距表。
