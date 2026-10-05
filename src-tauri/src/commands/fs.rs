@@ -327,7 +327,7 @@ const RESERVED_NAMES: [&str; 22] = [
 
 /// 名稱驗證：不能空白、不能含路徑分隔或非法字元、不能以句點或空白結尾，
 /// 也不能是 Windows 保留名稱。
-fn validated_name(name: &str) -> AppResult<String> {
+pub(crate) fn validated_name(name: &str) -> AppResult<String> {
     let trimmed = name.trim();
     let invalid = |reason: &str| AppError::InvalidName {
         reason: reason.to_string(),

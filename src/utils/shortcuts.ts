@@ -65,12 +65,13 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
   {
     title: "剪貼簿與檔案",
-    note: "實作交給 Windows shell，行為與檔案總管一致（衝突、進度、取消、資源回收筒）。",
+    note: "實作交給 Windows shell，行為與檔案總管一致（衝突、進度、取消、資源回收筒）。檔案清單的一般右鍵選單只留常用動作，按住 Shift 再右鍵才會出現剪下／複製／貼上／刪除／重新命名。",
     items: [
       { keys: ["Ctrl+C"], label: "複製" },
       { keys: ["Ctrl+X"], label: "剪下" },
       { keys: ["Ctrl+V"], label: "貼上" },
       { keys: ["Del"], label: "刪除" },
+      { keys: ["F2"], label: "重新命名（就地編輯檔案清單的焦點列）" },
       { keys: ["Ctrl+Shift+C"], label: "複製到另一個窗格（需分割）" },
       { keys: ["Ctrl+Shift+M"], label: "移動到另一個窗格（需分割）" },
       { keys: ["Ctrl+Shift+N"], label: "建立新資料夾" },

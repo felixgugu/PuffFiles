@@ -5,8 +5,9 @@ import { normalizeBackendError } from "@/services/errors";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
-import { normalizeKey } from "@/utils/path";
+import { joinPath, normalizeKey, parentOf, samePath } from "@/utils/path";
 
 /**
  * 剪貼簿與檔案操作。
@@ -19,6 +20,7 @@ export const useClipboardStore = defineStore("clipboard", () => {
   const explorer = useExplorerStore();
   const tabs = useTabsStore();
   const ui = useUiStore();
+  const viewer = useViewerStore();
 
   /** 被剪下的項目（正規化鍵）；清單據此淡化顯示。 */
   const cutKeys = ref<string[]>([]);
@@ -189,6 +191,55 @@ export const useClipboardStore = defineStore("clipboard", () => {
     await transfer(tab.activePaneId, other, mode);
   }
 
+  /**
+   * 就地重新命名單一項目。
+   *
+   * 實際改名交給 Windows shell：同名衝突、權限不足由系統出面處理，成功後也能在檔案總管
+   * 按 Ctrl+Z 復原。成功時把清單重新載入並選取新名字，同時讓「剪下中」的標記與開著的
+   * 檢視器一起改指向新路徑。回傳 false 代表使用者取消或失敗。
+   */
+  async function renameEntry(paneId: PaneId, path: string, newName: string): Promise<boolean> {
+    if (busy.value) {
+      return false;
+    }
+    const pane = explorer.meta(paneId);
+    const parent = parentOf(path) ?? pane?.currentPath ?? "";
+    if (!pane || !parent) {
+      return false;
+    }
+    const newPath = joinPath(parent, newName);
+
+    try {
+      busy.value = true;
+      const completed = await api.renameItem(path, newName);
+      if (!completed) {
+        // 使用者取消（例如同名衝突時按取消）：維持原名，不需要提示。
+        return false;
+      }
+
+      const oldKey = normalizeKey(path);
+      cutKeys.value = cutKeys.value.map((key) => (key === oldKey ? normalizeKey(newPath) : key));
+      await viewer.retarget(path, newPath);
+
+      // 只有在同一個資料夾才重讀；其他位置的窗格交給目錄監控的增量更新接手。
+      if (samePath(parent, pane.currentPath)) {
+        await explorer.refresh(paneId);
+        const list = explorer.visibleRef(paneId).value;
+        const index = list.findIndex((item) => samePath(item.path, newPath));
+        // 用清單裡的實際路徑選取：後端回報的路徑大小寫可能與列舉結果不同。
+        explorer.select(paneId, index >= 0 ? list[index].path : newPath, "replace");
+      }
+
+      ui.showNotice(`已重新命名為「${newName}」`);
+      return true;
+    } catch (cause) {
+      report(cause);
+      return false;
+    } finally {
+      busy.value = false;
+    }
+  }
+
   return {
     cutKeys,
     busy,
@@ -201,6 +252,7 @@ export const useClipboardStore = defineStore("clipboard", () => {
     transfer,
     transferToOtherPane,
     removePaths,
+    renameEntry,
     refreshPanes,
   };
 });

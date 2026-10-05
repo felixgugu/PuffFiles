@@ -12,10 +12,12 @@ import { useExplorerStore } from "@/stores/explorer";
 import { TREE_ROOT_CONTAINER } from "@/stores/folders";
 import { COLUMN_FIT_MAX, useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
+import { useUiStore } from "@/stores/ui";
 import type { MenuRequest } from "@/composables/usePathMenu";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
 import { formatCount } from "@/utils/format";
+import { samePath } from "@/utils/path";
 import { measureText, widestText } from "@/utils/textMetrics";
 
 const props = defineProps<{ paneId: PaneId }>();
@@ -24,6 +26,7 @@ const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
 const clipboard = useClipboardStore();
+const ui = useUiStore();
 const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
 const addToFolders = useAddToFolders();
 
@@ -451,11 +454,16 @@ interface MenuState {
   x: number;
   y: number;
   request: MenuRequest;
+  /** 按住 Shift 開的「擴充選單」：剪貼與重新命名只在這裡出現。 */
+  extended: boolean;
   /** 「加入我的資料夾」會原地換成第二段選單，這一段用來挑容器。 */
   stage: "main" | "container";
 }
 
 const menu = ref<MenuState | null>(null);
+
+/** 正在就地重新命名的列（一次只會有一列）。 */
+const renaming = ref<{ path: string; originalName: string } | null>(null);
 
 const menuItems = computed(() => {
   const state = menu.value;
@@ -465,7 +473,7 @@ const menuItems = computed(() => {
   if (state.stage === "container") {
     return addToFolders.containerItems();
   }
-  const items = menuFor(state.request);
+  const items = menuFor(state.request, { clipboard: state.extended, rename: state.extended });
   const { targets, target } = state.request;
   // 只有單一資料夾（或空白處的目前資料夾）才有東西可加；多選時不知道要加哪一個。
   if (targets.length === 1 && targets[0].isDir) {
@@ -486,6 +494,7 @@ function openRowMenu(entry: FileEntry, event: MouseEvent) {
     x: event.clientX,
     y: event.clientY,
     request: requestFor(props.paneId, { path: entry.path, isDir: entry.isDir }),
+    extended: event.shiftKey,
     stage: "main",
   };
 }
@@ -503,6 +512,7 @@ function openBlankMenu(event: MouseEvent) {
     x: event.clientX,
     y: event.clientY,
     request: blankRequest(props.paneId, pane.value.currentPath),
+    extended: event.shiftKey,
     stage: "main",
   };
 }
@@ -524,6 +534,13 @@ async function onMenuSelect(id: string) {
     return;
   }
 
+  // 「重新命名」是就地編輯，不是 usePathMenu 動作表裡的一項。
+  if (id === "rename") {
+    menu.value = null;
+    startRename(current.request.target.path);
+    return;
+  }
+
   menu.value = null;
   if (current.stage === "container") {
     const containerId = addToFolders.containerOf(id);
@@ -534,6 +551,58 @@ async function onMenuSelect(id: string) {
   }
   await runMenu(id, current.request);
 }
+
+/** 開始就地重新命名；清單裡找不到這一列（被搜尋篩掉）就不做。 */
+function startRename(path: string) {
+  if (clipboard.busy) {
+    return;
+  }
+  const entry = rows.value.find((item) => samePath(item.path, path));
+  if (!entry) {
+    return;
+  }
+  renaming.value = { path: entry.path, originalName: entry.name };
+}
+
+/** 就地編輯送出：名稱清空或沒變都當成取消，不叫後端。 */
+async function commitRename(value: string) {
+  const state = renaming.value;
+  renaming.value = null;
+  if (!state) {
+    return;
+  }
+  const name = value.trim();
+  if (!name || name === state.originalName) {
+    return;
+  }
+  await clipboard.renameEntry(props.paneId, state.path, name);
+}
+
+function cancelRename() {
+  renaming.value = null;
+}
+
+// F2：對焦點列開始就地重新命名；只有焦點窗格反應。
+watch(
+  () => ui.renameRequest,
+  () => {
+    if (props.paneId !== tabs.activePaneId) {
+      return;
+    }
+    const entry = explorer.focusedEntry(props.paneId);
+    if (entry) {
+      startRename(entry.path);
+    }
+  },
+);
+
+// 換資料夾時結束編輯，避免舊的編輯狀態在回到同一個資料夾時又冒出來。
+watch(
+  () => pane.value.currentPath,
+  () => {
+    renaming.value = null;
+  },
+);
 
 function sortBy(column: ColumnId) {
   if (SORTABLE.includes(column)) {
@@ -626,9 +695,12 @@ function sortBy(column: ColumnId) {
             :selected="pane.selected.includes(entry.path)"
             :focused="pane.focusedIndex === start + index"
             :cut="clipboard.isCut(entry.path)"
+            :editing="renaming?.path === entry.path"
             :data-index="start + index"
             @activate="explorer.activate(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"
+            @rename="commitRename"
+            @rename-cancel="cancelRename"
           />
         </div>
       </div>

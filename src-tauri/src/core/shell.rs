@@ -70,6 +70,13 @@ pub fn run(
     })
 }
 
+#[cfg(not(windows))]
+pub fn rename(_item: &Path, _new_name: &str, _silent: bool) -> AppResult<bool> {
+    Err(AppError::Unsupported {
+        feature: "檔案操作（僅支援 Windows）".to_string(),
+    })
+}
+
 #[cfg(windows)]
 mod platform {
     use super::{io_error, ClipboardFiles, FileOp};
@@ -286,6 +293,58 @@ mod platform {
         }
     }
 
+    /// 就地重新命名單一項目（同一層資料夾換名字）。
+    ///
+    /// 與複製／搬移一樣交給 `IFileOperation`：同名衝突、權限不足由 Windows 出面處理，
+    /// 成功後也能在檔案總管按 Ctrl+Z 復原。回傳 false 代表使用者中途取消。
+    pub fn rename(item: &Path, new_name: &str, silent: bool) -> AppResult<bool> {
+        unsafe {
+            // IFileOperation 需要在有 COM 的執行緒上建立；重複初始化是安全的。
+            let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+            let result = perform_rename(item, new_name, silent);
+            if initialized {
+                CoUninitialize();
+            }
+            result
+        }
+    }
+
+    unsafe fn perform_rename(item: &Path, new_name: &str, silent: bool) -> AppResult<bool> {
+        unsafe {
+            let name = new_name.trim();
+            if name.is_empty() {
+                return Err(io_error("名稱不能是空的"));
+            }
+
+            let operation: IFileOperation = CoCreateInstance(&FileOperation, None, CLSCTX_ALL)
+                .map_err(|error| io_error(format!("建立檔案操作失敗：{error}")))?;
+
+            let mut flags = FOF_ALLOWUNDO;
+            if silent {
+                flags |= FOF_SILENT | FOF_NOERRORUI | FOF_NOCONFIRMATION;
+            }
+            operation
+                .SetOperationFlags(flags)
+                .map_err(|error| io_error(format!("設定檔案操作參數失敗：{error}")))?;
+
+            let source = shell_item(item)?;
+            let wide: Vec<u16> = OsStr::new(name).encode_wide().chain(Some(0)).collect();
+            operation
+                .RenameItem(&source, PCWSTR(wide.as_ptr()), None)
+                .map_err(|error| io_error(format!("排入重新命名失敗：{error}")))?;
+
+            operation
+                .PerformOperations()
+                .map_err(|error| io_error(format!("執行重新命名失敗：{error}")))?;
+
+            let aborted = operation
+                .GetAnyOperationsAborted()
+                .map(|value| value.as_bool())
+                .unwrap_or(false);
+            Ok(!aborted)
+        }
+    }
+
     unsafe fn perform(
         items: &[PathBuf],
         destination: Option<&Path>,
@@ -354,7 +413,7 @@ mod platform {
 }
 
 #[cfg(windows)]
-pub use platform::{clear_clipboard, read_clipboard, run, write_clipboard};
+pub use platform::{clear_clipboard, read_clipboard, rename, run, write_clipboard};
 
 #[cfg(all(test, windows))]
 mod tests {
@@ -415,6 +474,22 @@ mod tests {
         assert_eq!(
             fs::read_to_string(destination.join("moved.txt")).expect("moved file"),
             "moved"
+        );
+    }
+
+    #[test]
+    fn renames_items_through_the_shell() {
+        let root = scratch("rename");
+        let source = root.join("before.txt");
+        write_file(&source, "content");
+
+        let completed = rename(&source, "after.txt", true).expect("rename");
+
+        assert!(completed, "操作被回報為取消");
+        assert!(!source.exists(), "改名後來源應該消失");
+        assert_eq!(
+            fs::read_to_string(root.join("after.txt")).expect("renamed file"),
+            "content"
         );
     }
 

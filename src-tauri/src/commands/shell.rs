@@ -146,6 +146,25 @@ pub async fn delete_items(paths: Vec<String>) -> AppResult<bool> {
     .await
 }
 
+/// 就地重新命名單一項目（同一層資料夾換名字）。
+///
+/// 回傳 false 代表使用者中途取消（例如同名衝突時按了取消）；名稱驗證與建立新項目共用
+/// 同一套規則，非法名稱會在叫 shell 之前就被擋下來。
+#[tauri::command]
+pub async fn rename_item(path: String, new_name: String) -> AppResult<bool> {
+    run_logged(
+        "RENAME",
+        format!("from=\"{path}\" to=\"{new_name}\""),
+        move || {
+            let name = crate::commands::fs::validated_name(&new_name)?;
+            let source = core::normalize(Path::new(&path))?;
+            shell::rename(&source, &name, false)
+        },
+        describe_outcome,
+    )
+    .await
+}
+
 /// 讀出最後幾行檔案操作紀錄。
 #[tauri::command]
 pub async fn operation_log(lines: usize) -> AppResult<String> {
@@ -216,5 +235,44 @@ mod tests {
         assert!(log.contains("ok"), "日誌應該有成功紀錄：{log}");
         assert!(log.contains("fail"), "日誌應該有失敗紀錄：{log}");
         assert!(log.contains("logged.txt"), "日誌應該記下來源路徑：{log}");
+    }
+
+    /// 重新命名：成功、非法名稱與不存在的來源都要走完整條指令路徑並留下紀錄。
+    #[test]
+    fn renames_items_and_logs() {
+        let root = scratch("rename");
+        let source = root.join("old.txt");
+        fs::write(&source, "x").expect("write source");
+        let from = source.to_string_lossy().into_owned();
+
+        let done = tauri::async_runtime::block_on(rename_item(from.clone(), "new.txt".to_string()))
+            .expect("rename should succeed");
+        assert!(done, "重新命名被回報為取消");
+        assert!(root.join("new.txt").exists(), "新名稱的檔案應該存在");
+        assert!(!source.exists(), "舊名稱的檔案應該消失");
+
+        // 非法名稱要擋在 shell 之前。
+        let invalid = tauri::async_runtime::block_on(rename_item(from, "bad/name".to_string()));
+        assert!(invalid.is_err(), "含路徑分隔符號的名稱應該失敗");
+
+        // 不存在的來源也要失敗。
+        let missing = root.join("nope.txt").to_string_lossy().into_owned();
+        let failed = tauri::async_runtime::block_on(rename_item(missing, "x.txt".to_string()));
+        assert!(failed.is_err(), "不存在的來源應該失敗");
+
+        // 日誌寫在 %LOCALAPPDATA%，受限環境（例如沙箱）不允許寫入時會被刻意吞掉；
+        // 那種情況只驗證重新命名本身，不把「寫不進日誌」當成產品缺陷。
+        if log_is_writable() {
+            let log = crate::core::oplog::tail(40);
+            assert!(log.contains("RENAME"), "日誌應該有 RENAME：{log}");
+            assert!(log.contains("fail"), "日誌應該有失敗紀錄：{log}");
+        }
+    }
+
+    /// 日誌檔所在的資料夾是否真的寫得進去（沙箱會擋掉 %LOCALAPPDATA%）。
+    fn log_is_writable() -> bool {
+        crate::core::oplog::path()
+            .and_then(|path| std::fs::OpenOptions::new().append(true).open(path).ok())
+            .is_some()
     }
 }

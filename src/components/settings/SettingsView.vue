@@ -376,10 +376,11 @@ async function selectSection(id: SectionId) {
               分頁與左右／上下分割讓兩個位置並排工作。
             </p>
             <p class="text-sm leading-relaxed text-ink-muted">
-              剪下、複製、貼上、刪除與建立新資料夾／新檔案都直接交給 Windows 的檔案操作機制，
+              剪下、複製、貼上、刪除、重新命名與建立新資料夾／新檔案都直接交給 Windows 的檔案操作機制，
               所以衝突處理、進度、取消與資源回收筒的行為都與檔案總管一致，剪貼簿也雙向互通。
               資料夾內容的變更由系統通知即時反映到清單（可在設定關閉），不必手動重新整理；
-              重新命名仍留給檔案總管。
+              重新命名是清單中的就地編輯（F2），一般右鍵選單只留常用動作，
+              按住 Shift 再右鍵才會出現剪下、複製、貼上、刪除與重新命名。
             </p>
             <dl class="space-y-1 text-sm text-ink-muted">
               <div class="flex gap-3">

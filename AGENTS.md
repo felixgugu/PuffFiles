@@ -36,7 +36,7 @@ PuffFiles/
 │  │  ├─ explorer.ts           # 每個窗格的路徑、項目、選取、排序、欄寬、瀏覽歷史
 │  │  ├─ tabs.ts               # 分頁與分割版面、窗格生命週期、工作階段還原
 │  │  ├─ folders.ts            # 左側「我的資料夾」清單（含虛擬目錄、順序、展開狀態）
-│  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除、送到另一窗格、忙碌狀態
+│  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除／重新命名、送到另一窗格、忙碌狀態
 │  │  ├─ history.ts            # 瀏覽紀錄（MRU，含分割版面）
 │  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
 │  │  ├─ system.ts             # 磁碟機、快速存取位置（只用於啟動時的起始路徑）
@@ -72,14 +72,14 @@ PuffFiles/
       ├─ model.rs              # FileEntry / DirListing / DirEvent / ViewerEvent / DriveInfo / QuickLocation
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
-      │  ├─ shell.rs           # IFileOperation 檔案操作、CF_HDROP 剪貼簿
+      │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
       │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
       │  └─ oplog.rs           # 檔案操作紀錄（%LOCALAPPDATA%\PuffFile\logs）
       └─ commands/
          ├─ fs.rs              # list_dir_stream、list_subdirs、建立資料夾／檔案、外部工具、reveal
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
-         ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除、操作紀錄
+         ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
          └─ system.rs          # list_drives、quick_locations
 ```
@@ -138,10 +138,16 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 
 ### 3.4 右鍵選單
 
-內容集中在 `composables/usePathMenu.ts`：`menuFor(request)` 依「選取情境」決定項目
+內容集中在 `composables/usePathMenu.ts`：`menuFor(request, options)` 依「選取情境」決定項目
 （清單空白處／單一資料夾／單一檔案／多選），`run(id, request, options)` 負責執行
 （`options.keepFocus` 只影響資料夾的 `open-pane`，供檔案清單的 `Space` 預覽使用，見 §3.5）。
 `request.target` 是右鍵的那一項，`request.targets` 是這次真正會作用的項目。
+
+`MenuOptions` 決定要不要加入剪貼組（剪下／複製／貼上／刪除）與重新命名：
+檔案清單的一般右鍵選單**不含**這一組，按住 **Shift 再右鍵**才顯示（「擴充選單」）；
+空白處的擴充選單只提供「貼上」（剪下／複製／刪除會作用在目前這個資料夾本身，不提供）。
+左側資料夾樹固定顯示剪貼組（`{ clipboard: true }`），樹沒有就地編輯所以不提供重新命名。
+「重新命名」由 `FileListView` 攔截選單 id `rename` 與 F2 就地編輯，不經過 `run()`，見 §3.6。
 外部工具依 `toolMatches()`（顯示於檔案／資料夾、副檔名篩選）過濾；樹的節點選單另外由
 `FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
 
@@ -182,6 +188,22 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`）—— 淡化是給沒有焦點的
   檔案清單用的，檢視器是「旁邊的顯示區」，任何時候都維持正常對比。
 - 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。
+
+### 3.6 重新命名（就地編輯，僅檔案清單）
+
+重新命名是**檔案清單**的功能，資料夾樹與檢視器都不提供：
+
+- **入口**：Shift+右鍵的擴充選單「重新命名」，或焦點在清單時按 **F2**
+  （`ui.renameRequest` 計數器 → `FileListView` 對焦點列開始編輯）。
+- **就地編輯**：`FileTableRow` 在名稱欄換成輸入框；檔案的初始選取範圍只到主檔名
+  （最後一個句點之前），資料夾全選。Enter／失去焦點確認、Esc 取消；名稱清空或沒變
+  直接結束，不叫後端。
+- **後端**：`clipboard.renameEntry` → `api.renameItem` → `commands::shell::rename_item`
+  → `core::shell::rename`（`IFileOperation::RenameItem`）。同名衝突、權限問題由 Windows
+  出面處理，成功後也能在檔案總管 Ctrl+Z 復原；非 Windows 回 `Unsupported`。
+  名稱驗證沿用建立新項目的 `validated_name`。
+- **成功後**：重讀窗格並選取新名字；被剪下的項目、開著的檢視器（`viewer.retarget`）
+  一起改指向新路徑。使用者取消時維持原名、不留錯誤狀態。
 
 ## 4. 開發與修改規範
 

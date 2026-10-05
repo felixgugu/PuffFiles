@@ -96,7 +96,21 @@ export function buildMockEntries(path: string): FileEntry[] {
   });
 
   const created = mockCreated.get(path.toLocaleLowerCase()) ?? [];
-  return [...folders, ...files, ...created];
+  return [...folders, ...files, ...created].map((entry) => {
+    const renamed = mockRenames.get(entry.path.toLocaleLowerCase());
+    if (!renamed) {
+      return entry;
+    }
+    return {
+      ...entry,
+      name: renamed.name,
+      path: renamed.path,
+      extension:
+        entry.isDir || !renamed.name.includes(".")
+          ? null
+          : renamed.name.split(".").pop()!.toLowerCase(),
+    };
+  });
 }
 
 /** 模擬 `list_subdirs`：只回傳資料夾。 */
@@ -279,6 +293,14 @@ export function mockClearClipboard(): void {
 
 /** 瀏覽器預覽用：記住「建立」出來的項目，重新列舉時會出現。 */
 const mockCreated = new Map<string, FileEntry[]>();
+
+/** 瀏覽器預覽用：記住「重新命名」過的項目（用舊路徑當鍵），重新列舉時會出現新名字。 */
+const mockRenames = new Map<string, { name: string; path: string }>();
+
+export function mockRenameEntry(path: string, newName: string): void {
+  const parent = parentOf(path) ?? "";
+  mockRenames.set(path.toLocaleLowerCase(), { name: newName, path: joinPath(parent, newName) });
+}
 
 export function mockCreateEntry(parent: string, name: string, isDir: boolean): string {
   const path = joinPath(parent, name);

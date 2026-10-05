@@ -309,8 +309,12 @@ function openNodeMenu(node: FolderNode, event: MouseEvent) {
   }
 
   // 真實資料夾：沿用檔案清單那套路徑選單，最後再加一個「搬到虛擬目錄」。
+  // 樹沒有就地編輯，所以剪貼組固定顯示（clipboard: true）、不提供重新命名。
   const target: MenuTarget = { path: node.path ?? "", isDir: true };
-  const items: MenuItem[] = menuFor({ paneId: paneId.value, target, targets: [target] });
+  const items: MenuItem[] = menuFor(
+    { paneId: paneId.value, target, targets: [target] },
+    { clipboard: true },
+  );
   items.push({
     id: "node:move",
     label: "移動到虛擬目錄…",

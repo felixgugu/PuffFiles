@@ -17,6 +17,7 @@ import {
   mockListSubdirs,
   mockReadClipboard,
   mockReadViewerFile,
+  mockRenameEntry,
   mockWriteClipboard,
 } from "./mock";
 import type {
@@ -194,6 +195,15 @@ export async function deleteItems(paths: string[]): Promise<boolean> {
     return true;
   }
   return guarded(() => invoke<boolean>("delete_items", { paths }));
+}
+
+/** 就地重新命名單一項目；回傳 false 代表使用者取消（例如同名衝突時按了取消）。 */
+export async function renameItem(path: string, newName: string): Promise<boolean> {
+  if (!isDesktopRuntime()) {
+    mockRenameEntry(path, newName);
+    return true;
+  }
+  return guarded(() => invoke<boolean>("rename_item", { path, newName }));
 }
 
 /** 建立資料夾；成功時回傳新資料夾的完整路徑。 */

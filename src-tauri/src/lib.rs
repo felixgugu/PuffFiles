@@ -25,6 +25,7 @@ pub fn run() {
             commands::shell::copy_items,
             commands::shell::move_items,
             commands::shell::delete_items,
+            commands::shell::rename_item,
             commands::shell::operation_log,
             commands::shell::operation_log_path,
             commands::watch::watch_dir,

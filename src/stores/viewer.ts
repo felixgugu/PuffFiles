@@ -262,7 +262,26 @@ export const useViewerStore = defineStore("viewer", () => {
     close(paneId);
   }
 
-  return { views, of, isOpen, open, reload, close, destroy };
+  /**
+   * 檔案被重新命名時，把還開著舊路徑的檢視器改指向新路徑並重載。
+   *
+   * 檢視器的自動重載只認原本的路徑；不改指向的話，改名後畫面會停在「檔案已不存在」
+   * 的錯誤狀態（因為監控看到舊檔名被移除）。
+   */
+  async function retarget(oldPath: string, newPath: string): Promise<void> {
+    const affected = Object.keys(views).filter((paneId) => samePath(views[paneId].path, oldPath));
+    await Promise.all(
+      affected.map(async (paneId) => {
+        const state = views[paneId];
+        stopWatch(paneId);
+        state.path = newPath;
+        state.name = fileNameOf(newPath) || newPath;
+        await load(paneId);
+      }),
+    );
+  }
+
+  return { views, of, isOpen, open, reload, retarget, close, destroy };
 });
 
 function base64ToBytes(chunks: string[]): Uint8Array<ArrayBuffer> {

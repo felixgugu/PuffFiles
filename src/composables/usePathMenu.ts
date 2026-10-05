@@ -37,6 +37,19 @@ export interface MenuRequest {
 }
 
 /**
+ * 選單的可選區塊。
+ *
+ * 檔案清單預設不顯示剪貼與重新命名，只有按住 Shift 右鍵的「擴充選單」才出現；
+ * 左側資料夾樹沒有就地編輯，所以固定顯示剪貼組、不顯示重新命名。
+ */
+export interface MenuOptions {
+  /** 顯示「剪下／複製／貼上／刪除」這一組。 */
+  clipboard?: boolean;
+  /** 顯示「重新命名」（只有檔案清單能就地編輯）。 */
+  rename?: boolean;
+}
+
+/**
  * 右鍵選單的內容與動作。
  *
  * 選單依「選取的數量與種類」決定內容：單一資料夾給開啟、新增與貼上，單一檔案給
@@ -107,21 +120,34 @@ export function usePathMenu() {
     ];
   }
 
-  function clipboardItems(kind: "file" | "folder" | "multi"): MenuItem[] {
+  /**
+   * 剪貼與編輯項目：剪下／複製／貼上／重新命名／刪除。
+   *
+   * 這一整組預設不出現，由 `MenuOptions` 決定要不要加入。「貼上」只對一個明確的
+   * 目的地資料夾有意義（多選時不知道要貼到哪一個，空白處則只留貼上）；
+   * 「重新命名」只有能就地編輯的檔案清單提供，而且一次只改一個。
+   */
+  function editItems(
+    kind: "file" | "folder" | "multi" | "blank",
+    options: MenuOptions,
+  ): MenuItem[] {
+    // 空白處沒有任何被選取的項目，剪下／複製／刪除會作用在「目前這個資料夾本身」——
+    // 那與檔案總管不同，刪除更是容易誤刪整個資料夾，所以只留下「貼到這裡」。
+    if (kind === "blank") {
+      return [{ id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" }];
+    }
     const items: MenuItem[] = [
       { id: "cut", label: "剪下", icon: "scissors", shortcut: "Ctrl+X" },
       { id: "copy", label: "複製", icon: "copy", shortcut: "Ctrl+C" },
     ];
-    // 貼上只對「一個明確的目的地資料夾」有意義；多選時不知道要貼到哪一個。
     if (kind === "folder") {
       items.push({ id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" });
     }
+    if (options.rename && (kind === "file" || kind === "folder")) {
+      items.push({ id: "rename", label: "重新命名", icon: "pencil", shortcut: "F2" });
+    }
     items.push({ id: "delete", label: "刪除", icon: "trash", shortcut: "Del" });
     return items;
-  }
-
-  function pasteItem(): MenuItem {
-    return { id: "paste", label: "貼上", icon: "paste", shortcut: "Ctrl+V" };
   }
 
   /** 外部工具：只留下對這組對象真正適用的。 */
@@ -160,11 +186,13 @@ export function usePathMenu() {
     });
   }
 
-  /** 空白處：只提供跟「目前這個資料夾」有關的動作，加上新增與貼上。 */
-  function menuForBlank(target: MenuTarget): MenuItem[] {
+  /** 空白處：只提供跟「目前這個資料夾」有關的動作，加上新增（貼上屬於擴充選單）。 */
+  function menuForBlank(target: MenuTarget, options: MenuOptions): MenuItem[] {
     const items: MenuItem[] = [];
     append(items, newItems());
-    append(items, [pasteItem()]);
+    if (options.clipboard) {
+      append(items, editItems("blank", options));
+    }
     append(items, toolItems([target]));
     append(items, copyPathItems());
     append(items, [revealItem()]);
@@ -172,7 +200,7 @@ export function usePathMenu() {
   }
 
   /** 單一資料夾：可以進去、可以在裡面新增、也可以把它當貼上的目的地。 */
-  function menuForFolder(target: MenuTarget, paneId: PaneId): MenuItem[] {
+  function menuForFolder(target: MenuTarget, paneId: PaneId, options: MenuOptions): MenuItem[] {
     // 分割時直接說出會開到哪一邊；單一窗格時沿用上次分割的方向（與路徑列的版面切換一致）。
     const neighbor = neighborPaneId(paneId);
     const tab = tabs.activeTab;
@@ -187,7 +215,9 @@ export function usePathMenu() {
       },
     ];
     append(items, newItems());
-    append(items, clipboardItems("folder"));
+    if (options.clipboard) {
+      append(items, editItems("folder", options));
+    }
     append(items, toolItems([target]));
     append(items, transferItems());
     append(items, copyPathItems());
@@ -196,7 +226,7 @@ export function usePathMenu() {
   }
 
   /** 單一檔案：沒有「新增」也沒有「貼上」，工具再依副檔名篩選。 */
-  function menuForFile(target: MenuTarget, paneId: PaneId): MenuItem[] {
+  function menuForFile(target: MenuTarget, paneId: PaneId, options: MenuOptions): MenuItem[] {
     const items: MenuItem[] = [{ id: "open", label: "開啟", icon: "folderOpen" }];
     // 支援的檔案（Markdown／圖檔／純文字）多一個「在窗格開啟」，說法與資料夾完全一致。
     if (viewerKindOfPath(target.path)) {
@@ -209,7 +239,9 @@ export function usePathMenu() {
         shortcut: "Space",
       });
     }
-    append(items, clipboardItems("file"));
+    if (options.clipboard) {
+      append(items, editItems("file", options));
+    }
     append(items, toolItems([target]));
     append(items, transferItems());
     append(items, copyPathItems());
@@ -223,9 +255,11 @@ export function usePathMenu() {
    * 開啟、新增、貼上這類單一目標的動作都不出現；外部工具要整組都符合才會出現
    * （例如整組都是 .zip 時的 7-Zip）。
    */
-  function menuForSelection(request: MenuRequest): MenuItem[] {
+  function menuForSelection(request: MenuRequest, options: MenuOptions): MenuItem[] {
     const items: MenuItem[] = [];
-    append(items, clipboardItems("multi"));
+    if (options.clipboard) {
+      append(items, editItems("multi", options));
+    }
     append(items, toolItems(request.targets));
     append(items, transferItems());
     append(items, copyPathItems());
@@ -233,16 +267,16 @@ export function usePathMenu() {
     return items;
   }
 
-  function menuFor(request: MenuRequest): MenuItem[] {
+  function menuFor(request: MenuRequest, options: MenuOptions = {}): MenuItem[] {
     if (!request.targets.length) {
-      return menuForBlank(request.target);
+      return menuForBlank(request.target, options);
     }
     if (request.targets.length > 1) {
-      return menuForSelection(request);
+      return menuForSelection(request, options);
     }
     return request.targets[0].isDir
-      ? menuForFolder(request.targets[0], request.paneId)
-      : menuForFile(request.targets[0], request.paneId);
+      ? menuForFolder(request.targets[0], request.paneId, options)
+      : menuForFile(request.targets[0], request.paneId, options);
   }
 
   /**
@@ -328,6 +362,9 @@ export function usePathMenu() {
     }
 
     switch (id) {
+      case "rename":
+        // 就地編輯由檔案清單自己處理（選到這一項時直接開始編輯，不會走到這裡）。
+        return;
       case "new-folder":
         await createEntry("folder", target);
         return;

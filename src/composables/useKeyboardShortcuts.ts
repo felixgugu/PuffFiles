@@ -207,6 +207,10 @@ export function useKeyboardShortcuts() {
         event.preventDefault();
         cycleFocus();
         break;
+      case "F2":
+        event.preventDefault();
+        ui.requestRename();
+        break;
       case "Delete":
         event.preventDefault();
         void clipboard.removePaths(clipboard.selectionOf(paneId));

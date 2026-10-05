@@ -1,22 +1,95 @@
 <script setup lang="ts">
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { ColumnId, FileEntry } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
 import { colorFor, iconFor } from "@/utils/fileKind";
 
-defineProps<{
+const props = defineProps<{
   entry: FileEntry;
   columns: ColumnId[];
   selected: boolean;
   focused: boolean;
   /** 被剪下、等待貼上的項目：淡化顯示。 */
   cut: boolean;
+  /** 這一列正在就地重新命名。 */
+  editing: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   activate: [];
   contextmenu: [event: MouseEvent];
+  /** 就地編輯確認（Enter 或失去焦點）。 */
+  rename: [value: string];
+  /** 就地編輯取消（Esc）。 */
+  renameCancel: [];
 }>();
+
+const draft = ref("");
+const input = ref<HTMLInputElement | null>(null);
+/**
+ * 這一輪編輯是否已經結束。
+ *
+ * Enter／Esc 之後輸入框會跟著被移除，緊接著的 blur 不該再送一次（會變成
+ * 「Esc 取消卻又改名」或「送出兩次」）。
+ */
+let finished = false;
+
+/** 主檔名長度：檔案只選取到最後一個句點之前，資料夾全選（與建立新檔案一致）。 */
+function stemLength(name: string, isDir: boolean): number {
+  if (isDir) {
+    return name.length;
+  }
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? dot : name.length;
+}
+
+watch(
+  () => props.editing,
+  async (editing) => {
+    if (!editing) {
+      return;
+    }
+    finished = false;
+    draft.value = props.entry.name;
+    await nextTick();
+    const element = input.value;
+    if (!element) {
+      return;
+    }
+    element.focus();
+    element.setSelectionRange(0, stemLength(props.entry.name, props.entry.isDir));
+  },
+  { immediate: true },
+);
+
+function commit() {
+  if (finished) {
+    return;
+  }
+  finished = true;
+  emit("rename", draft.value);
+}
+
+function cancel() {
+  if (finished) {
+    return;
+  }
+  finished = true;
+  emit("renameCancel");
+}
+
+/** 雙擊開啟只在不編輯時生效（編輯時雙擊是在輸入框裡選字）。 */
+function onDblclick() {
+  if (!props.editing) {
+    emit("activate");
+  }
+}
+
+// 這一列在編輯中被抽換掉（捲出可視範圍、清單重讀）時，不要拿還停在半路的內容去改名。
+onBeforeUnmount(() => {
+  finished = true;
+});
 </script>
 
 <template>
@@ -30,7 +103,7 @@ defineEmits<{
       selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover active:bg-pressed',
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
     ]"
-    @dblclick="$emit('activate')"
+    @dblclick="onDblclick"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
     <!--
@@ -48,7 +121,21 @@ defineEmits<{
     >
       <div v-if="column === 'name'" class="flex min-w-0 flex-1 items-center gap-2">
         <AppIcon :name="iconFor(entry)" :size="15" class="file-icon" :class="colorFor(entry)" />
-        <span class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>
+        <input
+          v-if="editing"
+          ref="input"
+          v-model="draft"
+          type="text"
+          spellcheck="false"
+          class="min-w-0 flex-1 rounded-sm border border-accent bg-surface px-1 text-base text-ink focus:outline-none"
+          @pointerdown.stop
+          @click.stop
+          @dblclick.stop
+          @keydown.enter.prevent="commit"
+          @keydown.esc.prevent="cancel"
+          @blur="commit"
+        />
+        <span v-else class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>
         <span
           v-if="entry.isSymlink"
           class="shrink-0 rounded bg-surface-muted px-1 text-2xs text-ink-faint"

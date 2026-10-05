@@ -51,6 +51,7 @@ export const useUiStore = defineStore("ui", () => {
   const noticeAction = ref<NoticeAction | null>(null);
   const searchFocusRequest = ref(0);
   const pathEditRequest = ref(0);
+  const renameRequest = ref(0);
   const settingsOpen = ref(false);
   const historyOpen = ref(false);
   const confirmState = ref<ConfirmOptions | null>(null);
@@ -129,11 +130,17 @@ export const useUiStore = defineStore("ui", () => {
     pathEditRequest.value += 1;
   }
 
+  /** 要求焦點窗格的檔案清單就地重新命名焦點列（F2）。 */
+  function requestRename() {
+    renameRequest.value += 1;
+  }
+
   return {
     notice,
     noticeAction,
     searchFocusRequest,
     pathEditRequest,
+    renameRequest,
     settingsOpen,
     historyOpen,
     confirmState,
@@ -149,6 +156,7 @@ export const useUiStore = defineStore("ui", () => {
     dismissNotice,
     requestSearchFocus,
     requestPathEdit,
+    requestRename,
   };
 });
 
