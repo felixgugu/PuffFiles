@@ -139,7 +139,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 ### 3.4 右鍵選單
 
 內容集中在 `composables/usePathMenu.ts`：`menuFor(request)` 依「選取情境」決定項目
-（清單空白處／單一資料夾／單一檔案／多選），`run(id, request)` 負責執行。
+（清單空白處／單一資料夾／單一檔案／多選），`run(id, request, options)` 負責執行
+（`options.keepFocus` 只影響資料夾的 `open-pane`，供檔案清單的 `Space` 預覽使用，見 §3.5）。
 `request.target` 是右鍵的那一項，`request.targets` 是這次真正會作用的項目。
 外部工具依 `toolMatches()`（顯示於檔案／資料夾、副檔名篩選）過濾；樹的節點選單另外由
 `FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
@@ -175,8 +176,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   完全隔離），只有這個檔案的事件才去抖 250ms 後重載；刪除時顯示錯誤狀態。
 - **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
   只保留 Esc（關閉）、F5（重新載入）、F6 與分頁／版面層級的操作。
-  在檔案清單按 `Space`＝把焦點列的檔案開到檢視器窗格（與右鍵 `open-pane` 同一條路徑）；
-  資料夾或不支援的類型只顯示提示，不做任何事。
+  在檔案清單按 `Space`＝把焦點列的項目預覽到另一窗格（走右鍵 `open-pane` 同一條路徑，
+  但帶 `keepFocus`）：資料夾在新窗格開成一般清單、支援的檔案開檢視器，**焦點一律留在
+  原清單**，才能連續用方向鍵＋`Space` 掃描；不支援的類型只顯示提示，不做任何事。
 - **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`）—— 淡化是給沒有焦點的
   檔案清單用的，檢視器是「旁邊的顯示區」，任何時候都維持正常對比。
 - 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。

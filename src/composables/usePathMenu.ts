@@ -300,7 +300,18 @@ export function usePathMenu() {
     await explorer.createEntry(tabs.activePaneId, folder, name, kind);
   }
 
-  async function run(id: string, request: MenuRequest) {
+  /**
+   * 執行選單動作。
+   *
+   * `options.keepFocus` 只影響 `open-pane` 的資料夾：預設（右鍵選單）會把焦點移到
+   * 被打開的窗格；檔案清單的 `Space` 預覽則帶入 `true`，把焦點留在原本的清單，
+   * 才能用方向鍵＋`Space` 連續掃描。檔案的 `open-pane` 本來就保留焦點，不受此選項影響。
+   */
+  async function run(
+    id: string,
+    request: MenuRequest,
+    options: { keepFocus?: boolean } = {},
+  ) {
     const paneId = tabs.activePaneId;
     const { target } = request;
     // 空白處沒有被選取的項目時，動作的對象就是目前資料夾自己。
@@ -349,19 +360,27 @@ export function usePathMenu() {
         return;
       case "open-pane": {
         const neighbor = neighborPaneId(request.paneId);
+        const keepFocus = options.keepFocus ?? false;
         // 不支援的檔案（例如 .pdf、.mp4）只提示，不先分割出一個空窗格。
         if (!target.isDir && !viewerKindOfPath(target.path)) {
           ui.showNotice("這個檔案類型還沒有檢視器");
           return;
         }
         if (target.isDir && neighbor) {
-          // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊，焦點一起移過去。
-          tabs.setActivePane(neighbor);
+          // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊。
+          // 右鍵選單會把焦點一起移過去；`Space` 預覽則留在原本的清單。
+          if (!keepFocus) {
+            tabs.setActivePane(neighbor);
+          }
           await explorer.navigate(neighbor, target.path);
           return;
         }
         if (target.isDir) {
           tabs.split(settings.lastSplit.direction, target.path);
+          // `Space` 預覽：分割建立的新窗格會先成為焦點，這裡立刻交還給來源窗格。
+          if (keepFocus) {
+            tabs.setActivePane(request.paneId);
+          }
           return;
         }
         // 檔案：新窗格沿用目前窗格的資料夾（也就是這個檔案所在的資料夾），

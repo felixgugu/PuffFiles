@@ -221,7 +221,7 @@ export function useKeyboardShortcuts() {
         break;
       case " ":
         event.preventDefault();
-        openViewerPane(paneId);
+        openFocusedInPane(paneId);
         break;
       case "ArrowDown":
         event.preventDefault();
@@ -291,25 +291,27 @@ export function useKeyboardShortcuts() {
   }
 
   /**
-   * Space：把焦點列的項目開到檢視器窗格。
+   * Space：把焦點列的項目預覽到另一窗格，焦點留在檔案清單。
    *
-   * 走的是跟右鍵選單「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，
-   * 所以不支援的檔案類型會直接顯示提示，不會有任何副作用。
+   * 資料夾＝在另一窗格開它的檔案清單；支援的檔案＝開檢視器。兩者都走右鍵選單
+   * 「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，差別只在這裡帶入
+   * `keepFocus` —— 焦點留在原清單，才能用方向鍵＋`Space` 連續掃描同一個資料夾。
+   * 不支援的檔案類型會直接顯示提示，不會有任何副作用。
    */
-  function openViewerPane(paneId: PaneId) {
+  function openFocusedInPane(paneId: PaneId) {
     const entry = explorer.focusedEntry(paneId);
     if (!entry) {
       return;
     }
-    if (entry.isDir) {
-      ui.showNotice("檢視器只能開啟檔案");
-      return;
-    }
-    void pathMenu.run("open-pane", {
-      paneId,
-      target: { path: entry.path, isDir: false },
-      targets: [{ path: entry.path, isDir: false }],
-    });
+    void pathMenu.run(
+      "open-pane",
+      {
+        paneId,
+        target: { path: entry.path, isDir: entry.isDir },
+        targets: [{ path: entry.path, isDir: entry.isDir }],
+      },
+      { keepFocus: true },
+    );
   }
 
 
