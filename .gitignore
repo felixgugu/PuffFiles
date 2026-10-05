@@ -31,3 +31,6 @@ __pycache__/
 # Agent 技能庫（本機工具，不屬於這個應用程式）
 .agents/
 skills-lock.json
+
+# 本機暫存（驗證用的截圖與 CDP 腳本）
+.tmp-shot/
