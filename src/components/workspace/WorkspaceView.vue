@@ -34,6 +34,19 @@ const showTree = computed(() => !settings.treeCollapsed);
 
 const ratioSpring = useSpringValue(0.5, SPRINGS.panel);
 
+/**
+ * 分割時每個窗格容器的位置與大小。
+ *
+ * 位置用 flex `order` 指定（第一個窗格 0、分隔線 1、第二個窗格 2），這樣分隔線即使
+ * 排在 DOM 最後也仍夾在兩者之間；第一個窗格的佔比由 `ratio` 決定，第二個吃剩下的。
+ */
+function slotStyle(index: number) {
+  if (index === 0) {
+    return { order: 0, flexBasis: `${ratio.value * 100}%`, flexGrow: 0, flexShrink: 0 };
+  }
+  return { order: 2 };
+}
+
 // 回彈時由彈簧驅動比例，維持「放手後仍連續」的手感。
 watch(ratioSpring.value, (value) => {
   const tab = tabs.activeTab;
@@ -152,38 +165,39 @@ function resetRatio() {
       class="relative flex min-h-0 min-w-0 flex-1"
       :class="direction === 'row' ? 'flex-row' : 'flex-col'"
     >
+      <!--
+        窗格容器以窗格 id 為 key：交換窗格時 Vue 會搬移既有的 DOM 節點，而不是重新掛載，
+        檔案清單的捲動位置與虛擬滾動狀態才能跟著自己的窗格一起過去。
+      -->
       <div
-        v-if="paneIds[0]"
+        v-for="(id, index) in paneIds"
+        :key="id"
         class="flex min-h-0 min-w-0"
-        :class="isSplit ? '' : 'flex-1'"
-        :style="isSplit ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 } : undefined"
+        :class="isSplit ? (index === 0 ? '' : 'flex-1') : 'flex-1'"
+        :style="isSplit ? slotStyle(index) : undefined"
       >
-        <BrowserPane :key="paneIds[0]" :pane-id="paneIds[0]" />
+        <BrowserPane :pane-id="id" />
       </div>
 
-      <template v-if="isSplit && paneIds[1]">
+      <div
+        v-if="isSplit"
+        class="group relative z-20 flex shrink-0 items-center justify-center"
+        :class="
+          direction === 'row' ? 'h-full w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize'
+        "
+        :style="{ order: 1 }"
+        title="拖曳調整大小，雙擊回到對半"
+        @pointerdown="drag.onPointerDown"
+        @dblclick="resetRatio()"
+      >
         <div
-          class="group relative z-20 flex shrink-0 items-center justify-center"
-          :class="
-            direction === 'row' ? 'h-full w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize'
-          "
-          title="拖曳調整大小，雙擊回到對半"
-          @pointerdown="drag.onPointerDown"
-          @dblclick="resetRatio()"
-        >
-          <div
-            class="pressable group-hover:bg-accent"
-            :class="[
-              direction === 'row' ? 'h-full w-px' : 'h-px w-full',
-              drag.dragging.value ? 'bg-accent' : 'bg-line',
-            ]"
-          />
-        </div>
-
-        <div class="flex min-h-0 min-w-0 flex-1">
-          <BrowserPane :key="paneIds[1]" :pane-id="paneIds[1]" />
-        </div>
-      </template>
+          class="pressable group-hover:bg-accent"
+          :class="[
+            direction === 'row' ? 'h-full w-px' : 'h-px w-full',
+            drag.dragging.value ? 'bg-accent' : 'bg-line',
+          ]"
+        />
+      </div>
     </div>
   </div>
 </template>

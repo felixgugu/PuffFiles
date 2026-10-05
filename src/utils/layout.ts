@@ -19,6 +19,11 @@ export function splitIcon(direction: SplitDirection): IconName {
   return direction === "row" ? "splitColumns" : "splitRows";
 }
 
+/** 交換窗格的圖示：方向跟著分割方向，左右是 ⇄、上下是 ⇅。 */
+export function swapIcon(direction: SplitDirection): IconName {
+  return direction === "row" ? "swapColumns" : "swapRows";
+}
+
 export function layoutIcon(layout: LayoutShape): IconName {
   if (layout.paneIds.length < 2) {
     return "layoutSingle";

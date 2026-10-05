@@ -228,6 +228,23 @@ export const useTabsStore = defineStore("tabs", () => {
     return tab.paneIds.find((id) => id !== tab.activePaneId) ?? null;
   }
 
+  /**
+   * 交換兩個窗格：順序反轉、比例鏡射，焦點跟著窗格走。
+   *
+   * `paneIds` 的順序就是畫面上的位置（`paneIds[0]`＝左／上，見 AGENTS.md §5.2），
+   * 反轉它等於兩邊的資料夾、選取與檢視器一起換到另一側；`ratio` 描述的是「第一個
+   * 窗格」的佔比，一起鏡射後每個窗格換邊時仍保持自己的大小。`activePaneId` 不動，
+   * 所以使用者原本在操作的那一邊換過去之後仍然是焦點窗格。
+   */
+  function swapPanes() {
+    const tab = activeTab.value;
+    if (!tab || tab.paneIds.length < 2) {
+      return;
+    }
+    tab.paneIds = [...tab.paneIds].reverse();
+    tab.ratio = 1 - tab.ratio;
+  }
+
   function snapshot(): SessionSnapshot {
     return {
       tabs: tabs.value.map((tab) => ({
@@ -391,6 +408,7 @@ export const useTabsStore = defineStore("tabs", () => {
     closePane,
     setRatio,
     otherPaneId,
+    swapPanes,
     bootstrap,
     reloadAll,
     applyLayout,

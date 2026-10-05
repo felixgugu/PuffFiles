@@ -234,7 +234,7 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | --- | --- | --- |
 | 標題列（Window Chrome） | 視窗最上方整條、可拖曳；內含分頁列、紀錄／設定動作、視窗控制 | `components/chrome/` |
 | 分頁列（Tab Strip） | 標題列內的分頁籤與新增鈕 | `chrome/TabStrip.vue` |
-| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜版面切換 | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
+| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜版面切換（含交換窗格） | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
 | 工作區（Workspace） | 路徑列與狀態列之間：左邊「資料夾樹面板」＋右邊「窗格區」 | `workspace/WorkspaceView.vue` |
 | 資料夾樹面板（Folder Tree Panel） | 左側「我的資料夾」；頂端是**樹工具列**（加入／移除／別名／排序／定位／收合全部／收合側欄），右緣是寬度把手 | `tree/FolderTreePanel.vue` |
 | 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
@@ -267,3 +267,6 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **焦點窗格**：任何時刻只有一個窗格是焦點；鍵盤操作、路徑列與資料夾樹都跟著它。
 - **分割**是動詞（把一個分頁切成兩個窗格），**窗格**是名詞（那個窗格本身）；
   兩顆分割按鈕的正式名稱是「左右分割」與「上下分割」。
+- **交換窗格**是動詞：把兩個窗格連同大小一起對調（`paneIds` 反轉、`ratio` 鏡射成
+  `1 - ratio`），焦點跟著窗格走；按鈕併在路徑列最右邊的**版面切換膠囊**裡（三顆版面鈕
+  之後），單一窗格（或收合動畫進行中）時停用。

@@ -9,7 +9,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
 import { useViewerStore } from "@/stores/viewer";
 import { fileNameOf } from "@/utils/path";
-import { paneSlotLabel } from "@/utils/layout";
+import { paneSlotLabel, swapIcon } from "@/utils/layout";
 
 /**
  * 每個分頁只有一條路徑列，永遠指向「目前焦點窗格」。
@@ -112,6 +112,24 @@ const navButtons = computed(() => {
   ];
 });
 
+/**
+ * 交換窗格：把兩個窗格連同大小一起對調（整版鏡射）。
+ *
+ * 單一窗格沒有東西可換，收合分割的動畫進行中也停用（避免和彈簧搶比例）。
+ */
+const swapButton = computed(() => {
+  const tab = tabs.activeTab;
+  const split = (tab?.paneIds.length ?? 0) > 1;
+  const direction = tab?.direction ?? "row";
+  return {
+    icon: swapIcon(direction),
+    enabled: split && !tabs.collapsing,
+    title: split
+      ? `交換${direction === "row" ? "左右" : "上下"}窗格`
+      : "交換窗格（需先分割）",
+  };
+});
+
 function revealCurrent() {
   // 檢視器窗格聚焦時，「顯示於總管」指的是正在看的那個檔案。
   const viewing = viewer.of(paneId.value);
@@ -186,7 +204,10 @@ function onSearch(value: string) {
       >
         <AppIcon name="externalLink" :size="15" />
       </button>
-      <!-- 版面切換：三個選項同時可見，目前的那個用 accent 標示。 -->
+      <!--
+        窗格膠囊：三顆版面鈕（目前的那個用 accent 標示）＋最右邊的「交換窗格」。
+        交換是動作而不是狀態，所以它沒有 current 的樣式，只跟著分割的方向換圖示。
+      -->
       <div class="ml-1 flex items-center gap-0.5 rounded-lg bg-surface-muted p-0.5">
         <button
           v-for="option in layoutOptions"
@@ -205,6 +226,17 @@ function onSearch(value: string) {
           @click="option.current || !option.enabled ? undefined : option.run()"
         >
           <AppIcon :name="option.icon" :size="14" />
+        </button>
+
+        <!-- 交換窗格：兩個窗格連同大小一起對調（整版鏡射）。 -->
+        <button
+          type="button"
+          class="flex size-6 active:scale-95 items-center justify-center rounded-md text-ink-muted pressable enabled:hover:bg-surface-hover enabled:hover:text-ink enabled:active:bg-pressed disabled:opacity-30"
+          :title="swapButton.title"
+          :disabled="!swapButton.enabled"
+          @click="tabs.swapPanes()"
+        >
+          <AppIcon :name="swapButton.icon" :size="14" />
         </button>
       </div>
     </div>
