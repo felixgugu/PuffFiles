@@ -5,6 +5,14 @@ import type { ColumnId, SortDirection, SortKey, SplitDirection } from "@/types/f
 import type { ExternalTool } from "@/types/tools";
 import { FONT_SIZE_DEFAULT, clampFontSize, normalizeFontFamily } from "@/utils/font";
 import { DEFAULT_ALIAS_TEMPLATE } from "@/utils/folders";
+import {
+  clampTocMinWidth,
+  clampTocOpacity,
+  TOC_DEFAULT_WIDTH,
+  TOC_MIN_WIDTH_DEFAULT,
+  TOC_OPACITY_DEFAULT,
+  type TocPanelLayout,
+} from "@/utils/markdownToc";
 
 export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
 
@@ -122,6 +130,16 @@ interface StoredSettings {
   treeCollapsed: boolean;
   /** 上次分割時，第二個窗格開在哪個資料夾、用哪個方向。 */
   lastSplit: { path: string; direction: SplitDirection };
+  /** Markdown 檢視器的目錄索引開關（預設開啟）。 */
+  markdownTocEnabled: boolean;
+  /** 目錄索引面板是否收合成只剩標題列。 */
+  markdownTocCollapsed: boolean;
+  /** 目錄索引面板的位置與大小；`x`／`height` 為 null 時代表自動。 */
+  markdownTocPanel: TocPanelLayout;
+  /** 目錄索引面板的最小寬度（px）。 */
+  markdownTocMinWidth: number;
+  /** 目錄索引面板底色的不透明度（%）。 */
+  markdownTocOpacity: number;
   /** 舊版欄位，僅用於讀取時搬移。 */
   lastSplitPath?: string;
 }
@@ -149,6 +167,11 @@ const DEFAULTS: StoredSettings = {
   treeWidth: 260,
   treeCollapsed: false,
   lastSplit: { path: "", direction: "row" },
+  markdownTocEnabled: true,
+  markdownTocCollapsed: false,
+  markdownTocPanel: { x: null, y: 0, width: TOC_DEFAULT_WIDTH, height: null },
+  markdownTocMinWidth: TOC_MIN_WIDTH_DEFAULT,
+  markdownTocOpacity: TOC_OPACITY_DEFAULT,
 };
 
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
@@ -178,6 +201,22 @@ function seedTools(raw: Partial<StoredSettings> & LegacySettings): ExternalTool[
   return tools;
 }
 
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** 面板位置可能是舊資料沒有的欄位，也可能被手改成壞值；一律補回合法形狀。 */
+function sanitizeTocPanel(value: unknown): TocPanelLayout {
+  const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<TocPanelLayout>;
+  const defaults = DEFAULTS.markdownTocPanel;
+  return {
+    x: typeof raw.x === "number" && Number.isFinite(raw.x) ? raw.x : null,
+    y: numberOr(raw.y, defaults.y),
+    width: numberOr(raw.width, defaults.width),
+    height: typeof raw.height === "number" && Number.isFinite(raw.height) ? raw.height : null,
+  };
+}
+
 function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings {
   const columns = Array.isArray(raw.columns)
     ? raw.columns.filter((id): id is ColumnId => COLUMN_IDS.has(id))
@@ -196,6 +235,17 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     fontFamily,
     fontSize,
     aliasTemplate,
+    markdownTocEnabled:
+      typeof raw.markdownTocEnabled === "boolean"
+        ? raw.markdownTocEnabled
+        : DEFAULTS.markdownTocEnabled,
+    markdownTocCollapsed:
+      typeof raw.markdownTocCollapsed === "boolean"
+        ? raw.markdownTocCollapsed
+        : DEFAULTS.markdownTocCollapsed,
+    markdownTocPanel: sanitizeTocPanel(raw.markdownTocPanel),
+    markdownTocMinWidth: clampTocMinWidth(numberOr(raw.markdownTocMinWidth, TOC_MIN_WIDTH_DEFAULT)),
+    markdownTocOpacity: clampTocOpacity(numberOr(raw.markdownTocOpacity, TOC_OPACITY_DEFAULT)),
   };
 }
 
@@ -230,6 +280,11 @@ export const useSettingsStore = defineStore("settings", () => {
   const lastSplit = ref<{ path: string; direction: SplitDirection }>(
     stored.lastSplit ?? { path: stored.lastSplitPath ?? "", direction: "row" },
   );
+  const markdownTocEnabled = ref(stored.markdownTocEnabled);
+  const markdownTocCollapsed = ref(stored.markdownTocCollapsed);
+  const markdownTocPanel = ref<TocPanelLayout>({ ...stored.markdownTocPanel });
+  const markdownTocMinWidth = ref(stored.markdownTocMinWidth);
+  const markdownTocOpacity = ref(stored.markdownTocOpacity);
 
   const prefersDark = ref(
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -278,7 +333,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, markdownTocCollapsed, markdownTocPanel, markdownTocMinWidth, markdownTocOpacity],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -299,6 +354,11 @@ export const useSettingsStore = defineStore("settings", () => {
           treeWidth: treeWidth.value,
           treeCollapsed: treeCollapsed.value,
           lastSplit: lastSplit.value,
+          markdownTocEnabled: markdownTocEnabled.value,
+          markdownTocCollapsed: markdownTocCollapsed.value,
+          markdownTocPanel: markdownTocPanel.value,
+          markdownTocMinWidth: markdownTocMinWidth.value,
+          markdownTocOpacity: markdownTocOpacity.value,
         } satisfies StoredSettings);
       }, 200);
     },
@@ -351,6 +411,28 @@ export const useSettingsStore = defineStore("settings", () => {
 
   function toggleTree() {
     treeCollapsed.value = !treeCollapsed.value;
+  }
+
+  /** Markdown 檢視器的目錄索引開關；沒有標題時呼叫端會自行停用。 */
+  function toggleMarkdownToc() {
+    markdownTocEnabled.value = !markdownTocEnabled.value;
+  }
+
+  function toggleMarkdownTocCollapsed() {
+    markdownTocCollapsed.value = !markdownTocCollapsed.value;
+  }
+
+  /** 拖曳或縮放結束時才寫回，避免每個 pointermove 都動到設定。 */
+  function setMarkdownTocPanel(layout: TocPanelLayout) {
+    markdownTocPanel.value = { ...layout };
+  }
+
+  function setMarkdownTocMinWidth(value: number) {
+    markdownTocMinWidth.value = clampTocMinWidth(value);
+  }
+
+  function setMarkdownTocOpacity(value: number) {
+    markdownTocOpacity.value = clampTocOpacity(value);
   }
 
   /** 記住分割出來的那個窗格上次開在哪、用哪個方向。 */
@@ -424,6 +506,16 @@ export const useSettingsStore = defineStore("settings", () => {
     resetColumnWidths,
     setTreeWidth,
     toggleTree,
+    markdownTocEnabled,
+    markdownTocCollapsed,
+    markdownTocPanel,
+    markdownTocMinWidth,
+    markdownTocOpacity,
+    toggleMarkdownToc,
+    toggleMarkdownTocCollapsed,
+    setMarkdownTocPanel,
+    setMarkdownTocMinWidth,
+    setMarkdownTocOpacity,
     rememberSplit,
     addTool,
     updateTool,

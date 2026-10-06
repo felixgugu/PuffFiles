@@ -1,34 +1,41 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue";
+import MarkdownToc from "./MarkdownToc.vue";
 import ViewerNotice from "./ViewerNotice.vue";
+import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
+import { useMarkdownScrollSpy } from "@/composables/useMarkdownScrollSpy";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
 import { useExplorerStore } from "@/stores/explorer";
+import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
 import { loadViewerBlobUrl } from "@/services/viewerResource";
 import type { PaneId } from "@/types/fs";
 import { highlightCode, languageForToken, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
-import { renderMarkdown } from "@/utils/markdown";
-import { fileNameOf, parentOf } from "@/utils/path";
+import { fileNameOf } from "@/utils/path";
 
 /**
  * Markdown 內容。
  *
  * 渲染出來的 HTML 由 `utils/markdown.ts` 負責，這裡只做兩件與 DOM 有關的事：
  * 把本機相對圖片換成 blob URL，以及攔截連結點擊（外部連結交給系統、
- * 相對連結回到檔案清單導覽）。
+ * 相對連結回到檔案清單導覽、`#錨點` 捲到對應標題）。
  */
 const props = defineProps<{ paneId: PaneId }>();
 
 const explorer = useExplorerStore();
+const settings = useSettingsStore();
 const viewer = useViewerStore();
 const { openLocalTarget } = useLocalNavigation();
 
 const state = computed(() => viewer.of(props.paneId));
+const host = useTemplateRef<HTMLElement>("host");
 const content = useTemplateRef<HTMLElement>("content");
 
-const rendered = computed(() =>
-  renderMarkdown(state.value?.text ?? "", parentOf(state.value?.path ?? "") ?? ""),
-);
+/** 與標頭的目錄索引開關共用同一份渲染結果（同一個狀態只解析一次）。 */
+const rendered = useMarkdownOutline(state);
+const headings = computed(() => rendered.value.headings);
+const { activeId, jumpTo } = useMarkdownScrollSpy(content, headings);
+const tocVisible = computed(() => settings.markdownTocEnabled && headings.value.length > 0);
 
 /**
  * 檔案太大就跳過圍籬高亮。
@@ -170,12 +177,27 @@ function onClick(event: MouseEvent) {
   const local = anchor.dataset.viewerLocal;
   if (local) {
     void openLocalTarget(props.paneId, local);
+    return;
+  }
+
+  const fragment = anchor.dataset.viewerAnchor;
+  if (fragment) {
+    jumpTo(decodeFragment(fragment));
+  }
+}
+
+/** 錨點可能是 URL 編碼過的中文；解不開就照原字串比對。 */
+function decodeFragment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
 }
 </script>
 
 <template>
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+  <div ref="host" class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
     <ViewerNotice v-if="skippedHighlight" text="檔案過大，已略過語法高亮" />
     <div
       ref="content"
@@ -183,6 +205,13 @@ function onClick(event: MouseEvent) {
       class="markdown code-highlight scroll-area min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5"
       @click="onClick"
       v-html="rendered.html"
+    />
+    <MarkdownToc
+      v-if="tocVisible"
+      :headings="headings"
+      :active-id="activeId"
+      :host="host"
+      @jump="jumpTo"
     />
   </div>
 </template>

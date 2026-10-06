@@ -181,6 +181,15 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   模式共用同一條；顏色是 `main.css` 的 `--color-syntax-*` 權杖（淺／深色各一組）。
   超過 `MAX_HIGHLIGHT_BYTES`（1 MB）就整份當純文字並顯示提示 —— highlight.js 是同步 API，
   丟大檔進去會凍住 UI。
+- **目錄索引（Markdown）**：檢視器標頭的目錄鈕切換右上角的浮動面板（預設開啟）。
+  `utils/markdown.ts` 替每個 h1～h6 產生文件內唯一的 id 並回傳 `headings`；面板依層級
+  縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到
+  該行。面板可拖曳、可調整寬高、可收合成只剩標題列，左下角把手往外拖＝放大；
+  底色不透明度（預設 50%）與最小寬度（預設 200px）在設定頁的「瀏覽 → 檢視器」調整
+  （`settings.markdownTocOpacity`／`markdownTocMinWidth`），位置與尺寸存進
+  `settings.markdownTocPanel`（`x === null`＝維持右上角對齊）。
+  文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，標頭開關維持
+  可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
 - **HTML 靜態預覽**：`HtmlView` 以 `iframe[srcdoc]` 呈現，`sandbox` 只給 `allow-same-origin`
   （不給 `allow-scripts`）—— 頁面**不執行 JavaScript**、**不載入 http(s) 遠端資源**；
   `utils/html.ts` 先移除 `<script>`／`<base>`／meta refresh／`on*`，再由父層進入
@@ -268,6 +277,7 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
 | 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
 | 檢視器（Viewer） | 窗格內容模式：顯示 Markdown、圖檔或純文字，可關閉回到檔案清單 | `viewer/ViewerPane.vue` |
+| 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：標題列「目錄索引」＋h1～h6 清單，可拖曳／縮放／收合 | `viewer/MarkdownToc.vue` |
 | 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |
 | 設定頁（Settings） | 整頁浮層：蓋住路徑列與工作區、保留標題列 | `settings/SettingsView.vue` |
 

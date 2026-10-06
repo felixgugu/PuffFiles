@@ -10,21 +10,36 @@
  * - 不執行原始 HTML（一律 escape 成文字）。
  * - 連結與圖片只允許 http(s)、mailto、data:image 與本機相對路徑。
  *
- * 對外介面刻意維持單純（原始碼 + 基準資料夾 → HTML + 待載入的本機圖片），
+ * 標題另外產生唯一 id 並收集成 `headings`，供檢視器的目錄索引與文件內
+ * `#錨點` 連結使用；id 只由標題文字決定，同一份文件重複時加流水號。
+ *
+ * 對外介面刻意維持單純（原始碼 + 基準資料夾 → HTML + 待載入的本機圖片 + 目錄），
  * 日後能取得 markdown-it 時可以直接替換實作而不動呼叫端。
  */
 
 import { resolveLocalPath } from "@/utils/path";
 
+/** 目錄索引的一項；`id` 同時是內文標題的 DOM id。 */
+export interface MarkdownHeading {
+  id: string;
+  level: number;
+  text: string;
+}
+
 export interface RenderedMarkdown {
   html: string;
   /** 需要另外透過 IPC 讀取的本機圖片絕對路徑（依出現順序去重）。 */
   localImages: string[];
+  /** 依文件順序排列的 h1～h6。 */
+  headings: MarkdownHeading[];
 }
 
 interface Context {
   baseDir: string;
   images: string[];
+  headings: MarkdownHeading[];
+  /** slug → 已經用過的次數；重複標題靠它加流水號。 */
+  slugs: Map<string, number>;
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -326,8 +341,14 @@ function renderLink(text: string, href: string, ctx: Context): string {
   }
   const label = renderInline(text, ctx);
   if (target.startsWith("#")) {
-    // v1 不產生標題錨點：錨點連結只呈現文字，不做任何事。
-    return `<span class="md-anchor">${label}</span>`;
+    // 標題已經有 id，`#錨點` 可以真的跳過去；空錨點維持純文字。
+    const fragment = target.slice(1).trim();
+    if (!fragment) {
+      return `<span class="md-anchor">${label}</span>`;
+    }
+    return `<a class="md-link md-anchor" href="#" data-viewer-anchor="${escapeHtml(
+      fragment,
+    )}">${label}</a>`;
   }
   if (isExternalUrl(target)) {
     return `<a class="md-link" href="${escapeHtml(target)}" data-viewer-external="${escapeHtml(
@@ -342,6 +363,57 @@ function renderLink(text: string, href: string, ctx: Context): string {
     return label;
   }
   return `<a class="md-link" href="#" data-viewer-local="${escapeHtml(resolved)}">${label}</a>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * 標題 id 與目錄
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 把行內語法渲染出的 HTML 還原成純文字，用來當目錄標籤與 slug 來源。
+ *
+ * 目錄顯示的是「標題的文字」，不該帶著 `<code>` 或連結的標記；沿用同一份
+ * 行內渲染結果再拆掉標籤，才能保證目錄與內文看到的是同一串字。
+ */
+function plainFromHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 標題 slug：保留中文、英數、`-` 與 `_`，其餘去掉；空白轉連字號。 */
+function slugFor(text: string): string {
+  const slug = text
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "section";
+}
+
+/** 同一份文件裡重複的標題加流水號，錨點才不會互相蓋掉。 */
+function uniqueHeadingId(ctx: Context, text: string): string {
+  const base = slugFor(text);
+  const seen = ctx.slugs.get(base) ?? 0;
+  ctx.slugs.set(base, seen + 1);
+  return seen === 0 ? base : `${base}-${seen}`;
+}
+
+/** 產生帶 id 的標題，並把目錄項目依文件順序收集起來。 */
+function renderHeading(level: number, source: string, ctx: Context): string {
+  const inner = renderInline(source, ctx);
+  const text = plainFromHtml(inner);
+  const id = uniqueHeadingId(ctx, text);
+  ctx.headings.push({ id, level, text });
+  return `<h${level} id="${escapeHtml(id)}">${inner}</h${level}>`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -565,8 +637,7 @@ function renderBlocks(lines: string[], ctx: Context): string {
 
     const heading = ATX_HEADING.exec(line);
     if (heading) {
-      const level = heading[1].length;
-      html += `<h${level}>${renderInline(heading[2], ctx)}</h${level}>`;
+      html += renderHeading(heading[1].length, heading[2], ctx);
       index++;
       continue;
     }
@@ -607,7 +678,7 @@ function renderBlocks(lines: string[], ctx: Context): string {
     // Setext 標題：這一行是文字，下一行是 === 或 ---。
     if ((lines[index + 1] ?? "").match(SETEXT_H1) || (lines[index + 1] ?? "").match(SETEXT_H2)) {
       const level = SETEXT_H1.test(lines[index + 1]) ? 1 : 2;
-      html += `<h${level}>${renderInline(line, ctx)}</h${level}>`;
+      html += renderHeading(level, line, ctx);
       index += 2;
       continue;
     }
@@ -641,19 +712,27 @@ function renderBlocks(lines: string[], ctx: Context): string {
  * 使用者至少看得到內容，也看得出是哪一份檔案出問題。
  */
 export function renderMarkdown(source: string, baseDir: string): RenderedMarkdown {
-  const ctx: Context = { baseDir, images: [] };
+  const ctx: Context = { baseDir, images: [], headings: [], slugs: new Map() };
   steps = 0;
   stepBudget = Math.max(50_000, source.length * 50);
   try {
     const lines = source.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n");
     const html = renderBlocks(lines, ctx);
     if (html || !source.trim()) {
-      return { html, localImages: ctx.images };
+      return { html, localImages: ctx.images, headings: ctx.headings };
     }
-    return { html: rawFallback(source, "Markdown 渲染沒有產生內容，以下為原始文字。"), localImages: [] };
+    return {
+      html: rawFallback(source, "Markdown 渲染沒有產生內容，以下為原始文字。"),
+      localImages: [],
+      headings: [],
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    return { html: rawFallback(source, `Markdown 渲染失敗（${reason}），以下為原始文字。`), localImages: [] };
+    return {
+      html: rawFallback(source, `Markdown 渲染失敗（${reason}），以下為原始文字。`),
+      localImages: [],
+      headings: [],
+    };
   }
 }
 
