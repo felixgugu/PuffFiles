@@ -58,21 +58,3 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
   const extension = index > 0 ? name.slice(index + 1) : null;
   return viewerKindOf({ isDir: false, extension });
 }
-
-/**
- * 從 `fromIndex` 的下一列往下找第一個能用檢視器開啟的檔案；找不到回 `-1`。
- *
- * `viewerKindOf()` 對資料夾與沒有檢視器的副檔名（.pdf／.mp4／.exe…）都回 `null`，
- * 所以一個判斷同時跳過這兩種，呼叫端不必再各自過濾一次。
- */
-export function nextViewableFileIndex(
-  entries: readonly Pick<FileEntry, "isDir" | "extension">[],
-  fromIndex: number,
-): number {
-  for (let index = Math.max(fromIndex + 1, 0); index < entries.length; index++) {
-    if (viewerKindOf(entries[index])) {
-      return index;
-    }
-  }
-  return -1;
-}

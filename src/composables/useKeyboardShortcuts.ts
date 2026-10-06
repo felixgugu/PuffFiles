@@ -10,7 +10,6 @@ import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
 import type { PaneId } from "@/types/fs";
 import { samePath } from "@/utils/path";
-import { nextViewableFileIndex } from "@/utils/viewer";
 
 /**
  * 全域快速鍵。
@@ -140,9 +139,9 @@ export function useKeyboardShortcuts() {
         case "c":
         case "C":
           event.preventDefault();
-          if (shiftKey) {
-            void clipboard.transferToOtherPane("copy");
-          } else {
+          // Ctrl+Shift+C 過去是「複製到另一窗格」，與 Ctrl+C 太容易誤觸；
+          // 這個動作只保留在右鍵選單手動執行。
+          if (!shiftKey) {
             void clipboard.copySelection(paneId);
           }
           return;
@@ -158,12 +157,9 @@ export function useKeyboardShortcuts() {
           return;
         case "m":
         case "M":
-          if (!shiftKey) {
-            break;
-          }
-          event.preventDefault();
-          void clipboard.transferToOtherPane("move");
-          return;
+          // Ctrl+Shift+M 過去是「移動到另一窗格」，同樣容易誤觸；
+          // 這個動作只保留在右鍵選單手動執行，不再綁定快速鍵。
+          break;
         case "n":
         case "N":
           event.preventDefault();
@@ -297,17 +293,17 @@ export function useKeyboardShortcuts() {
   }
 
   /**
-   * Space：把焦點列的項目預覽到另一窗格，焦點留在檔案清單。
+   * Space：把焦點列的項目顯示到另一窗格，焦點留在檔案清單。
    *
-   * 資料夾＝在另一窗格開它的檔案清單；支援的檔案＝開檢視器。兩者都走右鍵選單
+   * 資料夾＝在另一窗格開它的檔案清單；檔案＝開檢視器（沒有檢視器的類型顯示
+   * 「這個檔案類型還沒有檢視器」的提示，仍然佔用該窗格）。全部都走右鍵選單
    * 「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，差別只在這裡帶入
    * `keepFocus` —— 焦點留在原清單，才能用方向鍵＋`Space` 連續掃描同一個資料夾。
-   * 不支援的檔案類型會直接顯示提示，不會有任何副作用。
    *
-   * **智慧前進**：焦點的檔案若已經開在另一窗格的檢視器裡，按 `Space` 的意圖是
-   * 「看下一個」而不是重新載入同一個檔案，所以自動前進到清單中下一個能用檢視器
-   * 開啟的檔案（跳過資料夾與不支援的類型），焦點與選取一起移動。已經是清單裡
-   * 最後一個可預覽的檔案時停在原地，不做任何事。
+   * **智慧前進**：焦點項目若已經顯示在另一窗格（檔案在檢視器、或資料夾正是另一
+   * 窗格目前瀏覽的位置），按 `Space` 的意圖是「看下一個」，所以前進到清單的下一列
+   * （不分類型，資料夾與沒有檢視器的檔案都算），焦點與選取一起移動。已經是最後
+   * 一列時停在原地，不做任何事。
    */
   function openFocusedInPane(paneId: PaneId) {
     const entry = explorer.focusedEntry(paneId);
@@ -316,11 +312,11 @@ export function useKeyboardShortcuts() {
     }
 
     let target = entry;
-    if (isPreviewedInNeighbor(paneId, entry.path)) {
+    if (isDisplayedInNeighbor(paneId, entry)) {
       const list = explorer.visibleRef(paneId).value;
       const current = list.findIndex((item) => item.path === entry.path);
-      const next = nextViewableFileIndex(list, current);
-      if (next < 0) {
+      const next = current + 1;
+      if (current < 0 || next >= list.length) {
         return;
       }
       target = list[next];
@@ -341,12 +337,18 @@ export function useKeyboardShortcuts() {
   }
 
   /**
-   * 這個檔案是不是已經開在「另一個窗格」的檢視器裡。
+   * 焦點項目是不是已經顯示在「另一個窗格」。
    *
    * 每分頁最多兩個窗格，所以相對焦點窗格的那一個就是鄰居；未分割時沒有鄰居。
+   * 兩種顯示方式都要認得：
+   * - 檔案：鄰居的檢視器正開著它（含沒有檢視器的提示狀態）。
+   * - 資料夾：鄰居正在瀏覽它，而且沒有被檢視器蓋住。
    * 檢視器還在 loading 也算已開啟 —— 連續按 `Space` 才不會把上一鍵的結果漏掉。
    */
-  function isPreviewedInNeighbor(paneId: PaneId, path: string): boolean {
+  function isDisplayedInNeighbor(
+    paneId: PaneId,
+    entry: { path: string; isDir: boolean },
+  ): boolean {
     const tab = tabs.activeTab;
     if (!tab || !tab.paneIds.includes(paneId)) {
       return false;
@@ -356,7 +358,10 @@ export function useKeyboardShortcuts() {
       return false;
     }
     const state = viewer.of(neighbor);
-    return !!state && samePath(state.path, path);
+    if (state) {
+      return samePath(state.path, entry.path);
+    }
+    return entry.isDir && samePath(explorer.meta(neighbor)?.currentPath ?? "", entry.path);
   }
 
   onMounted(() => window.addEventListener("keydown", onKeydown));

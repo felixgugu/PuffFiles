@@ -164,13 +164,14 @@ export function usePathMenu() {
       return [];
     }
     return [
-      { id: "transfer-copy", label: "複製到另一窗格", icon: "paneCopy", shortcut: "Ctrl+Shift+C" },
-      { id: "transfer-move", label: "移動到另一窗格", icon: "paneMove", shortcut: "Ctrl+Shift+M" },
+      { id: "transfer-copy", label: "複製到另一窗格", icon: "paneCopy" },
+      { id: "transfer-move", label: "移動到另一窗格", icon: "paneMove" },
     ];
   }
 
   function copyPathItems(): MenuItem[] {
     return [
+      { id: "copy-name", label: "複製名稱", icon: "text" },
       { id: "copy-windows", label: "複製路徑（Windows）", icon: "link" },
       { id: "copy-linux", label: "複製路徑（Linux）", icon: "link" },
     ];
@@ -398,11 +399,6 @@ export function usePathMenu() {
       case "open-pane": {
         const neighbor = neighborPaneId(request.paneId);
         const keepFocus = options.keepFocus ?? false;
-        // 不支援的檔案（例如 .pdf、.mp4）只提示，不先分割出一個空窗格。
-        if (!target.isDir && !viewerKindOfPath(target.path)) {
-          ui.showNotice("這個檔案類型還沒有檢視器");
-          return;
-        }
         if (target.isDir && neighbor) {
           // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊。
           // 右鍵選單會把焦點一起移過去；`Space` 預覽則留在原本的清單。
@@ -436,6 +432,9 @@ export function usePathMenu() {
         await viewer.open(created, target.path);
         return;
       }
+      case "copy-name":
+        await explorer.copyNames(paths);
+        return;
       case "copy-windows":
         await explorer.copyPaths(paths, "windows");
         return;

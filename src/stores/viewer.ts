@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { reactive } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
-import { useUiStore } from "@/stores/ui";
 import type { PaneId } from "@/types/fs";
 import type { ViewerMode, ViewerState } from "@/types/viewer";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
@@ -29,7 +28,6 @@ const STREAM_SETTLE_MAX_MS = 3000;
  * 的建立與撤銷、以及「檔案被外部修改就自動重載」的監控都集中在這裡。
  */
 export const useViewerStore = defineStore("viewer", () => {
-  const ui = useUiStore();
   const views = reactive<Record<PaneId, ViewerState>>({});
 
   const controllers = new Map<PaneId, AbortController>();
@@ -128,7 +126,8 @@ export const useViewerStore = defineStore("viewer", () => {
 
   async function load(paneId: PaneId, attempt = 0): Promise<void> {
     const state = views[paneId];
-    if (!state) {
+    // 沒有檢視器的類型（kind 為 null）只顯示提示，沒有內容可讀。
+    if (!state || state.kind === null) {
       return;
     }
 
@@ -215,14 +214,9 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
-  /** 在指定窗格打開檔案；不支援的類型只提示，不會佔用窗格。 */
+  /** 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。 */
   async function open(paneId: PaneId, path: string): Promise<void> {
     const kind = viewerKindOfPath(path);
-    if (!kind) {
-      ui.showNotice("這個檔案類型還沒有檢視器");
-      return;
-    }
-
     close(paneId);
     views[paneId] = {
       path,
@@ -230,7 +224,8 @@ export const useViewerStore = defineStore("viewer", () => {
       kind,
       // HTML 預設先給使用者看畫面；要讀原始碼再從標頭切換。
       mode: "preview",
-      status: "loading",
+      // 沒有檢視器的類型沒有東西可讀，直接是就緒狀態、內容區顯示提示。
+      status: kind ? "loading" : "ready",
       error: null,
       text: "",
       encoding: null,
@@ -238,7 +233,11 @@ export const useViewerStore = defineStore("viewer", () => {
       size: 0,
       modifiedMs: null,
     };
-    await load(paneId);
+    // 沒有檢視器的類型只顯示提示，不去讀檔；它仍然是「目前顯示的目標」，
+    // 這樣在檔案清單按 Space 才能繼續往下前進。
+    if (kind) {
+      await load(paneId);
+    }
   }
 
   /** 切換 HTML 的「預覽／原始碼」；其他種類沒有切換鈕，呼叫也只是改一個沒人讀的欄位。 */

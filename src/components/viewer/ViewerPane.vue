@@ -118,6 +118,7 @@ function reveal() {
           <AppIcon name="folderOpen" :size="15" />
         </button>
         <button
+          v-if="state.kind !== null"
           type="button"
           class="flex size-7 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"
           title="重新整理 (F5)"
@@ -148,6 +149,14 @@ function reveal() {
       class="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-faint"
     >
       正在讀取…
+    </div>
+
+    <div
+      v-else-if="state.kind === null"
+      class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
+    >
+      <AppIcon name="info" :size="22" class="text-ink-faint" />
+      <p class="text-sm text-ink-muted">這個檔案類型還沒有檢視器</p>
     </div>
 
     <MarkdownView v-else-if="state.kind === 'markdown'" :pane-id="paneId" />

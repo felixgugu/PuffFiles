@@ -37,7 +37,7 @@ watch(
     >
       <div class="w-[24rem] rounded-xl border border-line bg-surface p-4 shadow-2xl">
         <h2 class="text-base font-semibold text-ink">{{ ui.confirmState.title }}</h2>
-        <p class="mt-2 text-sm leading-relaxed break-words text-ink-muted">
+        <p class="mt-2 text-sm leading-relaxed break-words whitespace-pre-line text-ink-muted">
           {{ ui.confirmState.message }}
         </p>
         <div class="mt-4 flex justify-end gap-2">

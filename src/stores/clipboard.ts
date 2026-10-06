@@ -7,7 +7,8 @@ import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
-import { joinPath, normalizeKey, parentOf, samePath } from "@/utils/path";
+import { fileNameOf, joinPath, normalizeKey, parentOf, samePath } from "@/utils/path";
+import { paneSlotLabel } from "@/utils/layout";
 
 /**
  * 剪貼簿與檔案操作。
@@ -109,7 +110,33 @@ export const useClipboardStore = defineStore("clipboard", () => {
     }
   }
 
-  /** 直接在兩個窗格之間複製或搬移，不經過剪貼簿。 */
+  /**
+   * 送到另一窗格前的確認訊息：把來源與目標寫清楚，避免複製／搬移的方向搞錯。
+   * 窗格位置標籤沿用 `paneSlotLabel()`（左／右或上／下），與狀態列、路徑列一致。
+   */
+  function transferMessage(
+    from: PaneId,
+    to: PaneId,
+    sources: string[],
+    destination: string,
+  ): string {
+    const tab = tabs.activeTab;
+    const slot = (id: PaneId) => {
+      const label = tab ? paneSlotLabel(tab, id) : "";
+      return label ? `${label}窗格` : "焦點窗格";
+    };
+    const sourceFolder = explorer.meta(from)?.currentPath || (parentOf(sources[0]) ?? "");
+    const names = sources.map(fileNameOf);
+    const listed =
+      names.length <= 5 ? names.join("、") : `${names.slice(0, 5).join("、")} 等 ${names.length} 個`;
+    return [
+      `來源（${slot(from)}）：${sourceFolder}`,
+      `目標（${slot(to)}）：${destination}`,
+      `項目（${sources.length} 個）：${listed}`,
+    ].join("\n");
+  }
+
+  /** 直接在兩個窗格之間複製或搬移，不經過剪貼簿。執行前先請使用者確認方向。 */
   async function transfer(from: PaneId, to: PaneId, mode: "copy" | "move") {
     if (busy.value) {
       return;
@@ -121,6 +148,16 @@ export const useClipboardStore = defineStore("clipboard", () => {
       return;
     }
     if (!destination) {
+      return;
+    }
+
+    if (
+      !(await ui.confirm({
+        title: mode === "copy" ? "複製到另一窗格？" : "移動到另一窗格？",
+        message: transferMessage(from, to, sources, destination),
+        confirmText: mode === "copy" ? "複製" : "移動",
+      }))
+    ) {
       return;
     }
 

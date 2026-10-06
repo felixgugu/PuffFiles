@@ -115,7 +115,7 @@ cd src-tauri; cargo clippy   # 後端 lint
 - 剪下／複製／貼上／刪除交給 Windows shell 的 `IFileOperation`：衝突對話框、進度、取消、
   資源回收筒、跨磁碟搬移、長路徑都由系統處理。
 - 剪貼簿使用 `CF_HDROP`，可以「在檔案總管複製、在這裡貼上」，反之亦然。
-- 分割時可把選取項目複製／移動到另一窗格（右鍵選單，或 `Ctrl+Shift+C`／`Ctrl+Shift+M`）。
+- 分割時可把選取項目複製／移動到另一窗格（僅右鍵選單手動執行，執行前彈窗確認來源與目標）。
 - 每一次操作（含失敗與原因）都寫入操作紀錄，設定頁可直接檢視。
 
 ### 右鍵選單（依選取情境改變）
@@ -183,8 +183,7 @@ cd src-tauri; cargo clippy   # 後端 lint
   `Alt+←`／`Alt+→` 上／下一頁、`Ctrl+F` 搜尋、`Ctrl+L` 輸入路徑、`Ctrl+N`／`Ctrl+W`／
   `Ctrl+Tab`／`Ctrl+1..9` 分頁、`Ctrl+\`／`Ctrl+Shift+\` 分割、`Ctrl+A`／`Ctrl+X`／
   `Ctrl+C`／`Ctrl+V`、`Del` 刪除、`Space` 把焦點列項目預覽到另一窗格（不移焦點；已顯示時改開下一個）、
-  `Ctrl+Shift+N` 新增資料夾、
-  `Ctrl+Shift+C`／`Ctrl+Shift+M` 送到另一窗格。
+  `Ctrl+Shift+N` 新增資料夾。
 - 完整清單（分頁與版面／導覽／檢視器／選取／剪貼簿與檔案／對話框與浮層）在
   **設定 → 關於 → 快速鍵**，說明文字就在按鍵旁邊。
 

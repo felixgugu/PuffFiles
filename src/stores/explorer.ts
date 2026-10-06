@@ -9,7 +9,7 @@ import { useViewerStore } from "@/stores/viewer";
 import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
 import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
-import { parentOf, samePath, toUnixPath } from "@/utils/path";
+import { fileNameOf, parentOf, samePath, toUnixPath } from "@/utils/path";
 
 export type ExplorerStatus = "idle" | "loading" | "ready" | "error";
 
@@ -607,6 +607,16 @@ export const useExplorerStore = defineStore("explorer", () => {
     ui.showNotice(copied ? what : "無法複製到剪貼簿");
   }
 
+  /** 一次複製多個名稱（一行一個），多選時用。 */
+  async function copyNames(paths: string[]): Promise<void> {
+    if (!paths.length) {
+      return;
+    }
+    const copied = await copyText(paths.map(fileNameOf).join("\r\n"));
+    const what = paths.length === 1 ? "已複製名稱" : `已複製 ${paths.length} 個名稱`;
+    ui.showNotice(copied ? what : "無法複製到剪貼簿");
+  }
+
   /**
    * 定位用：目前選取項目所在的資料夾。
    *
@@ -773,6 +783,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     revealTarget,
     copyPath,
     copyPaths,
+    copyNames,
     locateDirectory,
     selectionTarget,
     selectionTargets,

@@ -75,8 +75,6 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Ctrl+V"], label: "貼上" },
       { keys: ["Del"], label: "刪除" },
       { keys: ["F2"], label: "重新命名（就地編輯檔案清單的焦點列）" },
-      { keys: ["Ctrl+Shift+C"], label: "複製到另一個窗格（需分割）" },
-      { keys: ["Ctrl+Shift+M"], label: "移動到另一個窗格（需分割）" },
       { keys: ["Ctrl+Shift+N"], label: "建立新資料夾" },
     ],
   },

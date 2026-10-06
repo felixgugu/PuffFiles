@@ -31,7 +31,8 @@ export type ViewerStatus = "loading" | "ready" | "error";
 export interface ViewerState {
   path: string;
   name: string;
-  kind: ViewerKind;
+  /** 內容種類；`null` 代表這個檔案沒有檢視器，窗格只顯示提示。 */
+  kind: ViewerKind | null;
   /** 只有 HTML 會用到；開啟時一律從 `preview` 開始。 */
   mode: ViewerMode;
   status: ViewerStatus;
