@@ -41,19 +41,24 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Backspace", "Alt+↑"], label: "上一層" },
       { keys: ["Alt+←", "Alt+→"], label: "上一頁／下一頁" },
       { keys: ["F5"], label: "重新整理清單與資料夾樹" },
-      { keys: ["Ctrl+F"], label: "搜尋目前資料夾" },
+      { keys: ["Ctrl+F"], label: "搜尋目前資料夾（焦點在檔案清單時）" },
       { keys: ["Ctrl+L"], label: "輸入路徑" },
     ],
   },
   {
     title: "檢視器",
-    note: "焦點在檢視器窗格時，Esc 與 F5 作用於檢視器本身；清單類快速鍵會停用，文字才能正常選取複製。",
+    note: "焦點在檢視器窗格時，Esc、F5 與 Ctrl+F 作用於檢視器本身；清單類快速鍵會停用，文字才能正常選取複製。",
     items: [
       {
         keys: ["Space"],
         label: "把焦點列的檔案開到檢視器窗格；已經在另一邊顯示時改開下一個（焦點留在清單）",
       },
-      { keys: ["Esc"], label: "關閉檢視器" },
+      { keys: ["Ctrl+F"], label: "搜尋檢視器內容（文字類檢視器；再按一次關閉）" },
+      {
+        keys: ["Enter", "Shift+Enter"],
+        label: "下一個／上一個命中（焦點在搜尋面板時）",
+      },
+      { keys: ["Esc"], label: "關閉搜尋面板；沒有面板時關閉檢視器" },
       { keys: ["F5"], label: "重新載入檢視器內容" },
     ],
   },

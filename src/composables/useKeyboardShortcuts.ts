@@ -93,9 +93,15 @@ export function useKeyboardShortcuts() {
       if (modifier) {
         // 只放行分頁／版面層級的操作；Ctrl+Shift+N（建立新資料夾）是清單操作，不在此列。
         const allowed =
-          ["w", "W", "\\", "|", "Tab", "l", "L"].includes(key) ||
+          ["w", "W", "\\", "|", "Tab", "l", "L", "f", "F"].includes(key) ||
           ((key === "n" || key === "N") && !shiftKey);
         if (!allowed) {
+          return;
+        }
+        // Ctrl+F 在檢視器裡是「搜尋檢視器內容」，不是清單的搜尋目前資料夾。
+        if (key === "f" || key === "F") {
+          event.preventDefault();
+          viewer.toggleSearch(paneId);
           return;
         }
       } else if (key === "F5") {
@@ -104,7 +110,12 @@ export function useKeyboardShortcuts() {
         return;
       } else if (key === "Escape" && !ui.settingsOpen && !ui.historyOpen) {
         event.preventDefault();
-        viewer.close(paneId);
+        // 搜尋面板開著時 Esc 先關面板，再按一次才關檢視器。
+        if (viewer.of(paneId)?.search.open) {
+          viewer.closeSearch(paneId);
+        } else {
+          viewer.close(paneId);
+        }
         return;
       } else if (key !== "F6" && key !== "Escape") {
         // Escape 在有浮層時往下走，讓設定頁／瀏覽紀錄先關閉。

@@ -13,7 +13,8 @@ import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { formatBytes } from "@/utils/format";
 import { colorFor, iconFor } from "@/utils/fileKind";
-import { tocPanelFits } from "@/utils/markdownToc";
+import { supportsViewerSearch } from "@/utils/viewer";
+import { panelFits } from "@/utils/viewerPanel";
 
 /**
  * 檢視器窗格：標頭（檔名＋動作）＋內容。
@@ -57,17 +58,31 @@ const tocAvailable = computed(
   () =>
     state.value?.kind === "markdown" &&
     outline.value.headings.length > 0 &&
-    tocPanelFits(paneWidth.value, settings.markdownTocMinWidth),
+    panelFits(paneWidth.value, settings.viewerPanelMinWidth),
 );
 const tocOn = computed(() => tocAvailable.value && settings.markdownTocEnabled);
 const tocTitle = computed(() => {
   if (!outline.value.headings.length) {
     return "這份文件沒有標題";
   }
-  if (!tocPanelFits(paneWidth.value, settings.markdownTocMinWidth)) {
+  if (!panelFits(paneWidth.value, settings.viewerPanelMinWidth)) {
     return "窗格太窄，目錄索引已隱藏";
   }
   return settings.markdownTocEnabled ? "目錄索引（開啟）" : "目錄索引（關閉）";
+});
+
+/*
+ * 搜尋鈕：所有文字類檢視器（Markdown／HTML／純文字與程式碼）都有。
+ * 面板開關是每個窗格各自的狀態，住在 viewer store 的 ViewerState.search。
+ */
+const searchOpen = computed(() => state.value?.search.open === true);
+const searchFits = computed(() => panelFits(paneWidth.value, settings.viewerPanelMinWidth));
+const searchOn = computed(() => searchOpen.value && searchFits.value);
+const searchTitle = computed(() => {
+  if (!searchFits.value) {
+    return "窗格太窄，搜尋面板已隱藏";
+  }
+  return searchOpen.value ? "關閉搜尋 (Ctrl+F)" : "在檢視器內搜尋 (Ctrl+F)";
 });
 
 const extension = computed(() => extensionOf(state.value?.path ?? ""));
@@ -138,6 +153,22 @@ function reveal() {
       <span v-else-if="detail" class="min-w-0 truncate text-xs text-ink-faint">{{ detail }}</span>
 
       <div class="ml-auto flex shrink-0 items-center gap-0.5">
+        <button
+          v-if="supportsViewerSearch(state.kind)"
+          type="button"
+          class="flex size-7 items-center justify-center rounded-md pressable disabled:opacity-30"
+          :class="
+            searchOn
+              ? 'bg-accent-soft text-accent'
+              : 'text-ink-muted enabled:hover:bg-surface-hover enabled:active:bg-pressed enabled:hover:text-ink'
+          "
+          :aria-pressed="searchOn"
+          :disabled="!searchFits"
+          :title="searchTitle"
+          @click="viewer.toggleSearch(paneId)"
+        >
+          <AppIcon name="search" :size="15" />
+        </button>
         <button
           v-if="state.kind === 'markdown'"
           type="button"

@@ -14,11 +14,11 @@ import { useToolEditorStore } from "@/stores/toolEditor";
 import type { ColumnId } from "@/types/fs";
 import { DEFAULT_ALIAS_TEMPLATE, folderDisplayName } from "@/utils/folders";
 import {
-  TOC_MIN_WIDTH_CEILING,
-  TOC_MIN_WIDTH_FLOOR,
-  TOC_OPACITY_MAX,
-  TOC_OPACITY_MIN,
-} from "@/utils/markdownToc";
+  PANEL_MIN_WIDTH_CEILING,
+  PANEL_MIN_WIDTH_FLOOR,
+  PANEL_OPACITY_MAX,
+  PANEL_OPACITY_MIN,
+} from "@/utils/viewerPanel";
 import { APP_VERSION } from "@/version";
 
 type SectionId = "general" | "browse" | "tools" | "log" | "about";
@@ -330,9 +330,9 @@ async function selectSection(id: SectionId) {
             <section class="py-6 first:pt-0 last:pb-0">
               <h3 class="text-base font-semibold text-ink">檢視器</h3>
               <p class="mt-1 text-sm leading-relaxed text-ink-muted">
-                Markdown 檢視器右上角的「目錄索引」面板。最小寬度是拖曳下限，
-                窗格比「最小寬度 + 兩側留白」還窄時面板會自動隱藏；
-                不透明度越低，面板底下的內文越明顯。
+                檢視器右上角的浮動面板（Markdown 的「目錄索引」與各文字檢視器的「搜尋」）。
+                最小寬度是拖曳下限，窗格比「最小寬度 + 兩側留白」還窄時面板會自動隱藏；
+                不透明度越低，面板底下的內文越明顯。兩個面板共用這兩項設定。
               </p>
               <div class="mt-2 space-y-2">
                 <div class="flex items-center gap-3">
@@ -340,18 +340,18 @@ async function selectSection(id: SectionId) {
                   <input
                     type="range"
                     class="h-8 min-w-0 flex-1 accent-[var(--color-accent)]"
-                    :min="TOC_MIN_WIDTH_FLOOR"
-                    :max="TOC_MIN_WIDTH_CEILING"
+                    :min="PANEL_MIN_WIDTH_FLOOR"
+                    :max="PANEL_MIN_WIDTH_CEILING"
                     step="10"
-                    :value="settings.markdownTocMinWidth"
+                    :value="settings.viewerPanelMinWidth"
                     @input="
-                      settings.setMarkdownTocMinWidth(
+                      settings.setViewerPanelMinWidth(
                         Number(($event.target as HTMLInputElement).value),
                       )
                     "
                   />
                   <span class="w-14 shrink-0 text-right text-sm tabular-nums text-ink-muted">
-                    {{ settings.markdownTocMinWidth }}px
+                    {{ settings.viewerPanelMinWidth }}px
                   </span>
                 </div>
                 <div class="flex items-center gap-3">
@@ -359,18 +359,18 @@ async function selectSection(id: SectionId) {
                   <input
                     type="range"
                     class="h-8 min-w-0 flex-1 accent-[var(--color-accent)]"
-                    :min="TOC_OPACITY_MIN"
-                    :max="TOC_OPACITY_MAX"
+                    :min="PANEL_OPACITY_MIN"
+                    :max="PANEL_OPACITY_MAX"
                     step="5"
-                    :value="settings.markdownTocOpacity"
+                    :value="settings.viewerPanelOpacity"
                     @input="
-                      settings.setMarkdownTocOpacity(
+                      settings.setViewerPanelOpacity(
                         Number(($event.target as HTMLInputElement).value),
                       )
                     "
                   />
                   <span class="w-14 shrink-0 text-right text-sm tabular-nums text-ink-muted">
-                    {{ settings.markdownTocOpacity }}%
+                    {{ settings.viewerPanelOpacity }}%
                   </span>
                 </div>
               </div>

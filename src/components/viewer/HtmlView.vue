@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import ViewerNotice from "./ViewerNotice.vue";
+import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewerStore } from "@/stores/viewer";
@@ -21,6 +22,7 @@ import {
   type SrcsetCandidate,
 } from "@/utils/html";
 import { parentOf, resolveLocalPath } from "@/utils/path";
+import { supportsViewerSearch } from "@/utils/viewer";
 
 /**
  * HTML 靜態預覽：`iframe[srcdoc]` ＋ 本機資源改寫。
@@ -47,9 +49,24 @@ const baseDir = computed(() => parentOf(state.value?.path ?? "") ?? "");
 const sanitized = computed(() => sanitizeHtml(state.value?.text ?? ""));
 
 const frame = useTemplateRef<HTMLIFrameElement>("frame");
+const host = useTemplateRef<HTMLElement>("host");
 /** `null`＝樣式前置處理還沒完成；有值就是可以放進 iframe 的完整文件。 */
 const preparedHtml = ref<string | null>(null);
 const skipped = ref(0);
+/** iframe 每次載入完成就 +1，讓搜尋知道「現在這份 body 才是新的」。 */
+const frameReady = ref(0);
+
+const searchOpen = computed(
+  () => state.value?.search.open === true && supportsViewerSearch(state.value?.kind ?? null),
+);
+
+/** 預覽文件的 body；`frameReady` 變動時重算，搜尋才不會抓著上一份文件。 */
+const frameBody = computed(() => {
+  if (!frameReady.value) {
+    return null;
+  }
+  return frame.value?.contentDocument?.body ?? null;
+});
 
 /** 這個世代建立的所有 blob URL；換檔案、關閉或卸載時一次撤銷。 */
 const blobUrls = new Set<string>();
@@ -438,7 +455,11 @@ function onFrameLoad() {
   doc.addEventListener("keydown", forwardKeydown);
   doc.addEventListener("click", onFrameClick);
   doc.addEventListener("contextmenu", blockContextMenu);
-  void applyResources(doc, generation);
+  frameReady.value += 1;
+  // 資源改寫完（圖片、外部 CSS）再通知一次：畫面高度穩定後命中位置才準。
+  void applyResources(doc, generation).finally(() => {
+    frameReady.value += 1;
+  });
 }
 
 watch(
@@ -456,7 +477,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="state" class="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+  <div v-if="state" ref="host" class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
     <ViewerNotice v-if="notice" :text="notice" />
 
     <div
@@ -474,6 +495,14 @@ onBeforeUnmount(() => {
       referrerpolicy="no-referrer"
       :srcdoc="preparedHtml"
       @load="onFrameLoad"
+    />
+
+    <ViewerSearchPanel
+      v-if="searchOpen"
+      :pane-id="paneId"
+      :host="host"
+      :root="frameBody"
+      :source="frameReady"
     />
   </div>
 </template>

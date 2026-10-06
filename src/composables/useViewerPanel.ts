@@ -2,56 +2,91 @@ import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } fro
 import { useDragGesture } from "@/composables/useDragGesture";
 import { useSettingsStore } from "@/stores/settings";
 import {
-  clampTocMinWidth,
-  clampTocPanel,
-  TOC_MARGIN,
-  TOC_MIN_HEIGHT,
-  TOC_TITLEBAR_HEIGHT,
-} from "@/utils/markdownToc";
+  clampPanel,
+  clampPanelMinWidth,
+  PANEL_MARGIN,
+  PANEL_MIN_HEIGHT,
+  PANEL_TITLEBAR_HEIGHT,
+  type PanelLayout,
+} from "@/utils/viewerPanel";
 
-interface TocPanelOptions {
-  /** 定位容器（MarkdownView 的根節點）；量測可視範圍與夾邊界都用它。 */
+interface ViewerPanelOptions {
+  /** 定位容器（檢視器的根節點）；量測可用範圍與夾邊界都用它。 */
   host: () => HTMLElement | null;
   /** 標題列以外的內容自然高度（清單捲動高度）。 */
   contentHeight: Ref<number>;
   collapsed: ComputedRef<boolean>;
+  /** 開始時的記憶值（來自 settings）。 */
+  initialLayout: PanelLayout;
+  /** 拖曳／縮放結束時把新的位置與尺寸寫回。 */
+  onPersist: (layout: PanelLayout) => void;
+  /** 標題列的 Enter／空白＝收合或展開。 */
+  onToggleCollapse: () => void;
+  /**
+   * 還沒被移動過（`x === null`，貼齊右上角）時要避開的元素；
+   * 同一窗格的其他浮動面板（例如目錄索引）已經展開時往下讓開。
+   */
+  avoid?: () => HTMLElement | null;
 }
 
 /**
- * 目錄索引面板的位置、大小與拖曳手勢。
+ * 檢視器浮動面板的位置、大小與拖曳手勢（目錄索引與搜尋共用）。
  *
  * 每個面板實例都有自己的工作副本，拖曳結束才寫回設定 —— 兩個窗格同時開
- * Markdown 時，拖其中一個不會讓另一個跟著跳，新開的面板則沿用最後一次的
+ * 同一個面板時，拖其中一個不會讓另一個跟著跳，新開的面板則沿用最後一次的
  * 設定值。所有數值在計算時就夾進可視範圍，面板永遠不會被拖出檢視器。
  */
-export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions) {
+export function useViewerPanel(options: ViewerPanelOptions) {
   const settings = useSettingsStore();
+  const { host, contentHeight, collapsed, initialLayout, onPersist, onToggleCollapse, avoid } =
+    options;
 
-  const posX = ref<number | null>(settings.markdownTocPanel.x);
-  const posY = ref(settings.markdownTocPanel.y);
-  const panelWidth = ref(settings.markdownTocPanel.width);
-  const panelHeight = ref<number | null>(settings.markdownTocPanel.height);
+  const posX = ref<number | null>(initialLayout.x);
+  const posY = ref(initialLayout.y);
+  const panelWidth = ref(initialLayout.width);
+  const panelHeight = ref<number | null>(initialLayout.height);
   const area = ref({ width: 0, height: 0 });
 
   /** 使用者在設定頁調的最小寬度（拖曳下限）。 */
-  const minWidth = computed(() => clampTocMinWidth(settings.markdownTocMinWidth));
+  const minWidth = computed(() => clampPanelMinWidth(settings.viewerPanelMinWidth));
+
+  /**
+   * 避讓位移：只有「還沒被移動過」的面板才自動往下讓開。
+   * 由 `area` 觸發重算 —— 量到尺寸時兩個面板都已經在 DOM 裡了。
+   */
+  const avoidOffset = computed(() => {
+    if (posX.value !== null || !avoid || area.value.width <= 0) {
+      return 0;
+    }
+    const other = avoid();
+    const element = host();
+    if (!other || !element || other.offsetParent === null) {
+      return 0;
+    }
+    const otherRect = other.getBoundingClientRect();
+    const hostRect = element.getBoundingClientRect();
+    if (otherRect.height <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.round(otherRect.bottom - hostRect.top + PANEL_MARGIN));
+  });
 
   const bounds = computed(() => ({
     width: area.value.width,
     height: area.value.height,
-    contentHeight: TOC_TITLEBAR_HEIGHT + contentHeight.value + 2,
+    contentHeight: PANEL_TITLEBAR_HEIGHT + contentHeight.value + 2,
     minWidth: minWidth.value,
   }));
 
-  const layout = computed(() => ({
+  const layout = computed<PanelLayout>(() => ({
     x: posX.value,
-    y: posY.value,
+    y: posY.value + avoidOffset.value,
     width: panelWidth.value,
     height: panelHeight.value,
   }));
 
   /** `null`＝這個窗格太窄，不該顯示面板。 */
-  const rect = computed(() => clampTocPanel(layout.value, bounds.value));
+  const rect = computed(() => clampPanel(layout.value, bounds.value));
 
   const panelStyle = computed(() => {
     const box = rect.value;
@@ -59,10 +94,10 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
       return undefined;
     }
     return {
-      left: `${box.x + TOC_MARGIN}px`,
-      top: `${box.y + TOC_MARGIN}px`,
+      left: `${box.x + PANEL_MARGIN}px`,
+      top: `${box.y + PANEL_MARGIN}px`,
       width: `${box.width}px`,
-      height: `${collapsed.value ? TOC_TITLEBAR_HEIGHT : box.height}px`,
+      height: `${collapsed.value ? PANEL_TITLEBAR_HEIGHT : box.height}px`,
     };
   });
 
@@ -93,7 +128,7 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
   onBeforeUnmount(() => observer?.disconnect());
 
   function persist() {
-    settings.setMarkdownTocPanel({
+    onPersist({
       x: posX.value,
       y: posY.value,
       width: panelWidth.value,
@@ -116,7 +151,7 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
       moveOrigin = { x: box.x, y: box.y };
     },
     onMove: (state) => {
-      const box = clampTocPanel(
+      const box = clampPanel(
         {
           x: moveOrigin.x + state.dx,
           y: moveOrigin.y + state.dy,
@@ -148,9 +183,9 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
     const current = bounds.value;
     // 右緣固定，所以寬度最多長到「右緣到檢視器左緣」的距離。
     const maxWidth = Math.max(minWidth.value, resizeOrigin.x + resizeOrigin.width);
-    const maxHeight = Math.max(TOC_MIN_HEIGHT, current.height - TOC_MARGIN * 2 - resizeOrigin.y);
+    const maxHeight = Math.max(PANEL_MIN_HEIGHT, current.height - PANEL_MARGIN * 2 - resizeOrigin.y);
     const width = Math.min(Math.max(minWidth.value, resizeOrigin.width + widthDelta), maxWidth);
-    const height = Math.min(Math.max(TOC_MIN_HEIGHT, resizeOrigin.height + heightDelta), maxHeight);
+    const height = Math.min(Math.max(PANEL_MIN_HEIGHT, resizeOrigin.height + heightDelta), maxHeight);
     panelWidth.value = Math.round(width);
     panelHeight.value = Math.round(height);
     posX.value = Math.round(resizeOrigin.x + (resizeOrigin.width - width));
@@ -193,7 +228,7 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
     if (!box) {
       return;
     }
-    const next = clampTocPanel(
+    const next = clampPanel(
       { x: box.x + dx, y: box.y + dy, width: panelWidth.value, height: panelHeight.value },
       bounds.value,
     );
@@ -230,7 +265,7 @@ export function useTocPanel({ host, contentHeight, collapsed }: TocPanelOptions)
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      settings.toggleMarkdownTocCollapsed();
+      onToggleCollapse();
       return;
     }
     const delta = arrowDelta(event.key, event.shiftKey ? 1 : 8);

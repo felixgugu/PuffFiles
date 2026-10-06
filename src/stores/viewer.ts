@@ -3,9 +3,9 @@ import { reactive } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import type { PaneId } from "@/types/fs";
-import type { ViewerMode, ViewerState } from "@/types/viewer";
+import type { ViewerMode, ViewerSearchState, ViewerState } from "@/types/viewer";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
-import { viewerKindOfPath } from "@/utils/viewer";
+import { supportsViewerSearch, viewerKindOfPath } from "@/utils/viewer";
 
 /** 監控事件進來後等這麼久才重載：編輯器存檔常常一次送出好幾筆通知。 */
 const RELOAD_DEBOUNCE_MS = 250;
@@ -20,6 +20,15 @@ const WATCH_PREFIX = "viewer:";
  */
 const STREAM_QUIET_MS = 120;
 const STREAM_SETTLE_MAX_MS = 3000;
+
+/** 搜尋面板的初始狀態：預設關閉、三個選項全關（與其他工具的搜尋一致）。 */
+const DEFAULT_SEARCH: ViewerSearchState = {
+  open: false,
+  query: "",
+  caseSensitive: false,
+  wholeWord: false,
+  regex: false,
+};
 
 /**
  * 檢視器狀態：綁在窗格上，但與 `explorer` 的瀏覽狀態分開。
@@ -217,6 +226,8 @@ export const useViewerStore = defineStore("viewer", () => {
   /** 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。 */
   async function open(paneId: PaneId, path: string): Promise<void> {
     const kind = viewerKindOfPath(path);
+    // 同一個窗格換檔案時沿用搜尋字串與選項（面板維持開啟），關閉檢視器才重置。
+    const previousSearch = views[paneId]?.search;
     close(paneId);
     views[paneId] = {
       path,
@@ -232,6 +243,7 @@ export const useViewerStore = defineStore("viewer", () => {
       blobUrl: null,
       size: 0,
       modifiedMs: null,
+      search: previousSearch ? { ...previousSearch } : { ...DEFAULT_SEARCH },
     };
     // 沒有檢視器的類型只顯示提示，不去讀檔；它仍然是「目前顯示的目標」，
     // 這樣在檔案清單按 Space 才能繼續往下前進。
@@ -245,6 +257,30 @@ export const useViewerStore = defineStore("viewer", () => {
     const state = views[paneId];
     if (state) {
       state.mode = mode;
+    }
+  }
+
+  /** 標題列的搜尋鈕與 Ctrl+F：文字類檢視器才能開關。 */
+  function toggleSearch(paneId: PaneId) {
+    const state = views[paneId];
+    if (!state || !supportsViewerSearch(state.kind)) {
+      return;
+    }
+    state.search.open = !state.search.open;
+  }
+
+  function closeSearch(paneId: PaneId) {
+    const state = views[paneId];
+    if (state) {
+      state.search.open = false;
+    }
+  }
+
+  /** 搜尋面板的輸入框與三個選項都寫回這裡，換元件時狀態才不會不見。 */
+  function updateSearch(paneId: PaneId, patch: Partial<ViewerSearchState>) {
+    const state = views[paneId];
+    if (state) {
+      Object.assign(state.search, patch);
     }
   }
 
@@ -290,7 +326,20 @@ export const useViewerStore = defineStore("viewer", () => {
     );
   }
 
-  return { views, of, isOpen, open, reload, setMode, retarget, close, destroy };
+  return {
+    views,
+    of,
+    isOpen,
+    open,
+    reload,
+    setMode,
+    toggleSearch,
+    closeSearch,
+    updateSearch,
+    retarget,
+    close,
+    destroy,
+  };
 });
 
 function base64ToBytes(chunks: string[]): Uint8Array<ArrayBuffer> {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue";
 import MarkdownToc from "./MarkdownToc.vue";
+import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
 import { useMarkdownScrollSpy } from "@/composables/useMarkdownScrollSpy";
@@ -36,6 +37,7 @@ const rendered = useMarkdownOutline(state);
 const headings = computed(() => rendered.value.headings);
 const { activeId, jumpTo } = useMarkdownScrollSpy(content, headings);
 const tocVisible = computed(() => settings.markdownTocEnabled && headings.value.length > 0);
+const searchOpen = computed(() => state.value?.search.open === true);
 
 /**
  * 檔案太大就跳過圍籬高亮。
@@ -212,6 +214,13 @@ function decodeFragment(value: string): string {
       :active-id="activeId"
       :host="host"
       @jump="jumpTo"
+    />
+    <ViewerSearchPanel
+      v-if="searchOpen"
+      :pane-id="paneId"
+      :host="host"
+      :root="content"
+      :source="rendered.html"
     />
   </div>
 </template>

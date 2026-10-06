@@ -347,3 +347,20 @@
     --color-line: oklch(0.6 0.01 265);
   }
 }
+
+/*
+ * 檢視器搜尋的命中標記。
+ *
+ * 這些 `<mark>` 是 `useViewerSearch` 直接操作 DOM 長出來的，不是 Vue 樣板，
+ * 所以樣式寫在全域；iframe（HTML 預覽）裡另外注入一份同色的樣式。
+ */
+mark.search-hit {
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--color-accent) 25%, transparent);
+  color: inherit;
+}
+
+mark.search-hit-active {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}

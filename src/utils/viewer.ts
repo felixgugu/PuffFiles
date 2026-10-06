@@ -58,3 +58,11 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
   const extension = index > 0 ? name.slice(index + 1) : null;
   return viewerKindOf({ isDir: false, extension });
 }
+
+/**
+ * 這個檢視器有沒有搜尋面板（文字類才有：Markdown、HTML、純文字／程式碼）。
+ * 圖片與「沒有檢視器的類型」都不顯示搜尋鈕。
+ */
+export function supportsViewerSearch(kind: ViewerKind | null): boolean {
+  return kind === "markdown" || kind === "html" || kind === "text";
+}

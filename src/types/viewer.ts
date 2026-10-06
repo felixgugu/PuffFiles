@@ -27,6 +27,23 @@ export type ViewerStreamEvent =
 
 export type ViewerStatus = "loading" | "ready" | "error";
 
+/**
+ * 檢視器搜尋面板的狀態（每個窗格一份）。
+ *
+ * 住在檢視器狀態裡而不是面板元件內：面板元件會隨檢視器種類換來換去，
+ * 但「在同一個窗格裡找東西」是這個窗格的事 —— 換檔案要沿用、關掉檢視器才重置。
+ */
+export interface ViewerSearchState {
+  open: boolean;
+  query: string;
+  /** 大小寫須相符。 */
+  caseSensitive: boolean;
+  /** 只比對完整字詞。 */
+  wholeWord: boolean;
+  /** 把搜尋字串當成 Regex。 */
+  regex: boolean;
+}
+
 /** 一個窗格目前的檢視器狀態；沒有這個鍵就代表該窗格在檔案清單模式。 */
 export interface ViewerState {
   path: string;
@@ -45,4 +62,6 @@ export interface ViewerState {
   blobUrl: string | null;
   size: number;
   modifiedMs: number | null;
+  /** 搜尋面板的開關、字串與三個選項。 */
+  search: ViewerSearchState;
 }

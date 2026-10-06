@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, useTemplateRef } from "vue";
 import ViewerNotice from "./ViewerNotice.vue";
+import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { highlightCode, languageForPath, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
 import { fileKindOf } from "@/utils/fileKind";
+import { escapeHtml } from "@/utils/markdown";
 import { extensionOf } from "@/utils/path";
+import { supportsViewerSearch } from "@/utils/viewer";
 
 /**
  * 純文字內容：等寬、自動換行、不顯示行號。
@@ -18,6 +21,13 @@ const props = defineProps<{ paneId: PaneId }>();
 
 const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
+const host = useTemplateRef<HTMLElement>("host");
+const pre = useTemplateRef<HTMLElement>("pre");
+
+/** 搜尋面板：純文字與程式碼都有（HTML 的原始碼模式也走這裡）。 */
+const searchOpen = computed(
+  () => state.value?.search.open === true && supportsViewerSearch(state.value?.kind ?? null),
+);
 
 /**
  * 只有「程式碼」類的檔案要上色；純文字（.txt／.log…）維持原樣。
@@ -53,27 +63,46 @@ const highlighted = computed(() => {
   return highlightCode(state.value?.text ?? "", language.value);
 });
 
-const notice = computed(() =>
-  tooLarge.value ? "檔案過大，已略過語法高亮" : "",
-);
+const notice = computed(() => (tooLarge.value ? "檔案過大，已略過語法高亮" : ""));
+
+/**
+ * 沒有語法高亮時改用 `v-html` 輸出轉義後的文字。
+ *
+ * 搜尋會在文字節點裡插入 `<mark>`；用 `{{ }}` 內插的話那個文字節點歸 Vue 管，
+ * 標記會讓 Vue 的節點參照失效。改成 `v-html` 之後整段內容由 Vue 換掉，標記
+ * 自然被丟棄，搜尋要還原也只要清掉標記就好。
+ */
+const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
 </script>
 
 <template>
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+  <div ref="host" class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
     <ViewerNotice v-if="notice" :text="notice" />
     <pre
       v-if="highlighted === null"
+      ref="pre"
       data-native-menu
       class="scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
-    >{{ state?.text ?? "" }}</pre>
+      v-html="escapedText"
+    />
     <!--
       高亮結果由 highlight.js 產生，原始碼裡的 `<`／`&` 都已轉義，v-html 沒有注入風險。
     -->
     <pre
       v-else
+      ref="pre"
       data-native-menu
       class="code-highlight scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
       v-html="highlighted"
+    />
+
+    <ViewerSearchPanel
+      v-if="searchOpen"
+      :pane-id="paneId"
+      :host="host"
+      :root="pre"
+      :source="state?.text ?? ''"
+      show-line
     />
   </div>
 </template>

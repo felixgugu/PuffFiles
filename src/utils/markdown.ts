@@ -67,7 +67,8 @@ function spendStep() {
   }
 }
 
-function escapeHtml(text: string): string {
+/** HTML 轉義；檢視器把純文字轉成 HTML 時也共用這一份。 */
+export function escapeHtml(text: string): string {
   return text.replace(/[&<>"]/g, (char) => HTML_ESCAPES[char]);
 }
 

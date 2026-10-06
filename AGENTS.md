@@ -186,10 +186,19 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到
   該行。面板可拖曳、可調整寬高、可收合成只剩標題列，左下角把手往外拖＝放大；
   底色不透明度（預設 50%）與最小寬度（預設 200px）在設定頁的「瀏覽 → 檢視器」調整
-  （`settings.markdownTocOpacity`／`markdownTocMinWidth`），位置與尺寸存進
+  （`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，兩種浮動面板共用），位置與尺寸存進
   `settings.markdownTocPanel`（`x === null`＝維持右上角對齊）。
   文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，標頭開關維持
   可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
+- **搜尋（所有文字類檢視器）**：檢視器標頭的搜尋鈕或 `Ctrl+F` 開關右上角的浮動面板，
+  面板本身是每個窗格各自的狀態（預設關閉；同一個窗格換檔案沿用搜尋字串，關掉檢視器才重置）。
+  搜尋的是**畫面上看得到的文字**：Markdown 渲染後的內容、純文字與程式碼（含 HTML 原始碼
+  模式）、HTML 靜態預覽 iframe 內的頁面文字。大小寫、完整字詞、Regex 三個選項預設全關，
+  輸入即時搜尋（去抖 150ms）；命中清單顯示「目前索引／總數」與命中所在的行（純文字／
+  程式碼，含行號）或區塊（渲染後的內容），`Enter`／`Shift+Enter` 上下一個、點列直接跳，
+  內文同步標示全部命中與目前命中。內容超過 4 MB 停用搜尋、命中超過 2000 筆只列前段，
+  兩者都會在面板上說明；面板位置、尺寸與收合存在 `settings.viewerSearchPanel`／
+  `viewerSearchCollapsed`，最小寬度與不透明度與目錄索引共用。
 - **HTML 靜態預覽**：`HtmlView` 以 `iframe[srcdoc]` 呈現，`sandbox` 只給 `allow-same-origin`
   （不給 `allow-scripts`）—— 頁面**不執行 JavaScript**、**不載入 http(s) 遠端資源**；
   `utils/html.ts` 先移除 `<script>`／`<base>`／meta refresh／`on*`，再由父層進入
@@ -213,7 +222,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **自動重載**：開啟後以 `viewer:<paneId>` 為 id 監控檔案所在資料夾（與窗格的監控
   完全隔離），只有這個檔案的事件才去抖 250ms 後重載；刪除時顯示錯誤狀態。
 - **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
-  只保留 Esc（關閉）、F5（重新載入）、F6 與分頁／版面層級的操作。
+  只保留 Esc（關閉，搜尋面板開著時先關面板）、F5（重新載入）、Ctrl+F（搜尋面板開關）、
+  F6 與分頁／版面層級的操作。
   在檔案清單按 `Space`＝把焦點列的項目顯示到另一窗格（走右鍵 `open-pane` 同一條路徑，
   但帶 `keepFocus`）：資料夾在新窗格開成一般清單、檔案開檢視器（沒有檢視器的類型顯示
   「這個檔案類型還沒有檢視器」的提示，仍佔用該窗格），**焦點一律留在原清單**，才能連續
@@ -278,6 +288,7 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
 | 檢視器（Viewer） | 窗格內容模式：顯示 Markdown、圖檔或純文字，可關閉回到檔案清單 | `viewer/ViewerPane.vue` |
 | 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：標題列「目錄索引」＋h1～h6 清單，可拖曳／縮放／收合 | `viewer/MarkdownToc.vue` |
+| 搜尋（Find in Viewer） | 文字類檢視器右上角的浮動面板：搜尋框＋大小寫／全字／Regex 選項＋命中清單，可拖曳／縮放／收合 | `viewer/ViewerSearchPanel.vue` |
 | 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |
 | 設定頁（Settings） | 整頁浮層：蓋住路徑列與工作區、保留標題列 | `settings/SettingsView.vue` |
 

@@ -6,13 +6,14 @@ import type { ExternalTool } from "@/types/tools";
 import { FONT_SIZE_DEFAULT, clampFontSize, normalizeFontFamily } from "@/utils/font";
 import { DEFAULT_ALIAS_TEMPLATE } from "@/utils/folders";
 import {
-  clampTocMinWidth,
-  clampTocOpacity,
-  TOC_DEFAULT_WIDTH,
-  TOC_MIN_WIDTH_DEFAULT,
-  TOC_OPACITY_DEFAULT,
-  type TocPanelLayout,
-} from "@/utils/markdownToc";
+  clampPanelMinWidth,
+  clampPanelOpacity,
+  PANEL_DEFAULT_WIDTH,
+  PANEL_MIN_WIDTH_DEFAULT,
+  PANEL_OPACITY_DEFAULT,
+  SEARCH_PANEL_DEFAULT_WIDTH,
+  type PanelLayout,
+} from "@/utils/viewerPanel";
 
 export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
 
@@ -135,11 +136,18 @@ interface StoredSettings {
   /** 目錄索引面板是否收合成只剩標題列。 */
   markdownTocCollapsed: boolean;
   /** 目錄索引面板的位置與大小；`x`／`height` 為 null 時代表自動。 */
-  markdownTocPanel: TocPanelLayout;
-  /** 目錄索引面板的最小寬度（px）。 */
-  markdownTocMinWidth: number;
-  /** 目錄索引面板底色的不透明度（%）。 */
-  markdownTocOpacity: number;
+  markdownTocPanel: PanelLayout;
+  /** 搜尋面板的位置與大小；未移動過時 `x` 為 null（貼右上角、會避開目錄索引）。 */
+  viewerSearchPanel: PanelLayout;
+  /** 搜尋面板是否收合成只剩標題列。 */
+  viewerSearchCollapsed: boolean;
+  /** 檢視器浮動面板共用的最小寬度（px）。 */
+  viewerPanelMinWidth: number;
+  /** 檢視器浮動面板共用的底色不透明度（%）。 */
+  viewerPanelOpacity: number;
+  /** 舊版鍵名，僅用於讀取時搬移（改名後第一次存檔就不再寫入）。 */
+  markdownTocMinWidth?: number;
+  markdownTocOpacity?: number;
   /** 舊版欄位，僅用於讀取時搬移。 */
   lastSplitPath?: string;
 }
@@ -169,9 +177,11 @@ const DEFAULTS: StoredSettings = {
   lastSplit: { path: "", direction: "row" },
   markdownTocEnabled: true,
   markdownTocCollapsed: false,
-  markdownTocPanel: { x: null, y: 0, width: TOC_DEFAULT_WIDTH, height: null },
-  markdownTocMinWidth: TOC_MIN_WIDTH_DEFAULT,
-  markdownTocOpacity: TOC_OPACITY_DEFAULT,
+  markdownTocPanel: { x: null, y: 0, width: PANEL_DEFAULT_WIDTH, height: null },
+  viewerSearchPanel: { x: null, y: 0, width: SEARCH_PANEL_DEFAULT_WIDTH, height: null },
+  viewerSearchCollapsed: false,
+  viewerPanelMinWidth: PANEL_MIN_WIDTH_DEFAULT,
+  viewerPanelOpacity: PANEL_OPACITY_DEFAULT,
 };
 
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
@@ -206,9 +216,9 @@ function numberOr(value: unknown, fallback: number): number {
 }
 
 /** 面板位置可能是舊資料沒有的欄位，也可能被手改成壞值；一律補回合法形狀。 */
-function sanitizeTocPanel(value: unknown): TocPanelLayout {
-  const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<TocPanelLayout>;
-  const defaults = DEFAULTS.markdownTocPanel;
+function sanitizePanel(value: unknown, fallbackWidth: number): PanelLayout {
+  const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<PanelLayout>;
+  const defaults = { x: null, y: 0, width: fallbackWidth, height: null };
   return {
     x: typeof raw.x === "number" && Number.isFinite(raw.x) ? raw.x : null,
     y: numberOr(raw.y, defaults.y),
@@ -243,9 +253,19 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.markdownTocCollapsed === "boolean"
         ? raw.markdownTocCollapsed
         : DEFAULTS.markdownTocCollapsed,
-    markdownTocPanel: sanitizeTocPanel(raw.markdownTocPanel),
-    markdownTocMinWidth: clampTocMinWidth(numberOr(raw.markdownTocMinWidth, TOC_MIN_WIDTH_DEFAULT)),
-    markdownTocOpacity: clampTocOpacity(numberOr(raw.markdownTocOpacity, TOC_OPACITY_DEFAULT)),
+    markdownTocPanel: sanitizePanel(raw.markdownTocPanel, PANEL_DEFAULT_WIDTH),
+    viewerSearchPanel: sanitizePanel(raw.viewerSearchPanel, SEARCH_PANEL_DEFAULT_WIDTH),
+    viewerSearchCollapsed:
+      typeof raw.viewerSearchCollapsed === "boolean"
+        ? raw.viewerSearchCollapsed
+        : DEFAULTS.viewerSearchCollapsed,
+    // 面板共用值 2026-10-06 從 markdownToc* 改名，舊鍵要先搬過來才不會白掉設定。
+    viewerPanelMinWidth: clampPanelMinWidth(
+      numberOr(raw.viewerPanelMinWidth ?? raw.markdownTocMinWidth, PANEL_MIN_WIDTH_DEFAULT),
+    ),
+    viewerPanelOpacity: clampPanelOpacity(
+      numberOr(raw.viewerPanelOpacity ?? raw.markdownTocOpacity, PANEL_OPACITY_DEFAULT),
+    ),
   };
 }
 
@@ -282,9 +302,11 @@ export const useSettingsStore = defineStore("settings", () => {
   );
   const markdownTocEnabled = ref(stored.markdownTocEnabled);
   const markdownTocCollapsed = ref(stored.markdownTocCollapsed);
-  const markdownTocPanel = ref<TocPanelLayout>({ ...stored.markdownTocPanel });
-  const markdownTocMinWidth = ref(stored.markdownTocMinWidth);
-  const markdownTocOpacity = ref(stored.markdownTocOpacity);
+  const markdownTocPanel = ref<PanelLayout>({ ...stored.markdownTocPanel });
+  const viewerSearchPanel = ref<PanelLayout>({ ...stored.viewerSearchPanel });
+  const viewerSearchCollapsed = ref(stored.viewerSearchCollapsed);
+  const viewerPanelMinWidth = ref(stored.viewerPanelMinWidth);
+  const viewerPanelOpacity = ref(stored.viewerPanelOpacity);
 
   const prefersDark = ref(
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -333,7 +355,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, markdownTocCollapsed, markdownTocPanel, markdownTocMinWidth, markdownTocOpacity],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, markdownTocCollapsed, markdownTocPanel, viewerSearchPanel, viewerSearchCollapsed, viewerPanelMinWidth, viewerPanelOpacity],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -357,8 +379,10 @@ export const useSettingsStore = defineStore("settings", () => {
           markdownTocEnabled: markdownTocEnabled.value,
           markdownTocCollapsed: markdownTocCollapsed.value,
           markdownTocPanel: markdownTocPanel.value,
-          markdownTocMinWidth: markdownTocMinWidth.value,
-          markdownTocOpacity: markdownTocOpacity.value,
+          viewerSearchPanel: viewerSearchPanel.value,
+          viewerSearchCollapsed: viewerSearchCollapsed.value,
+          viewerPanelMinWidth: viewerPanelMinWidth.value,
+          viewerPanelOpacity: viewerPanelOpacity.value,
         } satisfies StoredSettings);
       }, 200);
     },
@@ -423,16 +447,24 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   /** 拖曳或縮放結束時才寫回，避免每個 pointermove 都動到設定。 */
-  function setMarkdownTocPanel(layout: TocPanelLayout) {
+  function setMarkdownTocPanel(layout: PanelLayout) {
     markdownTocPanel.value = { ...layout };
   }
 
-  function setMarkdownTocMinWidth(value: number) {
-    markdownTocMinWidth.value = clampTocMinWidth(value);
+  function setViewerSearchPanel(layout: PanelLayout) {
+    viewerSearchPanel.value = { ...layout };
   }
 
-  function setMarkdownTocOpacity(value: number) {
-    markdownTocOpacity.value = clampTocOpacity(value);
+  function toggleViewerSearchCollapsed() {
+    viewerSearchCollapsed.value = !viewerSearchCollapsed.value;
+  }
+
+  function setViewerPanelMinWidth(value: number) {
+    viewerPanelMinWidth.value = clampPanelMinWidth(value);
+  }
+
+  function setViewerPanelOpacity(value: number) {
+    viewerPanelOpacity.value = clampPanelOpacity(value);
   }
 
   /** 記住分割出來的那個窗格上次開在哪、用哪個方向。 */
@@ -509,13 +541,17 @@ export const useSettingsStore = defineStore("settings", () => {
     markdownTocEnabled,
     markdownTocCollapsed,
     markdownTocPanel,
-    markdownTocMinWidth,
-    markdownTocOpacity,
+    viewerSearchPanel,
+    viewerSearchCollapsed,
+    viewerPanelMinWidth,
+    viewerPanelOpacity,
     toggleMarkdownToc,
     toggleMarkdownTocCollapsed,
     setMarkdownTocPanel,
-    setMarkdownTocMinWidth,
-    setMarkdownTocOpacity,
+    setViewerSearchPanel,
+    toggleViewerSearchCollapsed,
+    setViewerPanelMinWidth,
+    setViewerPanelOpacity,
     rememberSplit,
     addTool,
     updateTool,
