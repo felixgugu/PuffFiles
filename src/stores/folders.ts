@@ -491,8 +491,11 @@ export const useFoldersStore = defineStore("folders", () => {
    *
    * 所在的虛擬目錄要先打開，否則整串會藏在收合的分組底下；根自己也要展開，
    * 不然「收合全部」之後再定位，中間層雖然被展開卻看不到。
+   *
+   * `expandTarget: false` 只展開目標「以上」的沿路節點（讓它看得見），目標本身保持原狀 ——
+   * 加入資料夾時用來把新項目露出來，但不順手把它打開。
    */
-  async function reveal(path: string) {
+  async function reveal(path: string, options: { expandTarget?: boolean } = {}) {
     const node = folderNodeFor(path);
     const rootPath = node?.path ?? "";
     if (!path || !rootPath || !normalizeKey(path).startsWith(normalizeKey(rootPath))) {
@@ -504,8 +507,11 @@ export const useFoldersStore = defineStore("folders", () => {
         setGroupExpanded(containerId, true);
       }
     }
-    setPathExpanded(rootPath, true);
-    await loadChildren(rootPath);
+    const isTarget = normalizeKey(path) === normalizeKey(rootPath);
+    if (!isTarget || options.expandTarget !== false) {
+      setPathExpanded(rootPath, true);
+      await loadChildren(rootPath);
+    }
 
     const parts = path.slice(rootPath.length).split("\\").filter(Boolean);
     let current = rootPath;

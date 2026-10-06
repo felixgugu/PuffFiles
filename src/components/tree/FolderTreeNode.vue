@@ -196,14 +196,12 @@ function activate() {
     return;
   }
   folders.select(props.node.id);
-  // 虛擬目錄沒有實體位置，點它＝展開／收合。
-  if (isGroup.value) {
-    void folders.toggle(props.node);
+  // 展開／收合一律由左邊的箭頭圖示控制，點名稱只選取，不會順手展開或收合。
+  // 虛擬目錄沒有實體路徑，選取後就結束；真實資料夾則導覽過去（樹不會因此展開）。
+  if (isGroup.value || !props.node.path) {
     return;
   }
-  if (props.node.path) {
-    void explorer.navigate(props.paneId, props.node.path);
-  }
+  void explorer.navigate(props.paneId, props.node.path);
 }
 
 function toggle() {

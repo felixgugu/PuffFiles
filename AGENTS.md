@@ -122,6 +122,11 @@ interface FolderNode {
   `Intl.Collator("zh-Hant", { numeric: true })`。沒有選取時退回焦點窗格路徑所屬的那一層。
 - **展開狀態分開存**：真實資料夾存路徑（`expanded`），虛擬目錄存節點 id（`expandedGroups`）。
   `reveal(path)` 會先展開所在的群組再展開沿路資料夾；`collapseAll()` 兩者都清。
+- **展開／收合只由節點左邊的箭頭圖示控制**：點節點名稱只選取（真實資料夾會一併導覽），
+  不會展開或收合；虛擬目錄沒有實體路徑，選取後就結束。
+- **窗格瀏覽不會自動展開樹**：切換窗格路徑只讓樹跟著高亮（`selectByPath`），不呼叫
+  `reveal()`。唯一的自動展開是樹工具列的「定位」；加入資料夾只會打開所在的虛擬目錄
+  （`reveal(path, { expandTarget: false })`），不會展開新資料夾本身。
 - **選取以節點 id 為準**（`activeId`，因為群組沒有路徑）；檔案系統的子資料夾不在清單上，
   用路徑當鍵，`selectedNode()` 對它們會回 `null`（呼叫端再用 `folderNodeFor(path)` 回推）。
 - **全樹去重**：同一個實體路徑只會出現一次（`addFolder` 會擋，大小寫不敏感）。

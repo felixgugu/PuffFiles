@@ -100,7 +100,12 @@ const widthDrag = useDragGesture({
   },
 });
 
-// 焦點窗格或它的路徑改變時，樹跟著展開並高亮到對應位置。
+/**
+ * 焦點窗格或它的路徑改變時，樹只跟著「高亮」，不會自動展開。
+ *
+ * 在窗格裡進進出出資料夾不該讓左側一直長開；唯一的自動展開是樹工具列的「定位」
+ * （`locate()` 另外呼叫 `folders.reveal()`）。展開／收合一律交給節點左邊的箭頭圖示。
+ */
 watch(
   () => [paneId.value, pane.value?.currentPath] as const,
   ([, path]) => {
@@ -108,7 +113,6 @@ watch(
       return;
     }
     folders.selectByPath(path);
-    void folders.reveal(path);
   },
   { immediate: true },
 );

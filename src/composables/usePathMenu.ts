@@ -181,6 +181,11 @@ export function usePathMenu() {
     return { id: "reveal", label, icon: "externalLink" };
   }
 
+  /** 選單開頭「開啟」那一組的第二項：把目標所在的資料夾開到新分頁。 */
+  function openTabItem(): MenuItem {
+    return { id: "open-tab", label: "在新分頁開啟", icon: "tabNew" };
+  }
+
   function append(items: MenuItem[], block: MenuItem[]) {
     block.forEach((item, index) => {
       items.push({ ...item, separatorBefore: index === 0 ? items.length > 0 : false });
@@ -190,6 +195,8 @@ export function usePathMenu() {
   /** 空白處：只提供跟「目前這個資料夾」有關的動作，加上新增（貼上屬於擴充選單）。 */
   function menuForBlank(target: MenuTarget, options: MenuOptions): MenuItem[] {
     const items: MenuItem[] = [];
+    // 「在新分頁開啟」是開啟這一組的第一項，所有選單一致放在最上方。
+    append(items, [openTabItem()]);
     append(items, newItems());
     if (options.clipboard) {
       append(items, editItems("blank", options));
@@ -207,7 +214,7 @@ export function usePathMenu() {
     const tab = tabs.activeTab;
     const items: MenuItem[] = [
       { id: "open", label: "開啟", icon: "folderOpen" },
-      { id: "open-tab", label: "在新分頁開啟", icon: "tabNew" },
+      openTabItem(),
       {
         id: "open-pane",
         label: neighbor && tab ? `在${paneSlotLabel(tab, neighbor)}窗格開啟` : "在新窗格開啟",
@@ -228,7 +235,11 @@ export function usePathMenu() {
 
   /** 單一檔案：沒有「新增」也沒有「貼上」，工具再依副檔名篩選。 */
   function menuForFile(target: MenuTarget, paneId: PaneId, options: MenuOptions): MenuItem[] {
-    const items: MenuItem[] = [{ id: "open", label: "開啟", icon: "folderOpen" }];
+    const items: MenuItem[] = [
+      { id: "open", label: "開啟", icon: "folderOpen" },
+      // 檔案沿用它的上層資料夾，效果與資料夾的「在新分頁開啟」一致。
+      openTabItem(),
+    ];
     // 支援的檔案（Markdown／圖檔／純文字）多一個「在窗格開啟」，說法與資料夾完全一致。
     if (viewerKindOfPath(target.path)) {
       const neighbor = neighborPaneId(paneId);
@@ -394,7 +405,9 @@ export function usePathMenu() {
         await explorer.openPath(target.path);
         return;
       case "open-tab":
-        tabs.newTab(target.path);
+        // 資料夾直接開自己；檔案沒有自己的「位置」可以開，改用它的上層資料夾，
+        // 效果與資料夾的「在新分頁開啟」一致（都是把所在資料夾開到新分頁）。
+        tabs.newTab(target.isDir ? target.path : (parentOf(target.path) ?? target.path));
         return;
       case "open-pane": {
         const neighbor = neighborPaneId(request.paneId);

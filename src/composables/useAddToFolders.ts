@@ -80,7 +80,8 @@ export function useAddToFolders() {
       settings.toggleTree();
     }
     folders.selectByPath(path);
-    await folders.reveal(path);
+    // 只把所在的虛擬目錄打開讓新項目露出來，不順手把新資料夾本身展開。
+    await folders.reveal(path, { expandTarget: false });
     ui.showNotice(`已將「${fileNameOf(path) || path}」加入我的資料夾`);
   }
 
