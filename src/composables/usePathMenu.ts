@@ -434,15 +434,16 @@ export function usePathMenu() {
         //
         // 焦點刻意**留在檔案清單**：這樣可以連續用方向鍵換檔案、按 Space 更新檢視器。
         // 分割建立新窗格時它會先成為焦點，所以這裡立刻把焦點交還給來源窗格。
+        // 來源窗格一併記進檢視器：圖片的前後切換要跟著這份清單的順序（見 §檢視器）。
         if (neighbor) {
-          await viewer.open(neighbor, target.path);
+          await viewer.open(neighbor, target.path, request.paneId);
           return;
         }
         const source = request.paneId;
         tabs.split(settings.lastSplit.direction, explorer.meta(source)?.currentPath ?? "");
         const created = tabs.activePaneId;
         tabs.setActivePane(source);
-        await viewer.open(created, target.path);
+        await viewer.open(created, target.path, source);
         return;
       }
       case "copy-name":

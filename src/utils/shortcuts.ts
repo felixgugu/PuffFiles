@@ -53,6 +53,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ["Space"],
         label: "把焦點列的檔案開到檢視器窗格；已經在另一邊顯示時改開下一個（焦點留在清單）",
       },
+      { keys: ["←", "→"], label: "上一張／下一張（圖片檢視器；順序跟著來源檔案清單）" },
       { keys: ["Ctrl+F"], label: "搜尋檢視器內容（文字類檢視器；再按一次關閉）" },
       {
         keys: ["Enter", "Shift+Enter"],

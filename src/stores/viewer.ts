@@ -234,8 +234,17 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
-  /** 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。 */
-  async function open(paneId: PaneId, path: string): Promise<void> {
+  /**
+   * 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。
+   *
+   * `sourcePaneId` 是「這份內容是從哪一個檔案清單開的」；圖片的前後切換要用它
+   * 才知道順序（見 `composables/useImageNavigation.ts`）。
+   */
+  async function open(
+    paneId: PaneId,
+    path: string,
+    sourcePaneId: PaneId | null = null,
+  ): Promise<void> {
     const kind = viewerKindOfPath(path);
     // 搜尋只在使用者勾選「保留搜尋字串」時帶到新文件；否則整份回到預設（面板關閉）。
     // 浮動面板的收合與位置尺寸一律不沿用 —— 每份文件都從預設值開始。
@@ -246,6 +255,7 @@ export const useViewerStore = defineStore("viewer", () => {
     views[paneId] = {
       path,
       name: fileNameOf(path) || path,
+      sourcePaneId,
       kind,
       // HTML 預設先給使用者看畫面；要讀原始碼再從標頭切換。
       mode: "preview",

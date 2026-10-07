@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef, watch } from "vue";
+import AppIcon from "@/components/common/AppIcon.vue";
+import { useImageNavigation } from "@/composables/useImageNavigation";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 
@@ -8,11 +10,20 @@ import type { PaneId } from "@/types/fs";
  *
  * 預設以 contain 置中（fit）；滾輪以游標為錨點縮放、拖曳平移、
  * 雙擊在「fit」與「實際大小 100%」之間切換。
+ *
+ * 左右兩側疊著半透明的「上一張／下一張」：順序與來源檔案清單一致，
+ * 換圖時清單的選取也跟著跑（見 `composables/useImageNavigation.ts`）。
  */
 const props = defineProps<{ paneId: PaneId }>();
 
 const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
+const imageNav = useImageNavigation();
+
+const canPrev = computed(() => imageNav.canStep(props.paneId, -1));
+const canNext = computed(() => imageNav.canStep(props.paneId, 1));
+/** 清單裡只有這一張圖（兩邊都切不動）時整組按鈕收起來，畫面留給圖片。 */
+const showNav = computed(() => canPrev.value || canNext.value);
 
 const stage = useTemplateRef<HTMLElement>("stage");
 const image = useTemplateRef<HTMLImageElement>("image");
@@ -83,6 +94,11 @@ function onPointerDown(event: PointerEvent) {
   if (event.button !== 0) {
     return;
   }
+  // 導覽按鈕是疊在圖片上的控制項，不是拖曳平移的起點；事件仍要冒泡到窗格，
+  // 點按鈕才會把焦點窗格換過來。
+  if (event.target instanceof Element && event.target.closest("[data-image-nav]")) {
+    return;
+  }
   pointerId = event.pointerId;
   dragging.value = true;
   origin = {
@@ -110,6 +126,10 @@ function endDrag(event: PointerEvent) {
   }
   pointerId = null;
   dragging.value = false;
+}
+
+function stepImage(delta: 1 | -1) {
+  imageNav.step(props.paneId, delta);
 }
 
 /** 雙擊：fit ↔ 實際大小 100%。 */
@@ -151,5 +171,64 @@ function clamp(value: number, min: number, max: number): number {
         @load="onImageLoad"
       />
     </div>
+
+    <!--
+      半透明圓形按鈕：只有一層極淡的薄霧，靠箭頭本身表達這裡可以按（見下方 scoped 樣式）。
+    -->
+    <button
+      v-if="showNav"
+      type="button"
+      data-image-nav
+      class="image-nav absolute top-1/2 left-3 flex size-9 items-center justify-center rounded-full pressable"
+      :disabled="!canPrev"
+      title="上一張 (←)"
+      aria-label="上一張"
+      @dblclick.stop
+      @click="stepImage(-1)"
+    >
+      <AppIcon name="chevronLeft" :size="20" />
+    </button>
+    <button
+      v-if="showNav"
+      type="button"
+      data-image-nav
+      class="image-nav absolute top-1/2 right-3 flex size-9 items-center justify-center rounded-full pressable"
+      :disabled="!canNext"
+      title="下一張 (→)"
+      aria-label="下一張"
+      @dblclick.stop
+      @click="stepImage(1)"
+    >
+      <AppIcon name="chevronRight" :size="20" />
+    </button>
   </div>
 </template>
+
+<style scoped>
+/*
+ * 極淡的圓底：只是提示「這裡有東西可以按」，不跟圖片搶注意力 —— 10% 薄霧、不加邊框、
+ * 不加陰影。可讀性由箭頭本身負責（`--color-ink` 是實色，不靠半透明撐對比），所以系統
+ * 要求減少透明度時不需要像浮動面板那樣改成不透明；停用的那一側連薄霧都拿掉，只留更淡
+ * 的箭頭。
+ */
+.image-nav {
+  background: color-mix(in oklab, var(--color-menu) 10%, transparent);
+  color: var(--color-ink);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.image-nav:hover:enabled {
+  background: color-mix(in oklab, var(--color-menu) 55%, transparent);
+}
+
+.image-nav:active:enabled {
+  background: var(--color-pressed);
+}
+
+.image-nav:disabled {
+  background: transparent;
+  color: var(--color-ink-fainter);
+  cursor: default;
+}
+</style>

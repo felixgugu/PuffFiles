@@ -6,6 +6,7 @@ import { useTabsStore } from "@/stores/tabs";
 import { useToolEditorStore } from "@/stores/toolEditor";
 import { useUiStore } from "@/stores/ui";
 import { useViewerStore } from "@/stores/viewer";
+import { useImageNavigation } from "@/composables/useImageNavigation";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
 import type { PaneId } from "@/types/fs";
@@ -27,6 +28,7 @@ export function useKeyboardShortcuts() {
   const clipboard = useClipboardStore();
   const pathMenu = usePathMenu();
   const viewer = useViewerStore();
+  const imageNav = useImageNavigation();
 
   function isTypingTarget(target: EventTarget | null): boolean {
     return (
@@ -115,6 +117,14 @@ export function useKeyboardShortcuts() {
           viewer.closeSearch(paneId);
         } else {
           viewer.close(paneId);
+        }
+        return;
+      } else if ((key === "ArrowLeft" || key === "ArrowRight") && !altKey) {
+        // 圖片檢視器：←／→＝上一張／下一張（順序見 `useImageNavigation`）。
+        // 其他種類維持原本「方向鍵在檢視器裡不做清單操作」的行為。
+        if (viewer.of(paneId)?.kind === "image") {
+          event.preventDefault();
+          imageNav.step(paneId, key === "ArrowLeft" ? -1 : 1);
         }
         return;
       } else if (key !== "F6" && key !== "Escape") {

@@ -1,7 +1,7 @@
 import type { FileEntry } from "@/types/fs";
 import type { ViewerKind } from "@/types/viewer";
 import { fileKindOf } from "@/utils/fileKind";
-import { fileNameOf } from "@/utils/path";
+import { fileNameOf, samePath } from "@/utils/path";
 
 /**
  * 可以交給圖片檢視器的副檔名。
@@ -65,4 +65,25 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
  */
 export function supportsViewerSearch(kind: ViewerKind | null): boolean {
   return kind === "markdown" || kind === "html" || kind === "text";
+}
+
+/**
+ * 清單裡目前這張圖片的相鄰圖檔（純函數）。
+ *
+ * 只認檢視器畫得出來的圖檔（`VIEWER_IMAGE_EXTENSIONS`），順序沿用傳進來的清單 ——
+ * 也就是來源窗格的可見順序（排序、搜尋關鍵字與隱藏項目都已經反映在裡面）。
+ * `delta` 是 `-1`（上一張）或 `1`（下一張）；目前路徑不在清單裡、或已經在頭尾時回 `null`
+ * （不循環），呼叫端據此把按鈕停用或整組隱藏。
+ */
+export function imageNeighbor(
+  entries: FileEntry[],
+  currentPath: string,
+  delta: 1 | -1,
+): FileEntry | null {
+  const images = entries.filter((entry) => viewerKindOf(entry) === "image");
+  const index = images.findIndex((entry) => samePath(entry.path, currentPath));
+  if (index < 0) {
+    return null;
+  }
+  return images[index + delta] ?? null;
 }

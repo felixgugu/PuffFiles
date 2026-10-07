@@ -45,6 +45,7 @@ PuffFiles/
 │  ├─ composables/
 │  │  ├─ useKeyboardShortcuts.ts # 全域快速鍵（分頁、分割、剪貼簿、檔案操作）
 │  │  ├─ usePathMenu.ts        # 右鍵選單的內容與動作（依選取情境分流、外部工具篩選）
+│  │  ├─ useImageNavigation.ts # 圖片檢視器的上一張／下一張（依來源檔案清單的順序）
 │  │  ├─ useDragGesture.ts     # 通用拖曳手勢（含速度取樣，交給彈簧接手）
 │  │  ├─ useSpringValue.ts     # 以自製彈簧驅動的數值
 │  │  └─ useRefreshView.ts     # 重新整理（清單＋資料夾樹）
@@ -176,6 +177,16 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `text`／`code` 的純文字檔。**沒有檢視器的類型**（`.pdf`／`.mp4`／`.exe`…）不會讀取內容，
   但仍會佔用窗格並顯示「這個檔案類型還沒有檢視器」——`ViewerState.kind` 為 `null`，
   `open()` 不呼叫 `load()`、標頭的重整鈕不出現；它仍是「目前顯示的目標」，供 `Space` 判斷前進。
+- **圖片導覽**：圖片檢視器左右兩側各一顆半透明圓形按鈕（`ImageView.vue`；只有 10% 的
+  極淡圓底提示、無邊框無陰影，游標移上去才轉深。對比由實色的箭頭負責，所以不隨
+  `prefers-reduced-transparency` 改成不透明）。順序＝**開啟這張圖片的來源
+  檔案清單**當下的可見順序（`ViewerState.sourcePaneId`，含排序與搜尋篩選、只取
+  `viewerKindOf` 為 `image` 的項目），所以與 `Space` 預覽看到的一致；來源窗格被關掉或
+  已經導覽到別的資料夾時整組按鈕消失。切換時來源清單的選取與焦點一起移動（沿用清單自己的
+  watcher 捲進可視範圍），關閉檢視器就停在剛看的那張。兩端停用、不循環；清單裡只有這一張
+  圖時按鈕不出現。實作集中在 `composables/useImageNavigation.ts`（換圖＝
+  `explorer.select` ＋ `viewer.open`），純函數 `utils/viewer.ts` 的 `imageNeighbor()` 只負責
+  在清單裡找前後一張。
 - **語法高亮**：`utils/codeHighlight.ts` 用 highlight.js（`lib/common` ＋精選語言，**不匯入
   全量 193 種**）替 `fileKind.ts` 的「程式碼」類上色，Markdown 的圍籬區塊與 HTML 的原始碼
   模式共用同一條；顏色是 `main.css` 的 `--color-syntax-*` 權杖（淺／深色各一組）。
@@ -235,7 +246,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   重新整理（F5／自動重載）後的重新掛載也沿用同一個位置。圖片檢視器不記。
 - **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
   只保留 Esc（關閉，搜尋面板開著時先關面板）、F5（重新載入）、Ctrl+F（搜尋面板開關）、
-  F6 與分頁／版面層級的操作。
+  F6 與分頁／版面層級的操作；圖片檢視器另外把 ←／→ 當成上一張／下一張（`Alt` 按住時
+  不生效，維持原本什麼都不做）。
   在檔案清單按 `Space`＝把焦點列的項目顯示到另一窗格（走右鍵 `open-pane` 同一條路徑，
   但帶 `keepFocus`）：資料夾在新窗格開成一般清單、檔案開檢視器（沒有檢視器的類型顯示
   「這個檔案類型還沒有檢視器」的提示，仍佔用該窗格），**焦點一律留在原清單**，才能連續

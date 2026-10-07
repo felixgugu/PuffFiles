@@ -1,4 +1,5 @@
 import type { AppErrorView } from "@/services/errors";
+import type { PaneId } from "@/types/fs";
 import type { PanelLayout } from "@/utils/viewerPanel";
 
 /** 檢視器支援的內容種類。 */
@@ -61,6 +62,14 @@ export interface ViewerPanelState {
 export interface ViewerState {
   path: string;
   name: string;
+  /**
+   * 開啟這份內容的來源窗格（檔案清單所在的那一個）。
+   *
+   * 圖片檢視器的「上一張／下一張」跟著這份清單的順序跑；沒有來源（例如日後新增的
+   * 其他入口）就是 `null`，按鈕整組不出現。檢視器所在的窗格本身沒有這份清單 ——
+   * 它多半正在瀏覽別的資料夾。
+   */
+  sourcePaneId: PaneId | null;
   /** 內容種類；`null` 代表這個檔案沒有檢視器，窗格只顯示提示。 */
   kind: ViewerKind | null;
   /** 只有 HTML 會用到；開啟時一律從 `preview` 開始。 */

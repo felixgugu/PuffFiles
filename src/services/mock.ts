@@ -60,6 +60,9 @@ const FILE_NAMES = [
   "財報.xlsx",
   "demo.mp4",
   "photo.png",
+  // 兩張額外的圖，讓瀏覽器開發模式就能驗證圖片檢視器的上一張／下一張。
+  "screenshot.png",
+  "banner.svg",
   "notes.txt",
   "index.html",
   "archive.zip",
