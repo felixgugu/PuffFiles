@@ -552,8 +552,10 @@ interface PaneState {
 渲染在內容進 DOM 之後由 `composables/useMarkdownMermaid.ts` 後處理，`utils/markdown.ts`
 維持零依賴純函式（自訂 fence 已輸出 `class="language-mermaid"`，不需要 markdown-it plugin）。
 
-- **設定**：`securityLevel:"strict"`、`htmlLabels:false`、`suppressErrorRendering:true`、
-  `theme` 跟隨 `.dark`（`settings.isDark`）、`startOnLoad:false`。
+- **設定**：`securityLevel:"strict"`、`htmlLabels:false`（避免 foreignObject 導致 canvas tainted 無法匯出 PNG）、
+  `suppressErrorRendering:true`、`theme` 跟隨 `.dark`（`settings.isDark`）、`startOnLoad:false`；
+  針對 flowchart 設定 `wrappingWidth: 1000`（避免預設 200px 造成節點硬折行與排版擠壓）、
+  `diagramPadding: 24`（避免 8px 預設邊距被 stroke/marker/陰影切齊裁切）與介面字型 `fontFamily`。
 - **每個區塊的標題列**：圖表／原始碼切換、複製原始碼、另存 PNG。切換狀態以「區塊序號＋
   原始碼雜湊」為鍵，**不持久化**；同一份文件重新整理保留、換檔清空。事件用內容根節點的
   click 事件委派（與連結同一條）。

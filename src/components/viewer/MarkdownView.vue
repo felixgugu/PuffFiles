@@ -461,19 +461,16 @@ function decodeFragment(value: string): string {
 .markdown :deep(.md-mermaid-view) {
   overflow: auto;
   padding: 0.9rem;
-  text-align: center;
 }
 
 /*
  * 圖表一律以 mermaid 算出的自然尺寸呈現（`useMarkdownMermaid` 把 SVG 的 `width`／
  * `height` 寫成 viewBox 的內在尺寸、並移除 inline `max-width`）：**不隨窗格縮放**，
- * 比容器大就交由上面的 `overflow: auto` 產生捲軸。
- * `margin: 0 auto` 讓比容器窄的圖置中；圖比容器寬時左右外距會退成 0，內容仍從左緣
- * 開始，左邊不會被裁掉、也捲不到。
+ * 靠左對齊與內文排版維持一致，比容器寬時交由上面的 `overflow: auto` 產生水平捲軸。
  */
 .markdown :deep(.md-mermaid-view svg) {
   display: block;
-  margin: 0 auto;
+  margin: 0;
 }
 
 .markdown :deep(.md-mermaid-message) {

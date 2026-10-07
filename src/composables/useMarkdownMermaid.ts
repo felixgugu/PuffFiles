@@ -283,6 +283,18 @@ export function useMarkdownMermaid(options: {
             htmlLabels: false,
             suppressErrorRendering: true,
             theme: settings.isDark ? "dark" : "default",
+            fontFamily: 'var(--font-sans, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)',
+            flowchart: {
+              htmlLabels: false,
+              wrappingWidth: 1000,
+              diagramPadding: 24,
+              nodeSpacing: 50,
+              rankSpacing: 50,
+            },
+            sequence: {
+              diagramMarginX: 24,
+              diagramMarginY: 24,
+            },
           });
         } catch {
           if (myPass !== pass) {
