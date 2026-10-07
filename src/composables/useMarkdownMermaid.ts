@@ -74,8 +74,12 @@ function applyNaturalSize(svg: SVGSVGElement) {
   if (!box || box.width <= 0 || box.height <= 0) {
     return;
   }
-  svg.setAttribute("width", String(Math.round(box.width)));
-  svg.setAttribute("height", String(Math.round(box.height)));
+
+  const w = String(Math.round(box.width));
+  const h = String(Math.round(box.height));
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", h);
   // inline `max-width` 會蓋掉 CSS 的尺寸規則，一定要移除。
   svg.style.removeProperty("max-width");
   svg.style.removeProperty("width");
@@ -284,12 +288,13 @@ export function useMarkdownMermaid(options: {
             suppressErrorRendering: true,
             theme: settings.isDark ? "dark" : "default",
             fontFamily: 'var(--font-sans, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)',
+            fontSize: 12,
             flowchart: {
               htmlLabels: false,
-              wrappingWidth: 1000,
+              wrappingWidth: 200,
               diagramPadding: 24,
-              nodeSpacing: 50,
-              rankSpacing: 50,
+              nodeSpacing: 24,
+              rankSpacing: 24,
             },
             sequence: {
               diagramMarginX: 24,
