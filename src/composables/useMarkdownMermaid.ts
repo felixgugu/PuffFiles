@@ -287,11 +287,12 @@ export function useMarkdownMermaid(options: {
             htmlLabels: false,
             suppressErrorRendering: true,
             theme: settings.isDark ? "dark" : "default",
+            look: 'classic',
             fontFamily: 'var(--font-sans, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)',
             fontSize: 12,
             flowchart: {
               htmlLabels: false,
-              wrappingWidth: 200,
+              wrappingWidth: 250,
               diagramPadding: 24,
               nodeSpacing: 24,
               rankSpacing: 24,
