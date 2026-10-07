@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { ColumnId, FileEntry } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
@@ -27,6 +27,18 @@ const emit = defineEmits<{
 
 const draft = ref("");
 const input = ref<HTMLInputElement | null>(null);
+
+/**
+ * 輸入框的 template ref。
+ *
+ * 輸入框在欄位迴圈（`v-for`）裡面，而字串 ref 只要落在 `v-for` 的範圍內，Vue 就會
+ * 把它收成陣列（`input.value` 變成 `[<input>]`），`focus()` 就再也不是函式 ——
+ * F2 之後游標根本沒進輸入框。函式 ref 拿到的才是元素本身。
+ */
+function setInput(element: Element | ComponentPublicInstance | null) {
+  input.value = element instanceof HTMLInputElement ? element : null;
+}
+
 /**
  * 這一輪編輯是否已經結束。
  *
@@ -123,7 +135,7 @@ onBeforeUnmount(() => {
         <AppIcon :name="iconFor(entry)" :size="15" class="file-icon" :class="colorFor(entry)" />
         <input
           v-if="editing"
-          ref="input"
+          :ref="setInput"
           v-model="draft"
           type="text"
           spellcheck="false"
