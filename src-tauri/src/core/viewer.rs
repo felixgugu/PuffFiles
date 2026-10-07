@@ -227,6 +227,39 @@ pub fn encode_base64(bytes: &[u8]) -> String {
     out
 }
 
+/// 把標準 base64（含 `=` 補齊、允許空白換行）解回位元組。自帶實作，少一個相依套件。
+///
+/// 只用在「另存圖片」這種由前端自己產生的資料，所以容錯刻意從寬（忽略 `=` 與空白）。
+pub fn decode_base64(text: &str) -> Result<Vec<u8>, &'static str> {
+    fn sextet(byte: u8) -> Option<u32> {
+        match byte {
+            b'A'..=b'Z' => Some((byte - b'A') as u32),
+            b'a'..=b'z' => Some((byte - b'a') as u32 + 26),
+            b'0'..=b'9' => Some((byte - b'0') as u32 + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for byte in text.bytes() {
+        if byte == b'=' || byte.is_ascii_whitespace() {
+            continue;
+        }
+        let digit = sextet(byte).ok_or("base64 內容含有無效字元")?;
+        buffer = (buffer << 6) | digit;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    Ok(out)
+}
+
 fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -321,6 +354,16 @@ mod tests {
         let joined = base64_chunks(&bytes).concat();
         assert_eq!(joined, encode_base64(&bytes));
         assert!(joined.ends_with('='));
+    }
+
+    #[test]
+    fn base64_round_trips_all_byte_values() {
+        let bytes: Vec<u8> = (0..=255u8).collect();
+        let decoded = decode_base64(&encode_base64(&bytes)).expect("decode");
+        assert_eq!(decoded, bytes);
+        // 前端的 base64 可能夾帶換行；空白一律忽略。
+        assert_eq!(decode_base64("AAEC\nAw==").expect("decode"), vec![0, 1, 2, 3]);
+        assert!(decode_base64("!!!!").is_err());
     }
 
     #[test]

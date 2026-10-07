@@ -8,11 +8,8 @@ import { DEFAULT_ALIAS_TEMPLATE } from "@/utils/folders";
 import {
   clampPanelMinWidth,
   clampPanelOpacity,
-  PANEL_DEFAULT_WIDTH,
   PANEL_MIN_WIDTH_DEFAULT,
   PANEL_OPACITY_DEFAULT,
-  SEARCH_PANEL_DEFAULT_WIDTH,
-  type PanelLayout,
 } from "@/utils/viewerPanel";
 
 export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
@@ -133,14 +130,10 @@ interface StoredSettings {
   lastSplit: { path: string; direction: SplitDirection };
   /** Markdown 檢視器的目錄索引開關（預設開啟）。 */
   markdownTocEnabled: boolean;
-  /** 目錄索引面板是否收合成只剩標題列。 */
-  markdownTocCollapsed: boolean;
-  /** 目錄索引面板的位置與大小；`x`／`height` 為 null 時代表自動。 */
-  markdownTocPanel: PanelLayout;
-  /** 搜尋面板的位置與大小；未移動過時 `x` 為 null（貼右上角、會避開目錄索引）。 */
-  viewerSearchPanel: PanelLayout;
-  /** 搜尋面板是否收合成只剩標題列。 */
-  viewerSearchCollapsed: boolean;
+  /** Markdown 檢視器的 Mermaid 圖表自動渲染（預設開啟）。 */
+  mermaidEnabled: boolean;
+  /** 檢視器搜尋是否把搜尋字串帶到新文件（預設不帶；面板上的「保留搜尋字串」）。 */
+  viewerSearchKeepQuery: boolean;
   /** 檢視器浮動面板共用的最小寬度（px）。 */
   viewerPanelMinWidth: number;
   /** 檢視器浮動面板共用的底色不透明度（%）。 */
@@ -176,10 +169,8 @@ const DEFAULTS: StoredSettings = {
   treeCollapsed: false,
   lastSplit: { path: "", direction: "row" },
   markdownTocEnabled: true,
-  markdownTocCollapsed: false,
-  markdownTocPanel: { x: null, y: 0, width: PANEL_DEFAULT_WIDTH, height: null },
-  viewerSearchPanel: { x: null, y: 0, width: SEARCH_PANEL_DEFAULT_WIDTH, height: null },
-  viewerSearchCollapsed: false,
+  mermaidEnabled: true,
+  viewerSearchKeepQuery: false,
   viewerPanelMinWidth: PANEL_MIN_WIDTH_DEFAULT,
   viewerPanelOpacity: PANEL_OPACITY_DEFAULT,
 };
@@ -215,18 +206,6 @@ function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-/** 面板位置可能是舊資料沒有的欄位，也可能被手改成壞值；一律補回合法形狀。 */
-function sanitizePanel(value: unknown, fallbackWidth: number): PanelLayout {
-  const raw = (typeof value === "object" && value !== null ? value : {}) as Partial<PanelLayout>;
-  const defaults = { x: null, y: 0, width: fallbackWidth, height: null };
-  return {
-    x: typeof raw.x === "number" && Number.isFinite(raw.x) ? raw.x : null,
-    y: numberOr(raw.y, defaults.y),
-    width: numberOr(raw.width, defaults.width),
-    height: typeof raw.height === "number" && Number.isFinite(raw.height) ? raw.height : null,
-  };
-}
-
 function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings {
   const columns = Array.isArray(raw.columns)
     ? raw.columns.filter((id): id is ColumnId => COLUMN_IDS.has(id))
@@ -249,16 +228,12 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.markdownTocEnabled === "boolean"
         ? raw.markdownTocEnabled
         : DEFAULTS.markdownTocEnabled,
-    markdownTocCollapsed:
-      typeof raw.markdownTocCollapsed === "boolean"
-        ? raw.markdownTocCollapsed
-        : DEFAULTS.markdownTocCollapsed,
-    markdownTocPanel: sanitizePanel(raw.markdownTocPanel, PANEL_DEFAULT_WIDTH),
-    viewerSearchPanel: sanitizePanel(raw.viewerSearchPanel, SEARCH_PANEL_DEFAULT_WIDTH),
-    viewerSearchCollapsed:
-      typeof raw.viewerSearchCollapsed === "boolean"
-        ? raw.viewerSearchCollapsed
-        : DEFAULTS.viewerSearchCollapsed,
+    mermaidEnabled:
+      typeof raw.mermaidEnabled === "boolean" ? raw.mermaidEnabled : DEFAULTS.mermaidEnabled,
+    viewerSearchKeepQuery:
+      typeof raw.viewerSearchKeepQuery === "boolean"
+        ? raw.viewerSearchKeepQuery
+        : DEFAULTS.viewerSearchKeepQuery,
     // 面板共用值 2026-10-06 從 markdownToc* 改名，舊鍵要先搬過來才不會白掉設定。
     viewerPanelMinWidth: clampPanelMinWidth(
       numberOr(raw.viewerPanelMinWidth ?? raw.markdownTocMinWidth, PANEL_MIN_WIDTH_DEFAULT),
@@ -301,10 +276,8 @@ export const useSettingsStore = defineStore("settings", () => {
     stored.lastSplit ?? { path: stored.lastSplitPath ?? "", direction: "row" },
   );
   const markdownTocEnabled = ref(stored.markdownTocEnabled);
-  const markdownTocCollapsed = ref(stored.markdownTocCollapsed);
-  const markdownTocPanel = ref<PanelLayout>({ ...stored.markdownTocPanel });
-  const viewerSearchPanel = ref<PanelLayout>({ ...stored.viewerSearchPanel });
-  const viewerSearchCollapsed = ref(stored.viewerSearchCollapsed);
+  const mermaidEnabled = ref(stored.mermaidEnabled);
+  const viewerSearchKeepQuery = ref(stored.viewerSearchKeepQuery);
   const viewerPanelMinWidth = ref(stored.viewerPanelMinWidth);
   const viewerPanelOpacity = ref(stored.viewerPanelOpacity);
 
@@ -355,7 +328,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, markdownTocCollapsed, markdownTocPanel, viewerSearchPanel, viewerSearchCollapsed, viewerPanelMinWidth, viewerPanelOpacity],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -377,10 +350,8 @@ export const useSettingsStore = defineStore("settings", () => {
           treeCollapsed: treeCollapsed.value,
           lastSplit: lastSplit.value,
           markdownTocEnabled: markdownTocEnabled.value,
-          markdownTocCollapsed: markdownTocCollapsed.value,
-          markdownTocPanel: markdownTocPanel.value,
-          viewerSearchPanel: viewerSearchPanel.value,
-          viewerSearchCollapsed: viewerSearchCollapsed.value,
+          mermaidEnabled: mermaidEnabled.value,
+          viewerSearchKeepQuery: viewerSearchKeepQuery.value,
           viewerPanelMinWidth: viewerPanelMinWidth.value,
           viewerPanelOpacity: viewerPanelOpacity.value,
         } satisfies StoredSettings);
@@ -442,21 +413,8 @@ export const useSettingsStore = defineStore("settings", () => {
     markdownTocEnabled.value = !markdownTocEnabled.value;
   }
 
-  function toggleMarkdownTocCollapsed() {
-    markdownTocCollapsed.value = !markdownTocCollapsed.value;
-  }
-
-  /** 拖曳或縮放結束時才寫回，避免每個 pointermove 都動到設定。 */
-  function setMarkdownTocPanel(layout: PanelLayout) {
-    markdownTocPanel.value = { ...layout };
-  }
-
-  function setViewerSearchPanel(layout: PanelLayout) {
-    viewerSearchPanel.value = { ...layout };
-  }
-
-  function toggleViewerSearchCollapsed() {
-    viewerSearchCollapsed.value = !viewerSearchCollapsed.value;
+  function setViewerSearchKeepQuery(value: boolean) {
+    viewerSearchKeepQuery.value = value;
   }
 
   function setViewerPanelMinWidth(value: number) {
@@ -539,17 +497,12 @@ export const useSettingsStore = defineStore("settings", () => {
     setTreeWidth,
     toggleTree,
     markdownTocEnabled,
-    markdownTocCollapsed,
-    markdownTocPanel,
-    viewerSearchPanel,
-    viewerSearchCollapsed,
+    mermaidEnabled,
+    viewerSearchKeepQuery,
     viewerPanelMinWidth,
     viewerPanelOpacity,
     toggleMarkdownToc,
-    toggleMarkdownTocCollapsed,
-    setMarkdownTocPanel,
-    setViewerSearchPanel,
-    toggleViewerSearchCollapsed,
+    setViewerSearchKeepQuery,
     setViewerPanelMinWidth,
     setViewerPanelOpacity,
     rememberSplit,

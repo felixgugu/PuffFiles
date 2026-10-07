@@ -130,7 +130,7 @@ AppShell
 | 字型 | 字型家族（自由輸入，留空＝系統預設）、字級（11–18px，只縮放文字不縮放版面） |
 | 動態 | 動態效果（完整／跟隨系統／減少） |
 | 瀏覽 | 顯示隱藏項目、預設排序、預設欄位、單／雙擊開啟 |
-| 檢視器 | 浮動面板（Markdown 目錄索引／文字類檢視器搜尋）共用的最小寬度（160–400px，預設 200）與底色不透明度（30–100%，預設 50） |
+| 檢視器 | 浮動面板（Markdown 目錄索引／文字類檢視器搜尋）共用的最小寬度（160–400px，預設 200）與底色不透明度（30–100%，預設 50）；是否自動渲染 Mermaid 圖表（預設開） |
 | 我的資料夾 | 管理清單、匯入／匯出 |
 | 顯示名稱 | 別名格式字串（變數 `$aliasName`、`$RealFolderName`，預設 `$aliasName-$RealFolderName`；留空＝預設格式） |
 | 外部工具 | **清單 → 獨立編輯頁**：清單可依名稱／執行檔篩選；編輯頁的欄位有執行檔、引數（一行一個）、工作目錄、顯示於檔案／資料夾、副檔名篩選（選填）、是否開新主控台、圖示 |
@@ -285,26 +285,30 @@ Markdown／圖檔／純文字可以在**另一個窗格**直接看內容 —— 
   裝不了，介面刻意保持可替換）。涵蓋標題、清單、表格、引用、程式碼區塊、刪除線、
   自動連結、連結與圖片，**不執行原始 HTML**；相對路徑的圖片走 IPC 讀取後以 blob URL 內嵌，
   相對連結關閉檢視器、在該窗格導覽到目標資料夾並選取。
-- **目錄索引（2026-10-06）**：Markdown 檢視器標頭新增目錄鈕（預設開啟），切換右上角
-  浮動面板。渲染器替 h1～h6 產生唯一 id（重複標題加 `-1`、`-2`）並回傳 `headings`，
-  目錄依層級縮排、捲動同步高亮目前章節；點項目或文件內 `[文字](#標題)` 都捲到該行
-  （`reduce-motion` 時改為立即跳轉）。面板可拖曳、可調整寬高、可收合成只剩標題列，
-  底色預設 50% 半透明（`prefers-reduced-transparency` 時改不透明）、最小寬預設 200px、
-  預設自適應高度上限為檢視器一半，所有位置與尺寸都即時夾在邊界內；最小寬度與不透明度
-  在設定頁「瀏覽 → 檢視器」調整，`settings` 記住開關、收合、`markdownTocPanel`、
-  `viewerPanelMinWidth` 與 `viewerPanelOpacity`（搜尋面板共用後兩者），兩個窗格共用同一組預設值但拖曳時
-  各自運作。沒有標題或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，標頭開關維持
+- **目錄索引（2026-10-06；面板狀態 2026-10-07 改為不記憶）**：Markdown 檢視器標頭新增目錄鈕
+  （預設開啟），切換右上角浮動面板。渲染器替 h1～h6 產生唯一 id（重複標題加 `-1`、`-2`）
+  並回傳 `headings`，目錄依層級縮排、捲動同步高亮目前章節；點項目或文件內 `[文字](#標題)`
+  都捲到該行（`reduce-motion` 時改為立即跳轉）。面板可拖曳、可調整寬高、可收合成只剩
+  標題列，底色預設 50% 半透明（`prefers-reduced-transparency` 時改不透明）、最小寬預設
+  200px、預設自適應高度上限為檢視器一半，所有位置與尺寸都即時夾在邊界內；最小寬度與
+  不透明度在設定頁「瀏覽 → 檢視器」調整（`settings.viewerPanelMinWidth`／
+  `viewerPanelOpacity`），只有開關（`settings.markdownTocEnabled`）是持久化的使用者偏好。
+  **收合、位置與尺寸改住在 `ViewerState.tocPanel`（每個檢視器一份、不持久化），開啟新文件
+  一律回到預設**。沒有標題或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，標頭開關維持
   可見但反灰停用。
-- **搜尋（2026-10-06）**：文字類檢視器（Markdown／HTML／純文字與程式碼）標頭新增搜尋鈕，
-  預設關閉、`Ctrl+F` 開關，面板與目錄索引共用同一套外殼（標題列、拖曳、左下角縮放、
-  半透明材質）與最小寬度／不透明度設定，但位置、尺寸與收合各自記憶。搜尋對象是畫面上
+- **搜尋（2026-10-06；面板狀態 2026-10-07 改為不記憶）**：文字類檢視器（Markdown／HTML／
+  純文字與程式碼）標頭新增搜尋鈕，預設關閉、`Ctrl+F` 開關，面板與目錄索引共用同一套外殼
+  （標題列、拖曳、左下角縮放、半透明材質）與最小寬度／不透明度設定。搜尋對象是畫面上
   看得到的文字 —— 走訪可見文字節點（跳過 script／style／head）並在區塊之間補換行，
   所以 Markdown／HTML 預覽的「行」就是那一個段落／標題／清單項，純文字與程式碼則是
   真正的原始行（命中列顯示行號）。大小寫、完整字詞、Regex 三個選項預設全關、輸入即時
   搜尋（去抖 150ms）；命中清單顯示「目前索引／總數」，`Enter`／`Shift+Enter` 上下一個、
   點列直接跳，內文以 `<mark>` 標示全部命中、目前命中用 accent 實底並捲到畫面中央
   （iframe 內另外注入一份同色樣式）。搜尋字串住在 `stores/viewer.ts` 的 `ViewerState.search`
-  （每個窗格一份，換檔沿用、關閉檢視器重置）；內容超過 4 MB 停用、命中超過 2000 筆截斷。
+  （每個窗格一份）；**預設不跨文件沿用**，只有面板上的「保留搜尋字串」
+  （`settings.viewerSearchKeepQuery`，持久化、預設不勾）勾選時才與現行相同（換檔沿用、
+  面板維持開啟）。**面板的收合、位置與尺寸不持久化**：住在 `ViewerState.searchPanel`，
+  開啟新文件回到預設。內容超過 4 MB 停用、命中超過 2000 筆截斷。
 - **圖片**：fit 置中、滾輪以游標為錨點縮放、拖曳平移、雙擊切換 fit／實際大小。
 - **純文字**：等寬、自動換行、標示偵測到的編碼（UTF-8／UTF-16 BOM 或 NUL 特徵／Big5／GBK）；
   `fileKind.ts` 的「程式碼」類另外做語法高亮（見 §11）。
@@ -541,21 +545,29 @@ interface PaneState {
 3. **樹與清單的自動更新連動**：外部新增資料夾時，清單會更新，但樹要等收合再展開
    才看到。連動需要把監控事件同時餵給 `stores/folders.ts` 的子項快取。
 
-### Mermaid 圖表（2026-10-04 決議：先不做，交給程式碼編輯器）
+### Mermaid 圖表（2026-10-07 決議：做；2026-10-04 曾評估先不做）
 
-Markdown 檢視器目前把 ` ```mermaid ` 區塊當一般程式碼區塊顯示原始碼。內嵌渲染已經評估過，
-結論是**先不做**——要看圖就交給 VS Code 之類的程式碼工具：
+` ```mermaid ` 區塊**預設自動渲染成內嵌 SVG**，每個區塊可各自切回原始碼。用官方
+`mermaid` 12 並 **lazy `import("mermaid")`**：沒有 mermaid 區塊的文件完全不載入引擎。
+渲染在內容進 DOM 之後由 `composables/useMarkdownMermaid.ts` 後處理，`utils/markdown.ts`
+維持零依賴純函式（自訂 fence 已輸出 `class="language-mermaid"`，不需要 markdown-it plugin）。
 
-- mermaid 12 用 Vite 8 打包（含一個 flowchart 範例）：**114 個 chunk、raw 4.86 MB、
-  gzip 1.40 MB**；主 entry 幾乎不變（38 KB），成本全在 lazy chunk。
-- Tauri 2 預設以 brotli 內嵌前端資產（`compression` 預設開啟，見 `tauri-utils/assets.rs`），
-  換算單檔 exe 約 **+1.2～1.4 MB**（4.97 MB → 約 6.3 MB）。
-- **不需要 markdown-it plugin**：自訂 fence 規則已經輸出 `class="language-mermaid"`，
-  plugin 做的事就是「fence → 容器 → 呼叫 mermaid」，我們自己十幾行就能做；
-  除非另外決定要換掉自帶渲染器（CommonMark 相容性），否則不該把兩件事綁在一起。
-- 若日後要做，建議：lazy `import("mermaid")`、`securityLevel: "strict"`、
-  `htmlLabels: false`、主題跟隨 `.dark`、失敗時保留原始碼（沿用「檢視器絕不空白」原則），
-  並先驗證 Tauri 內嵌資產裡的 lazy chunk 在 portable exe 內載入正常。
+- **設定**：`securityLevel:"strict"`、`htmlLabels:false`、`suppressErrorRendering:true`、
+  `theme` 跟隨 `.dark`（`settings.isDark`）、`startOnLoad:false`。
+- **每個區塊的標題列**：圖表／原始碼切換、複製原始碼、另存 PNG。切換狀態以「區塊序號＋
+  原始碼雜湊」為鍵，**不持久化**；同一份文件重新整理保留、換檔清空。事件用內容根節點的
+  click 事件委派（與連結同一條）。
+- **另存 PNG**：前端把內嵌 SVG 序列化 → canvas（以 `--color-canvas` 當底色、2× 縮放）→
+  PNG bytes，經 `dialog` 的儲存對話框與 `save_binary_file` 指令寫檔
+  （解 base64 在 `core::viewer::decode_base64`）。
+- **上限與退路**：單塊原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼；渲染或引擎載入
+  失敗會保留原始碼並在圖表區顯示原因（「檢視器絕不空白」）。搜尋會跳過圖表模式下收起的
+  原始碼（`[data-search-skip]`，見 `useViewerSearch`）。`settings.mermaidEnabled` 可整份
+  關閉自動渲染。
+- **成本**：官方 mermaid 12 的 lazy chunk（Vite 8 實測 114 chunk、raw 4.86 MB、gzip 1.40 MB；
+  最大單塊 `elk` 約 1.5 MB）；Tauri brotli 內嵌後單檔 exe 約 +1.2～1.4 MB。使用者已確認
+  不在意體積，因此選官方套件、不考慮微型替代。**待桌面驗證**：portable exe 內 lazy chunk
+  是否正常載入；若失敗改成靜態 import（體積與載入時間都還在可接受範圍）。
 
 ### PDF 檢視器（2026-10-04 決議：先不做，交給系統預設程式）
 

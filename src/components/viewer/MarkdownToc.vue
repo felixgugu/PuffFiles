@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import FloatingPanel from "./FloatingPanel.vue";
-import { useSettingsStore } from "@/stores/settings";
+import { useViewerStore } from "@/stores/viewer";
+import type { PaneId } from "@/types/fs";
 import type { MarkdownHeading } from "@/utils/markdown";
+import { PANEL_DEFAULT_WIDTH, type PanelLayout } from "@/utils/viewerPanel";
 
 /**
  * Markdown 檢視器右上角的目錄索引面板。
@@ -11,8 +13,12 @@ import type { MarkdownHeading } from "@/utils/markdown";
  * 捲動同步與跳轉都在 `useMarkdownScrollSpy`（由 `MarkdownView` 持有），
  * 位置與拖曳手勢在 `FloatingPanel`／`useViewerPanel`；這裡只量清單高度、
  * 把 `activeId` 畫出來、把點擊往上送。
+ *
+ * 面板的收合與位置尺寸存在 viewer 狀態（每個檢視器一份、不持久化），
+ * 換一份文件就回到預設值。
  */
 const props = defineProps<{
+  paneId: PaneId;
   headings: MarkdownHeading[];
   activeId: string | null;
   /** 定位容器（MarkdownView 的根節點）；量測可用範圍用。 */
@@ -21,8 +27,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ jump: [id: string] }>();
 
-const settings = useSettingsStore();
-const collapsed = computed(() => settings.markdownTocCollapsed);
+const viewer = useViewerStore();
+const state = computed(() => viewer.of(props.paneId));
+
+const FALLBACK: PanelLayout = { x: null, y: 0, width: PANEL_DEFAULT_WIDTH, height: null };
+const collapsed = computed(() => state.value?.tocPanel.collapsed ?? false);
+const initialLayout = computed(() => state.value?.tocPanel.layout ?? FALLBACK);
 
 const listEl = useTemplateRef<HTMLElement>("list");
 const listHeight = ref(0);
@@ -78,10 +88,10 @@ watch(
     resize-label="調整目錄索引大小；方向鍵調整寬高"
     :host="host"
     :collapsed="collapsed"
-    :initial-layout="settings.markdownTocPanel"
+    :initial-layout="initialLayout"
     :content-height="listHeight"
-    @persist="settings.setMarkdownTocPanel"
-    @toggle-collapse="settings.toggleMarkdownTocCollapsed()"
+    @persist="viewer.setPanelLayout(paneId, 'toc', $event)"
+    @toggle-collapse="viewer.togglePanelCollapsed(paneId, 'toc')"
   >
     <nav
       v-if="!collapsed"

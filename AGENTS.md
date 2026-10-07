@@ -186,27 +186,35 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到
   該行。面板可拖曳、可調整寬高、可收合成只剩標題列，左下角把手往外拖＝放大；
   底色不透明度（預設 50%）與最小寬度（預設 200px）在設定頁的「瀏覽 → 檢視器」調整
-  （`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，兩種浮動面板共用），位置與尺寸存進
-  `settings.markdownTocPanel`（`x === null`＝維持右上角對齊）。
-  文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，標頭開關維持
-  可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
+  （`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，兩種浮動面板共用）。
+  **面板的收合、位置與尺寸不持久化、也不跨文件沿用**：住在 `ViewerState.tocPanel`
+  （每個檢視器一份），開啟新文件一律回到預設（展開、`x === null` 維持右上角對齊、
+  預設寬度與自適應高度）。文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，
+  標頭開關維持可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
 - **搜尋（所有文字類檢視器）**：檢視器標頭的搜尋鈕或 `Ctrl+F` 開關右上角的浮動面板，
-  面板本身是每個窗格各自的狀態（預設關閉；同一個窗格換檔案沿用搜尋字串，關掉檢視器才重置）。
-  搜尋的是**畫面上看得到的文字**：Markdown 渲染後的內容、純文字與程式碼（含 HTML 原始碼
-  模式）、HTML 靜態預覽 iframe 內的頁面文字。大小寫、完整字詞、Regex 三個選項預設全關，
-  輸入即時搜尋（去抖 150ms）；命中清單顯示「目前索引／總數」與命中所在的行（純文字／
-  程式碼，含行號）或區塊（渲染後的內容），`Enter`／`Shift+Enter` 上下一個、點列直接跳，
-  內文同步標示全部命中與目前命中。內容超過 4 MB 停用搜尋、命中超過 2000 筆只列前段，
-  兩者都會在面板上說明；面板位置、尺寸與收合存在 `settings.viewerSearchPanel`／
-  `viewerSearchCollapsed`，最小寬度與不透明度與目錄索引共用。
+  面板本身是每個窗格各自的狀態（預設關閉）。搜尋的是**畫面上看得到的文字**：
+  Markdown 渲染後的內容、純文字與程式碼（含 HTML 原始碼模式）、HTML 靜態預覽 iframe
+  內的頁面文字。大小寫、完整字詞、Regex 三個選項預設全關，輸入即時搜尋（去抖 150ms）；
+  命中清單顯示「目前索引／總數」與命中所在的行（純文字／程式碼，含行號）或區塊
+  （渲染後的內容），`Enter`／`Shift+Enter` 上下一個、點列直接跳，內文同步標示全部命中
+  與目前命中。內容超過 4 MB 停用搜尋、命中超過 2000 筆只列前段，兩者都會在面板上說明。
+  **搜尋條件預設不跨文件沿用**：開啟新文件會整份回到預設（面板關閉、字串與三個選項清空）；
+  面板上的「**保留搜尋字串**」勾選項（`settings.viewerSearchKeepQuery`，持久化、預設不勾）
+  勾選後才與現行相同 —— 同一個窗格換檔案沿用搜尋條件、面板維持開啟。
+  **面板的收合、位置與尺寸同樣不持久化、也不跨文件沿用**：住在 `ViewerState.searchPanel`，
+  開啟新文件回到預設；最小寬度與不透明度與目錄索引共用。
 - **HTML 靜態預覽**：`HtmlView` 以 `iframe[srcdoc]` 呈現，`sandbox` 只給 `allow-same-origin`
   （不給 `allow-scripts`）—— 頁面**不執行 JavaScript**、**不載入 http(s) 遠端資源**；
   `utils/html.ts` 先移除 `<script>`／`<base>`／meta refresh／`on*`，再由父層進入
   `contentDocument` 把相對路徑的圖片、外部 CSS 與 CSS 內的 `url()`／`@import` 換成
   經 IPC 讀取的 blob URL。標頭的切換鈕在「預覽／原始碼」之間切換（`ViewerState.mode`），
   預設是預覽；有 `<script>` 或略過的資源時在內容上方顯示提示條。
-- **Mermaid**：` ```mermaid ` 區塊目前只顯示原始碼（不渲染）；是否內嵌 mermaid 的評估與
-  實測數字見 `docs/redesign-plan.md` §11，決議是先不做、交給程式碼編輯器。
+- **Mermaid**：` ```mermaid ` 區塊**預設自動渲染成內嵌 SVG**（官方 mermaid 12、lazy 載入），
+  每個區塊標題列可「圖表／原始碼」各自切換、複製原始碼、另存 PNG。實作在
+  `composables/useMarkdownMermaid.ts`：在內容進 DOM 之後後處理，`utils/markdown.ts`
+  維持零依賴純函式。原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼，渲染失敗保留
+  原始碼並顯示原因；搜尋會跳過圖表模式下收起的原始碼（`[data-search-skip]`）；
+  `settings.mermaidEnabled` 可整份關閉自動渲染。評估與實測數字見 `docs/redesign-plan.md` §11。
 - **PDF**：不進檢視器（`.pdf` 屬 `document` 類），交給系統預設程式。內嵌 WebView2 PDF
   viewer 的評估（含 wry 預設 `--disable-features=…,msPdfOOUI` 這個關鍵事實）見
   `docs/redesign-plan.md` §11，決議同為先不做。

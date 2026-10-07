@@ -18,11 +18,12 @@ export default defineConfig(() => ({
   build: {
     /*
      * highlight.js 的語言文法（lib/common ＋ 精選語言）讓單一 chunk 超過 Vite 預設的
-     * 500 kB 警示線。這是刻意的取捨：全部內嵌、不用 lazy chunk（單檔 exe 的 lazy chunk
-     * 是已知風險，而這些文法 gzip 後只有 90 KB 左右）。把門檻提到實際大小之上，
-     * 免得每次建置都被這條已知的警告蓋掉其他訊息。
+     * 500 kB 警示線；Mermaid 的 lazy chunk（`elk` 約 1.5 MB）更大。這些都是刻意的取捨：
+     * 全部內嵌、只用 lazy chunk 載入 Mermaid（單檔 exe 的 lazy chunk 是已知風險，
+     * 但圖表引擎只有在文件真的出現 ```mermaid 時才會被抓下來）。把門檻提到實際大小
+     * 之上，免得每次建置都被這條已知的警告蓋掉其他訊息。
      */
-    chunkSizeWarningLimit: 700,
+    chunkSizeWarningLimit: 1600,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

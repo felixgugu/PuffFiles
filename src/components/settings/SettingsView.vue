@@ -333,6 +333,7 @@ async function selectSection(id: SectionId) {
                 檢視器右上角的浮動面板（Markdown 的「目錄索引」與各文字檢視器的「搜尋」）。
                 最小寬度是拖曳下限，窗格比「最小寬度 + 兩側留白」還窄時面板會自動隱藏；
                 不透明度越低，面板底下的內文越明顯。兩個面板共用這兩項設定。
+                Markdown 的 Mermaid 區塊預設會自動渲染成圖表，可逐塊切回原始碼。
               </p>
               <div class="mt-2 space-y-2">
                 <div class="flex items-center gap-3">
@@ -373,6 +374,15 @@ async function selectSection(id: SectionId) {
                     {{ settings.viewerPanelOpacity }}%
                   </span>
                 </div>
+                <label class="flex items-center justify-between py-1">
+                  <span class="text-base text-ink">自動渲染 Mermaid 圖表</span>
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-[var(--color-accent)]"
+                    :checked="settings.mermaidEnabled"
+                    @change="settings.mermaidEnabled = ($event.target as HTMLInputElement).checked"
+                  />
+                </label>
               </div>
             </section>
           </div>

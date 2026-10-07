@@ -85,6 +85,10 @@ export function useViewerSearch(options: ViewerSearchOptions) {
       if (!parent || SKIP_TAGS.has(parent.tagName)) {
         continue;
       }
+      // 被標為搜尋要略過的子樹（例如 Mermaid 圖表模式下收起的原始碼）不算內容。
+      if (parent.closest("[data-search-skip]")) {
+        continue;
+      }
       const value = (node as Text).data;
       if (!value) {
         continue;

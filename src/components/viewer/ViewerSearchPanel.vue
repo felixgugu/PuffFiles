@@ -7,6 +7,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import type { SearchOptions } from "@/utils/textSearch";
+import { SEARCH_PANEL_DEFAULT_WIDTH, type PanelLayout } from "@/utils/viewerPanel";
 
 /**
  * 檢視器搜尋面板：標題列由 `FloatingPanel` 提供，這裡只放搜尋框、
@@ -47,7 +48,10 @@ const headerEl = useTemplateRef<HTMLElement>("header");
 const listEl = useTemplateRef<HTMLElement>("list");
 const listHeight = ref(0);
 
-const collapsed = computed(() => settings.viewerSearchCollapsed);
+const state = computed(() => viewer.of(props.paneId));
+const FALLBACK: PanelLayout = { x: null, y: 0, width: SEARCH_PANEL_DEFAULT_WIDTH, height: null };
+const collapsed = computed(() => state.value?.searchPanel.collapsed ?? false);
+const initialLayout = computed(() => state.value?.searchPanel.layout ?? FALLBACK);
 
 /** 未移動過時避開同一窗格已展開的目錄索引。 */
 function avoidToc() {
@@ -158,11 +162,11 @@ onMounted(() => {
     resize-label="調整搜尋面板大小；方向鍵調整寬高"
     :host="host"
     :collapsed="collapsed"
-    :initial-layout="settings.viewerSearchPanel"
+    :initial-layout="initialLayout"
     :content-height="listHeight"
     :avoid="avoidToc"
-    @persist="settings.setViewerSearchPanel"
-    @toggle-collapse="settings.toggleViewerSearchCollapsed()"
+    @persist="viewer.setPanelLayout(paneId, 'search', $event)"
+    @toggle-collapse="viewer.togglePanelCollapsed(paneId, 'search')"
   >
     <div ref="header" class="shrink-0 border-b border-line px-2 py-1.5">
       <div
@@ -229,6 +233,18 @@ onMounted(() => {
           <AppIcon name="chevronDown" :size="13" />
         </button>
       </div>
+
+      <label class="mt-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-ink-muted">
+        <input
+          type="checkbox"
+          class="size-3.5 shrink-0 accent-[var(--color-accent)]"
+          :checked="settings.viewerSearchKeepQuery"
+          @change="
+            settings.setViewerSearchKeepQuery(($event.target as HTMLInputElement).checked)
+          "
+        />
+        保留搜尋字串
+      </label>
     </div>
 
     <div ref="list" class="scroll-area min-h-0 flex-1 overflow-y-auto p-1">

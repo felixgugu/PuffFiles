@@ -98,6 +98,7 @@ const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
 
     <ViewerSearchPanel
       v-if="searchOpen"
+      :key="state?.path"
       :pane-id="paneId"
       :host="host"
       :root="pre"

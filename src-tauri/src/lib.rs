@@ -15,6 +15,7 @@ pub fn run() {
             commands::fs::list_subdirs,
             commands::fs::create_folder,
             commands::fs::create_file,
+            commands::fs::save_binary_file,
             commands::fs::open_path,
             commands::fs::run_external,
             commands::fs::reveal_path,

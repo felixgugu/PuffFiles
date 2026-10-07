@@ -2,10 +2,16 @@ import { defineStore } from "pinia";
 import { reactive } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
+import { useSettingsStore } from "@/stores/settings";
 import type { PaneId } from "@/types/fs";
-import type { ViewerMode, ViewerSearchState, ViewerState } from "@/types/viewer";
+import type { ViewerMode, ViewerPanelState, ViewerSearchState, ViewerState } from "@/types/viewer";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
 import { supportsViewerSearch, viewerKindOfPath } from "@/utils/viewer";
+import {
+  PANEL_DEFAULT_WIDTH,
+  SEARCH_PANEL_DEFAULT_WIDTH,
+  type PanelLayout,
+} from "@/utils/viewerPanel";
 
 /** 監控事件進來後等這麼久才重載：編輯器存檔常常一次送出好幾筆通知。 */
 const RELOAD_DEBOUNCE_MS = 250;
@@ -29,6 +35,11 @@ const DEFAULT_SEARCH: ViewerSearchState = {
   wholeWord: false,
   regex: false,
 };
+
+/** 浮動面板的初始值：展開、貼右上角（`x === null`）、給定寬度、高度自適應。 */
+function defaultPanel(width: number): ViewerPanelState {
+  return { collapsed: false, layout: { x: null, y: 0, width, height: null } };
+}
 
 /**
  * 檢視器狀態：綁在窗格上，但與 `explorer` 的瀏覽狀態分開。
@@ -226,8 +237,11 @@ export const useViewerStore = defineStore("viewer", () => {
   /** 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。 */
   async function open(paneId: PaneId, path: string): Promise<void> {
     const kind = viewerKindOfPath(path);
-    // 同一個窗格換檔案時沿用搜尋字串與選項（面板維持開啟），關閉檢視器才重置。
-    const previousSearch = views[paneId]?.search;
+    // 搜尋只在使用者勾選「保留搜尋字串」時帶到新文件；否則整份回到預設（面板關閉）。
+    // 浮動面板的收合與位置尺寸一律不沿用 —— 每份文件都從預設值開始。
+    const previousSearch = useSettingsStore().viewerSearchKeepQuery
+      ? views[paneId]?.search
+      : undefined;
     close(paneId);
     views[paneId] = {
       path,
@@ -244,6 +258,8 @@ export const useViewerStore = defineStore("viewer", () => {
       size: 0,
       modifiedMs: null,
       search: previousSearch ? { ...previousSearch } : { ...DEFAULT_SEARCH },
+      tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
+      searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
     };
     // 沒有檢視器的類型只顯示提示，不去讀檔；它仍然是「目前顯示的目標」，
     // 這樣在檔案清單按 Space 才能繼續往下前進。
@@ -281,6 +297,22 @@ export const useViewerStore = defineStore("viewer", () => {
     const state = views[paneId];
     if (state) {
       Object.assign(state.search, patch);
+    }
+  }
+
+  /** 浮動面板的收合狀態與位置尺寸（拖曳／縮放結束寫回；不持久化）。 */
+  function setPanelLayout(paneId: PaneId, which: "toc" | "search", layout: PanelLayout) {
+    const state = views[paneId];
+    if (state) {
+      (which === "toc" ? state.tocPanel : state.searchPanel).layout = { ...layout };
+    }
+  }
+
+  function togglePanelCollapsed(paneId: PaneId, which: "toc" | "search") {
+    const state = views[paneId];
+    if (state) {
+      const panel = which === "toc" ? state.tocPanel : state.searchPanel;
+      panel.collapsed = !panel.collapsed;
     }
   }
 
@@ -336,6 +368,8 @@ export const useViewerStore = defineStore("viewer", () => {
     toggleSearch,
     closeSearch,
     updateSearch,
+    setPanelLayout,
+    togglePanelCollapsed,
     retarget,
     close,
     destroy,

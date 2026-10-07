@@ -104,6 +104,18 @@ pub async fn create_file(parent: String, name: String) -> AppResult<String> {
     .await
 }
 
+/// 把前端產生的二進位資料（base64）寫到使用者選定的路徑；供 Mermaid「另存圖片」使用。
+#[tauri::command]
+pub async fn save_binary_file(path: String, base64: String) -> AppResult<()> {
+    run_blocking(move || {
+        let bytes = core::viewer::decode_base64(&base64)
+            .map_err(|message| AppError::Io { message: message.to_string() })?;
+        let target = PathBuf::from(&path);
+        std::fs::write(&target, &bytes).map_err(|error| AppError::from_io(error, &target))
+    })
+    .await
+}
+
 /// 執行使用者設定的外部工具。
 ///
 /// 引數與工作目錄都由前端依樣板展開（例如 `$fullFolderPath`），

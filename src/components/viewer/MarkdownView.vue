@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue"
 import MarkdownToc from "./MarkdownToc.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import ViewerNotice from "./ViewerNotice.vue";
+import { useMarkdownMermaid } from "@/composables/useMarkdownMermaid";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
 import { useMarkdownScrollSpy } from "@/composables/useMarkdownScrollSpy";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
@@ -31,6 +32,12 @@ const { openLocalTarget } = useLocalNavigation();
 const state = computed(() => viewer.of(props.paneId));
 const host = useTemplateRef<HTMLElement>("host");
 const content = useTemplateRef<HTMLElement>("content");
+
+/** Mermaid 圖表：內容進 DOM 後把 ```mermaid 區塊換成可切換圖表／原始碼的容器。 */
+const mermaid = useMarkdownMermaid({
+  root: () => content.value,
+  path: () => state.value?.path ?? "",
+});
 
 /** 與標頭的目錄索引開關共用同一份渲染結果（同一個狀態只解析一次）。 */
 const rendered = useMarkdownOutline(state);
@@ -153,8 +160,18 @@ watch(
     await nextTick();
     void applyImages();
     applyCodeHighlight();
+    void mermaid.renderAll();
   },
   { immediate: true, flush: "post" },
+);
+
+/** 主題或「自動渲染 Mermaid」開關變動時重畫；換檔由上面的 rendered watcher 負責。 */
+watch(
+  [() => settings.isDark, () => settings.mermaidEnabled],
+  () => {
+    void mermaid.renderAll();
+  },
+  { flush: "post" },
 );
 
 onBeforeUnmount(() => {
@@ -162,8 +179,11 @@ onBeforeUnmount(() => {
   releaseBlobs();
 });
 
-/** 連結：外部交給系統開啟，相對路徑回到檔案清單導覽。 */
+/** 連結：外部交給系統開啟，相對路徑回到檔案清單導覽；Mermaid 面板按鈕優先處理。 */
 function onClick(event: MouseEvent) {
+  if (mermaid.handleClick(event)) {
+    return;
+  }
   const anchor = (event.target as HTMLElement | null)?.closest("a");
   if (!anchor) {
     return;
@@ -210,6 +230,8 @@ function decodeFragment(value: string): string {
     />
     <MarkdownToc
       v-if="tocVisible"
+      :key="state?.path"
+      :pane-id="paneId"
       :headings="headings"
       :active-id="activeId"
       :host="host"
@@ -217,6 +239,7 @@ function decodeFragment(value: string): string {
     />
     <ViewerSearchPanel
       v-if="searchOpen"
+      :key="state?.path"
       :pane-id="paneId"
       :host="host"
       :root="content"
@@ -386,5 +409,89 @@ function decodeFragment(value: string): string {
   margin: 1.6em 0;
   border: none;
   border-top: 1px solid var(--color-line);
+}
+
+/* Mermaid 圖表容器：標題列（可切換）＋圖表／原始碼。 */
+.markdown :deep(.md-mermaid) {
+  margin: 0.9em 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+}
+
+.markdown :deep(.md-mermaid-bar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.7rem;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink-muted);
+  font-size: 0.78rem;
+}
+
+.markdown :deep(.md-mermaid-title) {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.markdown :deep(.md-mermaid-actions) {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.markdown :deep(.md-mermaid-action) {
+  border-radius: 5px;
+  padding: 0.15rem 0.45rem;
+  color: var(--color-ink-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.markdown :deep(.md-mermaid-action:hover) {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+}
+
+.markdown :deep(.md-mermaid-action:active) {
+  background: var(--color-pressed);
+}
+
+.markdown :deep(.md-mermaid-view) {
+  overflow: auto;
+  padding: 0.9rem;
+  text-align: center;
+}
+
+/*
+ * 圖表一律以 mermaid 算出的自然尺寸呈現（`useMarkdownMermaid` 把 SVG 的 `width`／
+ * `height` 寫成 viewBox 的內在尺寸、並移除 inline `max-width`）：**不隨窗格縮放**，
+ * 比容器大就交由上面的 `overflow: auto` 產生捲軸。
+ * `margin: 0 auto` 讓比容器窄的圖置中；圖比容器寬時左右外距會退成 0，內容仍從左緣
+ * 開始，左邊不會被裁掉、也捲不到。
+ */
+.markdown :deep(.md-mermaid-view svg) {
+  display: block;
+  margin: 0 auto;
+}
+
+.markdown :deep(.md-mermaid-message) {
+  color: var(--color-ink-faint);
+  font-size: 0.85em;
+}
+
+/* 顯示圖表時，原始碼那塊交給容器隱藏（[hidden] 由瀏覽器處理 display）。 */
+.markdown :deep(.md-mermaid-source) {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 這裡的 display 是自訂的，會蓋過 [hidden] 的 UA 樣式，所以補一條明確規則。 */
+.markdown :deep(.md-mermaid-view[hidden]),
+.markdown :deep(.md-mermaid-source[hidden]) {
+  display: none;
 }
 </style>

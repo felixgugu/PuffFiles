@@ -255,6 +255,15 @@ const answer = 42;
 
 行內 \`程式碼\`、*斜體*、**粗體**、~~刪除線~~，還有自動連結 https://example.com 。
 
+## Mermaid
+
+\`\`\`mermaid
+flowchart TD
+  A[開始] --> B{有圖表嗎？}
+  B -- 有 --> C[渲染成內嵌 SVG]
+  B -- 沒有 --> D[顯示原始碼]
+\`\`\`
+
 ![相對路徑圖片](./photo.png)
 
 [相對連結：notes.txt](./notes.txt)

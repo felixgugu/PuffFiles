@@ -1,4 +1,5 @@
 import type { AppErrorView } from "@/services/errors";
+import type { PanelLayout } from "@/utils/viewerPanel";
 
 /** 檢視器支援的內容種類。 */
 export type ViewerKind = "markdown" | "html" | "image" | "text";
@@ -31,7 +32,8 @@ export type ViewerStatus = "loading" | "ready" | "error";
  * 檢視器搜尋面板的狀態（每個窗格一份）。
  *
  * 住在檢視器狀態裡而不是面板元件內：面板元件會隨檢視器種類換來換去，
- * 但「在同一個窗格裡找東西」是這個窗格的事 —— 換檔案要沿用、關掉檢視器才重置。
+ * 但「在同一個窗格裡找東西」是這個窗格的事。開啟新文件時預設整份重置；
+ * 只有「保留搜尋字串」勾選時才把搜尋條件帶到新文件（見 `stores/viewer.ts`）。
  */
 export interface ViewerSearchState {
   open: boolean;
@@ -42,6 +44,17 @@ export interface ViewerSearchState {
   wholeWord: boolean;
   /** 把搜尋字串當成 Regex。 */
   regex: boolean;
+}
+
+/**
+ * 檢視器浮動面板的收合狀態與位置尺寸。
+ *
+ * 每個檢視器（也就是每份開啟的文件）各有一份，不寫進設定、也不跨文件沿用 ——
+ * 換一份文件就回到預設值（展開、貼右上角、預設寬度與自適應高度）。
+ */
+export interface ViewerPanelState {
+  collapsed: boolean;
+  layout: PanelLayout;
 }
 
 /** 一個窗格目前的檢視器狀態；沒有這個鍵就代表該窗格在檔案清單模式。 */
@@ -64,4 +77,8 @@ export interface ViewerState {
   modifiedMs: number | null;
   /** 搜尋面板的開關、字串與三個選項。 */
   search: ViewerSearchState;
+  /** 目錄索引面板的收合與位置尺寸（只有 Markdown 會用到）。 */
+  tocPanel: ViewerPanelState;
+  /** 搜尋面板的收合與位置尺寸。 */
+  searchPanel: ViewerPanelState;
 }

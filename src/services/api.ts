@@ -6,7 +6,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { toBackendError } from "./errors";
 import {
   MOCK_DRIVES,
@@ -284,6 +284,57 @@ export async function chooseFolder(defaultPath?: string): Promise<string | null>
   } catch (error) {
     throw toBackendError(error);
   }
+}
+
+/**
+ * 把二進位資料存成使用者選定的檔案（Mermaid 圖表「另存圖片」用）。
+ * 回傳 false 代表使用者在原生對話框取消。
+ */
+export async function saveBinaryFile(
+  defaultName: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  extension: string,
+): Promise<boolean> {
+  if (!isDesktopRuntime()) {
+    mockDownload(defaultName, bytes, extension);
+    return true;
+  }
+  try {
+    const selected = await saveDialog({
+      title: "另存圖片",
+      defaultPath: defaultName,
+      filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
+    });
+    if (typeof selected !== "string") {
+      return false;
+    }
+    await invoke("save_binary_file", { path: selected, base64: bytesToBase64(bytes) });
+    return true;
+  } catch (error) {
+    throw toBackendError(error);
+  }
+}
+
+/** 分塊轉 base64，避免 `String.fromCharCode(...bytes)` 在大型陣列時爆掉呼叫堆疊。 */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+/** 瀏覽器開發模式沒有原生對話框；直接觸發下載方便驗證。 */
+function mockDownload(name: string, bytes: Uint8Array<ArrayBuffer>, extension: string): void {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name || `download.${extension}`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function guarded<T>(run: () => Promise<T>): Promise<T> {
