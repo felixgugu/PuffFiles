@@ -2,6 +2,7 @@
 import { computed, useTemplateRef } from "vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
+import { useViewerScroll } from "@/composables/useViewerScroll";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { highlightCode, languageForPath, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
@@ -23,6 +24,9 @@ const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
 const host = useTemplateRef<HTMLElement>("host");
 const pre = useTemplateRef<HTMLElement>("pre");
+
+/** 捲動位置：切換分頁再回來時要回到原本讀到的地方（見 `useViewerScroll`）。 */
+const scroll = useViewerScroll(props.paneId, pre);
 
 /** 搜尋面板：純文字與程式碼都有（HTML 的原始碼模式也走這裡）。 */
 const searchOpen = computed(
@@ -83,6 +87,7 @@ const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
       ref="pre"
       data-native-menu
       class="scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
+      @scroll.passive="scroll.save"
       v-html="escapedText"
     />
     <!--
@@ -93,6 +98,7 @@ const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
       ref="pre"
       data-native-menu
       class="code-highlight scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
+      @scroll.passive="scroll.save"
       v-html="highlighted"
     />
 

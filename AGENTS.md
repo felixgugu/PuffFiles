@@ -229,6 +229,10 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `refreshPanes`）刻意不關閉檢視器。
 - **自動重載**：開啟後以 `viewer:<paneId>` 為 id 監控檔案所在資料夾（與窗格的監控
   完全隔離），只有這個檔案的事件才去抖 250ms 後重載；刪除時顯示錯誤狀態。
+- **捲動位置**：文字類檢視器（Markdown、HTML 預覽、純文字／程式碼）的內容捲動位置
+  記在 `ViewerState.scrollTop`（`composables/useViewerScroll.ts`）。分頁切換會讓窗格
+  整塊卸載重掛（`WorkspaceView` 只渲染焦點分頁），切回來時才回得到原本讀到的位置；
+  重新整理（F5／自動重載）後的重新掛載也沿用同一個位置。圖片檢視器不記。
 - **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
   只保留 Esc（關閉，搜尋面板開著時先關面板）、F5（重新載入）、Ctrl+F（搜尋面板開關）、
   F6 與分頁／版面層級的操作。

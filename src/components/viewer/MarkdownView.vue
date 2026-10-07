@@ -7,6 +7,7 @@ import { useMarkdownMermaid } from "@/composables/useMarkdownMermaid";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
 import { useMarkdownScrollSpy } from "@/composables/useMarkdownScrollSpy";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
+import { useViewerScroll } from "@/composables/useViewerScroll";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
@@ -32,6 +33,9 @@ const { openLocalTarget } = useLocalNavigation();
 const state = computed(() => viewer.of(props.paneId));
 const host = useTemplateRef<HTMLElement>("host");
 const content = useTemplateRef<HTMLElement>("content");
+
+/** 捲動位置：切換分頁再回來時要回到原本讀到的地方（見 `useViewerScroll`）。 */
+const scroll = useViewerScroll(props.paneId, content);
 
 /** Mermaid 圖表：內容進 DOM 後把 ```mermaid 區塊換成可切換圖表／原始碼的容器。 */
 const mermaid = useMarkdownMermaid({
@@ -226,6 +230,7 @@ function decodeFragment(value: string): string {
       data-native-menu
       class="markdown code-highlight scroll-area min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5"
       @click="onClick"
+      @scroll.passive="scroll.save"
       v-html="rendered.html"
     />
     <MarkdownToc
@@ -471,6 +476,7 @@ function decodeFragment(value: string): string {
 .markdown :deep(.md-mermaid-view svg) {
   display: block;
   margin: 0;
+  font-size: 12px!important;
 }
 
 .markdown :deep(.md-mermaid-message) {

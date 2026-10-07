@@ -75,6 +75,13 @@ export interface ViewerState {
   blobUrl: string | null;
   size: number;
   modifiedMs: number | null;
+  /**
+   * 內容區最後的捲動位置（px）。
+   *
+   * 分頁切換時窗格整塊卸載重掛（`WorkspaceView` 只渲染焦點分頁），DOM 的
+   * `scrollTop` 會跟著消失；記在這裡，切回分頁時才回得到原本讀到的地方。
+   */
+  scrollTop: number;
   /** 搜尋面板的開關、字串與三個選項。 */
   search: ViewerSearchState;
   /** 目錄索引面板的收合與位置尺寸（只有 Markdown 會用到）。 */

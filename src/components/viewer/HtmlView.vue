@@ -404,6 +404,31 @@ function blockContextMenu(event: Event) {
   event.preventDefault();
 }
 
+/**
+ * 預覽頁面的捲動位置。
+ *
+ * iframe 每次重新掛載都是一份全新的文件，位置不會像母視窗那樣自己留著；捲動時
+ * 寫回 viewer store，載入與資源補齊後各還原一次（還原讀的是 store 的最新值，
+ * 所以期間使用者自己捲動也不會被拉回去）。
+ */
+function frameScroller(): Element | null {
+  return frame.value?.contentDocument?.scrollingElement ?? null;
+}
+
+function saveScroll() {
+  const scroller = frameScroller();
+  if (scroller) {
+    viewer.setScrollTop(props.paneId, scroller.scrollTop);
+  }
+}
+
+function restoreScroll() {
+  const scroller = frameScroller();
+  if (scroller) {
+    scroller.scrollTop = viewer.of(props.paneId)?.scrollTop ?? 0;
+  }
+}
+
 /** 框內的鍵盤事件不會冒泡到母視窗；這裡重送一次，讓既有快速鍵邏輯原封不動生效。 */
 function forwardKeydown(event: KeyboardEvent) {
   const forwarded = new KeyboardEvent("keydown", {
@@ -455,10 +480,13 @@ function onFrameLoad() {
   doc.addEventListener("keydown", forwardKeydown);
   doc.addEventListener("click", onFrameClick);
   doc.addEventListener("contextmenu", blockContextMenu);
+  doc.addEventListener("scroll", saveScroll, { passive: true });
   frameReady.value += 1;
+  restoreScroll();
   // 資源改寫完（圖片、外部 CSS）再通知一次：畫面高度穩定後命中位置才準。
   void applyResources(doc, generation).finally(() => {
     frameReady.value += 1;
+    restoreScroll();
   });
 }
 
@@ -472,6 +500,7 @@ watch(
 
 onBeforeUnmount(() => {
   generation++;
+  saveScroll();
   releaseBlobs();
 });
 </script>

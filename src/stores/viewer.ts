@@ -257,6 +257,7 @@ export const useViewerStore = defineStore("viewer", () => {
       blobUrl: null,
       size: 0,
       modifiedMs: null,
+      scrollTop: 0,
       search: previousSearch ? { ...previousSearch } : { ...DEFAULT_SEARCH },
       tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
       searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
@@ -305,6 +306,14 @@ export const useViewerStore = defineStore("viewer", () => {
     const state = views[paneId];
     if (state) {
       (which === "toc" ? state.tocPanel : state.searchPanel).layout = { ...layout };
+    }
+  }
+
+  /** 內容區的捲動位置（元件在捲動與卸載時寫回；切回分頁時還原）。 */
+  function setScrollTop(paneId: PaneId, scrollTop: number) {
+    const state = views[paneId];
+    if (state) {
+      state.scrollTop = scrollTop;
     }
   }
 
@@ -369,6 +378,7 @@ export const useViewerStore = defineStore("viewer", () => {
     closeSearch,
     updateSearch,
     setPanelLayout,
+    setScrollTop,
     togglePanelCollapsed,
     retarget,
     close,
