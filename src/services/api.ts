@@ -109,6 +109,18 @@ export async function quickLocations(): Promise<QuickLocation[]> {
   return guarded(() => invoke<QuickLocation[]>("quick_locations"));
 }
 
+/**
+ * 偵測本機安裝的 7-Zip，回傳執行檔路徑；找不到（或瀏覽器預覽）回 `null`。
+ *
+ * 只查標準安裝位置，自訂位置請在設定頁直接填執行檔。
+ */
+export async function detect7zip(): Promise<string | null> {
+  if (!isDesktopRuntime()) {
+    return null;
+  }
+  return guarded(() => invoke<string | null>("detect_7zip"));
+}
+
 /** 以系統預設程式開啟。 */
 export async function openPath(path: string): Promise<void> {
   if (!isDesktopRuntime()) {

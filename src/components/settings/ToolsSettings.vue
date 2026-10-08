@@ -47,7 +47,7 @@ function targetSummary(tool: ExternalTool): string {
 async function resetTools() {
   const accepted = await ui.confirm({
     title: "恢復預設工具？",
-    message: "內建的四個工具會回到預設內容，自訂工具不受影響。",
+    message: "內建工具會回到預設內容，自訂工具不受影響。",
     confirmText: "恢復預設",
   });
   if (accepted) {
@@ -118,7 +118,18 @@ async function resetTools() {
         @click="editor.openForEdit(tool.id)"
       >
         <AppIcon :name="tool.icon" :size="15" class="shrink-0 text-ink-muted" />
-        <span class="min-w-0 flex-1 truncate text-base text-ink">{{ tool.label }}</span>
+        <span
+          class="min-w-0 flex-1 truncate text-base"
+          :class="tool.enabled === false ? 'text-ink-faint' : 'text-ink'"
+        >
+          {{ tool.label }}
+        </span>
+        <span
+          v-if="tool.enabled === false"
+          class="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-2xs text-ink-faint"
+        >
+          已停用
+        </span>
         <span class="max-w-44 shrink-0 truncate text-xs text-ink-faint">
           {{ targetSummary(tool) }}
         </span>

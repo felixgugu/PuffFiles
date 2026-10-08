@@ -217,6 +217,7 @@ async function copyVariable(name: string) {
         <span v-else class="mt-1 block text-xs text-ink-faint">
           只寫名稱時會從系統 PATH 尋找；也可以直接給完整路徑。PowerShell 想用 7.x 就填
           <code class="rounded bg-surface-muted px-1">pwsh.exe</code>。
+          留空時：內建的 7-Zip 會在程式啟動時自動偵測並填入，其他工具留空則不會出現在選單上。
         </span>
       </label>
 
@@ -319,6 +320,16 @@ async function copyVariable(name: string) {
           新工具預設是「選取項目所在的資料夾」（<code class="rounded bg-surface-muted px-1">$fullFolderPath</code>）；
           留空表示沿用行程目前的位置。
         </span>
+      </label>
+
+      <label class="flex items-center gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          class="size-3.5 accent-[var(--color-accent)]"
+          :checked="draft.enabled !== false"
+          @change="editor.patch({ enabled: ($event.target as HTMLInputElement).checked })"
+        />
+        啟用（關掉就不會出現在右鍵選單）
       </label>
 
       <div class="flex flex-wrap items-center gap-4">

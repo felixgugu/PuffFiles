@@ -10,6 +10,8 @@ import SettingsView from "@/components/settings/SettingsView.vue";
 import TabToolbar from "@/components/toolbar/TabToolbar.vue";
 import WorkspaceView from "@/components/workspace/WorkspaceView.vue";
 import { useKeyboardShortcuts } from "@/composables/useKeyboardShortcuts";
+import * as api from "@/services/api";
+import { useSettingsStore } from "@/stores/settings";
 import { useSystemStore } from "@/stores/system";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
@@ -17,10 +19,16 @@ import { useUiStore } from "@/stores/ui";
 const system = useSystemStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
+const settings = useSettingsStore();
 
 useKeyboardShortcuts();
 
 onMounted(async () => {
+  // 內建工具（目前只有 7-Zip）開機偵測一次；只填空白的執行檔，不覆蓋使用者填過的值。
+  void api
+    .detect7zip()
+    .then((path) => (path ? settings.applyDetected7zip(path) : undefined))
+    .catch(() => undefined);
   await system.load();
   tabs.bootstrap(system.startLocation);
 });

@@ -268,6 +268,13 @@ Notepad++、VS Code）可編輯但不能刪除，另有「恢復預設」。
 所有工具都由設定清單描述 —— 引數在前端展開變數後才送出。
 終端機類工具的做法是把 `workingDir` 設成目標資料夾（行程繼承工作目錄），
 不需要組 `cd /d "..."` 這種容易被引號規則咬到的命令字串。
+**（2026-10-08 追加）7-Zip 自動整合**：`加入到「$fileStem.zip」` 與
+`解壓縮至「$fileStem」` 兩個內建工具，執行檔留空、開機時由 `core::programs::find_7zip()`
+偵測標準安裝位置（`%ProgramFiles%` 系列下的 `7-Zip\7zG.exe`）後填進來，**只填空白**的值；
+標籤也吃樣板變數（選到 `report.docx` 就顯示「加入到「report.zip」」）。為此新增
+`$parentFolderPath`（上層資料夾）：資料夾目標的 `$fullFolderPath` 是資料夾自己，
+拿它當工作目錄會把 zip 建進資料夾裡（已實測）。工具多了 `enabled`／`single`／`autoDetect`
+三個篩選條件；既有使用者靠載入時的 `withBuiltins()` 補上新內建工具。
 
 ### 3.8 檢視器（2026-10-04 追加）
 

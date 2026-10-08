@@ -63,9 +63,69 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     icon: "code",
     builtin: true,
   },
+  /*
+   * 7-Zip 的兩項動作：執行檔留空，開機偵測到就自動填入（`applyDetected7zip`）。
+   * 沒填執行檔時不會出現在右鍵選單上（見 `utils/tools.ts` 的 toolMatches）。
+   */
+  {
+    id: "builtin-7zip-add",
+    label: "加入到「$fileStem.zip」",
+    executable: "",
+    args: ["a", "-tzip", "$fileStem.zip", "$fileName"],
+    // 工作目錄＝上層資料夾：zip 要建在項目旁邊。用資料夾自己當工作目錄會把 zip
+    // 建到資料夾裡面（7-Zip 會把它加進自己）。
+    workingDirectory: "$parentFolderPath",
+    newConsole: false,
+    targets: ["file", "folder"],
+    icon: "archive",
+    builtin: true,
+    autoDetect: "7zip",
+    single: true,
+  },
+  {
+    id: "builtin-7zip-extract",
+    label: "解壓縮至「$fileStem」",
+    executable: "",
+    args: ["x", "$fileName", "-o$fileStem"],
+    workingDirectory: "$fullFolderPath",
+    newConsole: false,
+    targets: ["file"],
+    extensions: [
+      ".zip",
+      ".zipx",
+      ".7z",
+      ".rar",
+      ".tar",
+      ".gz",
+      ".tgz",
+      ".bz2",
+      ".tbz",
+      ".xz",
+      ".txz",
+      ".cab",
+      ".iso",
+      ".wim",
+      ".arj",
+      ".lzh",
+      ".z",
+      ".lzma",
+    ],
+    icon: "archive",
+    builtin: true,
+    autoDetect: "7zip",
+    single: true,
+  },
 ];
 
-export const TOOL_ICONS = ["terminal", "code", "text", "program", "link", "externalLink"] as const;
+export const TOOL_ICONS = [
+  "terminal",
+  "code",
+  "text",
+  "program",
+  "archive",
+  "link",
+  "externalLink",
+] as const;
 
 export const ALL_COLUMNS: { id: ColumnId; label: string; sortable: SortKey | null; align?: "end" }[] = [
   { id: "name", label: "名稱", sortable: "name" },
@@ -208,6 +268,19 @@ function seedTools(raw: Partial<StoredSettings> & LegacySettings): ExternalTool[
   return tools;
 }
 
+/**
+ * 補上設定裡缺少的內建工具。
+ *
+ * 內建清單會隨版本增加（例如 7-Zip），但使用者的 `tools` 一旦存過就不會再讀
+ * `DEFAULT_TOOLS`；所以每次載入都檢查一輪，**只補 id 缺少的**，既有內容（含使用者
+ * 改過的路徑、引數）一律不動。
+ */
+function withBuiltins(tools: ExternalTool[]): ExternalTool[] {
+  const known = new Set(tools.map((tool) => tool.id));
+  const missing = DEFAULT_TOOLS.filter((tool) => !known.has(tool.id));
+  return missing.length ? [...tools, ...cloneTools(missing)] : tools;
+}
+
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -226,7 +299,7 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     ...DEFAULTS,
     ...raw,
     columns: columns.length ? columns : DEFAULTS.columns,
-    tools,
+    tools: withBuiltins(tools),
     fontFamily,
     fontSize,
     aliasTemplate,
@@ -493,6 +566,29 @@ export const useSettingsStore = defineStore("settings", () => {
     tools.value = [...cloneTools(DEFAULT_TOOLS), ...custom];
   }
 
+  /**
+   * 開機偵測到的 7-Zip 路徑。
+   *
+   * 只填**空白**的執行檔（見 `types/tools.ts` 的 `autoDetect`）：使用者自己指到
+   * 可攜版或其他版本時不會被蓋掉；要停用就把編輯頁的「啟用」關掉。
+   */
+  function applyDetected7zip(path: string) {
+    if (!path.trim()) {
+      return;
+    }
+    let changed = false;
+    const next = tools.value.map((tool) => {
+      if (tool.autoDetect !== "7zip" || tool.executable.trim()) {
+        return tool;
+      }
+      changed = true;
+      return { ...tool, executable: path };
+    });
+    if (changed) {
+      tools.value = next;
+    }
+  }
+
   return {
     themeMode,
     fontFamily,
@@ -540,6 +636,7 @@ export const useSettingsStore = defineStore("settings", () => {
     updateTool,
     removeTool,
     resetTools,
+    applyDetected7zip,
   };
 });
 

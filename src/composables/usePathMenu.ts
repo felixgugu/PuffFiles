@@ -74,6 +74,9 @@ export function usePathMenu() {
     return {
       fullFilePath: target.path,
       fullFolderPath,
+      // 資料夾目標的 `fullFolderPath` 是它自己，上層要另外算（7-Zip 這類要以
+      // 「項目放哪裡」為工作目錄的工具需要它）。
+      parentFolderPath: parentOf(target.path) ?? target.path,
       fileName,
       fileStem: fileStemOf(fileName),
       folderName: fileNameOf(fullFolderPath) || fullFolderPath,
@@ -151,11 +154,21 @@ export function usePathMenu() {
     return items;
   }
 
-  /** 外部工具：只留下對這組對象真正適用的。 */
-  function toolItems(targets: MenuTarget[]): MenuItem[] {
+  /**
+   * 外部工具：只留下對這組對象真正適用的。
+   *
+   * 標籤吃與引數同一組樣板變數：例如 `加入到「$fileStem.zip」` 在選到 `report.docx`
+   * 時會顯示成「加入到「report.zip」」；展開成空字串時退回原文。
+   */
+  function toolItems(targets: MenuTarget[], target: MenuTarget): MenuItem[] {
+    const vars = varsFor(target);
     return settings.tools
       .filter((tool) => toolMatches(tool, targets))
-      .map((tool) => ({ id: `tool:${tool.id}`, label: tool.label, icon: tool.icon }));
+      .map((tool) => ({
+        id: `tool:${tool.id}`,
+        label: applyVars(tool.label, vars) || tool.label,
+        icon: tool.icon,
+      }));
   }
 
   /** 只有分割時才提供的「送到另一邊」。 */
@@ -202,7 +215,7 @@ export function usePathMenu() {
     if (options.clipboard) {
       append(items, editItems("blank", options));
     }
-    append(items, toolItems([target]));
+    append(items, toolItems([target], target));
     append(items, copyPathItems());
     append(items, [revealItem()]);
     return items;
@@ -227,7 +240,7 @@ export function usePathMenu() {
     if (options.clipboard) {
       append(items, editItems("folder", options));
     }
-    append(items, toolItems([target]));
+    append(items, toolItems([target], target));
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem()]);
@@ -255,7 +268,7 @@ export function usePathMenu() {
     if (options.clipboard) {
       append(items, editItems("file", options));
     }
-    append(items, toolItems([target]));
+    append(items, toolItems([target], target));
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem()]);
@@ -273,7 +286,7 @@ export function usePathMenu() {
     if (options.clipboard) {
       append(items, editItems("multi", options));
     }
-    append(items, toolItems(request.targets));
+    append(items, toolItems(request.targets, request.target));
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem("在檔案總管中顯示右鍵的項目")]);

@@ -3,6 +3,7 @@
 pub mod dir;
 pub mod oplog;
 pub mod paths;
+pub mod programs;
 pub mod shell;
 pub mod viewer;
 pub mod watch;

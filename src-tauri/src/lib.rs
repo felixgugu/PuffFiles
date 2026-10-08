@@ -40,6 +40,7 @@ pub fn run() {
             commands::watch::unwatch_dir,
             commands::system::list_drives,
             commands::system::quick_locations,
+            commands::system::detect_7zip,
         ])
         .run(context)
         .expect("error while running tauri application");

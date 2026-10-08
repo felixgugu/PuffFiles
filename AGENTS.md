@@ -76,6 +76,7 @@ PuffFiles/
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
       │  ├─ paths.rs           # 應用資料與日誌位置（資料收在 %LOCALAPPDATA%\PuffFile，日誌跟執行檔）
+      │  ├─ programs.rs        # 偵測電腦上已安裝的外部程式（目前只有 7-Zip）
       │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
       │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
@@ -85,7 +86,7 @@ PuffFiles/
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
          ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
-         └─ system.rs          # list_drives、quick_locations
+         └─ system.rs          # list_drives、quick_locations、detect_7zip
 ```
 
 - **邊界規則**：`commands/` 只做參數驗證與呼叫 `core/`；與 WebView 無關的邏輯放在 `core/`，才能獨立測試。
@@ -157,8 +158,10 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 空白處的擴充選單只提供「貼上」（剪下／複製／刪除會作用在目前這個資料夾本身，不提供）。
 左側資料夾樹是書籤清單、不直接操作實體檔案，因此不顯示剪貼組，也不提供重新命名。
 「重新命名」由 `FileListView` 攔截選單 id `rename` 與 F2 就地編輯，不經過 `run()`，見 §3.6。
-外部工具依 `toolMatches()`（顯示於檔案／資料夾、副檔名篩選）過濾；樹的節點選單另外由
-`FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
+外部工具依 `toolMatches()` 過濾：顯示於檔案／資料夾、副檔名篩選，再加上三個開關 ——
+`enabled`（關掉就不出現）、`single`（只在單選時出現）與 `autoDetect`（執行檔空白時
+還不出現，等開機偵測填進來，見下）；樹的節點選單另外由 `FolderTreePanel` 組
+（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
 
 「複製到另一窗格／移動到另一窗格」執行前會以 `ui.confirm` 彈窗，訊息列出**來源窗格與
 路徑**、**目標窗格與路徑**以及會作用的項目數量與名稱，按確定才動手 —— 避免左右／上下
@@ -323,6 +326,31 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   選取時底色讓給 `bg-accent-soft`、色條保留；狀態列每一行顯示「僅此窗格 N · 不同 M」，
   數的是**可見列**（看到什麼就數什麼）。顏色權杖是 `main.css` 的 `--color-compare-*`
   （淺／深各一組，底色亮度比照 `accent-soft`，文字對比不掉）。
+
+### 3.8 外部工具（含 7-Zip 自動整合）
+
+外部工具是設定清單裡的一組描述（`types/tools.ts`）：執行檔、引數與工作目錄都吃樣板變數
+（`utils/toolVars.ts`）。`usePathMenu` 的 `toolItems()` 先用 `toolMatches()` 篩選，再放進
+右鍵選單；**標籤也吃同一組變數**（`加入到「$fileStem.zip」` 會顯示成「加入到「報告.zip」」），
+引數在 `runTool()` 展開後交給後端唯一的通用命令 `run_external`。
+
+- **變數**：`$fullFilePath`／`$fullFolderPath`／`$parentFolderPath`／`$fileName`／
+  `$fileStem`／`$folderName`，都可加 `1`（左／上窗格）或 `2`（右／下窗格）。
+  資料夾目標的 `$fullFolderPath` 是資料夾**自己**（終端機類要在裡面開），
+  要「把結果放在項目旁邊」的工具得用 `$parentFolderPath`（上層；檔案目標時＝所在資料夾）。
+- **篩選**：`targets`（檔案／資料夾）、`extensions`（副檔名），再加上 `enabled`
+  （關掉就不出現）、`single`（只在單選時出現）與 `autoDetect`（執行檔還是空白的自動偵測
+  工具先不出現）。
+- **7-Zip**：內建 `builtin-7zip-add`（`加入到「$fileStem.zip」`，工作目錄
+  `$parentFolderPath`、`7zG.exe a -tzip`）與 `builtin-7zip-extract`（`解壓縮至「$fileStem」`、
+  `7zG.exe x -o<主檔名>`，只出現在常見壓縮檔副檔名上），兩者 `single: true`、執行檔留空。
+  啟動時 `AppShell` 呼叫 `api.detect7zip()`（後端 `core::programs::find_7zip()` 查
+  `%ProgramFiles%`／`%ProgramFiles(x86)%`／`%ProgramW6432%` 下的 `7-Zip\7zG.exe`），
+  `settings.applyDetected7zip()` **只填空白**的執行檔 —— 使用者自己指到可攜版不會被蓋掉，
+  要停用就關掉編輯頁的「啟用」。刻意用 GUI 版 `7zG.exe`，進度、衝突與錯誤都由 7-Zip
+  自己的對話框呈現；也刻意不查登錄檔，自訂安裝位置由使用者填路徑。
+- **新增內建工具要讓既有使用者拿到**：`settings` 載入時 `withBuiltins()` 補上
+  `DEFAULT_TOOLS` 裡缺少的 id（只補缺的，既有內容含使用者改過的路徑都不動）。
 
 ## 4. 開發與修改規範
 

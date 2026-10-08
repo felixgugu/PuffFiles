@@ -40,6 +40,17 @@ export function toolMatches(tool: ExternalTool, targets: ToolCandidate[]): boole
     return false;
   }
 
+  // 停用、只在單選出現卻選了一堆、以及還沒偵測到執行檔的自動偵測工具都不顯示。
+  if (tool.enabled === false) {
+    return false;
+  }
+  if (tool.single && targets.length > 1) {
+    return false;
+  }
+  if (tool.autoDetect && !tool.executable.trim()) {
+    return false;
+  }
+
   const hasFile = targets.some((target) => !target.isDir);
   const hasFolder = targets.some((target) => target.isDir);
   if (hasFile && !tool.targets.includes("file")) {

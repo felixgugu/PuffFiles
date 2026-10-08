@@ -27,6 +27,9 @@ function snapshot(tool: ExternalTool): string {
     tool.targets,
     tool.extensions ?? [],
     tool.icon,
+    tool.enabled !== false,
+    tool.single === true,
+    tool.autoDetect ?? "",
   ]);
 }
 
@@ -51,6 +54,7 @@ function blankTool(): ExternalTool {
     targets: ["file"],
     extensions: [],
     icon: "program",
+    enabled: true,
   };
 }
 
@@ -88,7 +92,9 @@ export const useToolEditorStore = defineStore("toolEditor", () => {
     if (!draft.value.label.trim()) {
       result.label = "請填寫選單名稱";
     }
-    if (!draft.value.executable.trim()) {
+    // 自動偵測的工具（內建 7-Zip）執行檔可以留空：留空＝還沒偵測到，不算錯誤，
+    // 否則使用者想把工具關掉時會卡在儲存不了。
+    if (!draft.value.executable.trim() && !draft.value.autoDetect) {
       result.executable = "請填寫執行檔，例如 pwsh.exe 或完整路徑";
     }
     return result;

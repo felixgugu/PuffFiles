@@ -4,6 +4,19 @@ use crate::model::{DriveInfo, DriveKind, QuickLocation};
 use std::path::PathBuf;
 use sysinfo::{DiskKind as SysDiskKind, Disks};
 
+/// 偵測本機安裝的 7-Zip，回傳執行檔的完整路徑；找不到回 `null`。
+///
+/// 只查標準安裝位置（見 `core::programs`）—— 自訂位置由使用者在設定頁填路徑。
+#[tauri::command]
+pub async fn detect_7zip() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::core::programs::find_7zip().map(|path| crate::core::display_path(&path))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// 列出本機所有磁碟機 / 裝載點。
 #[tauri::command]
 pub async fn list_drives() -> Vec<DriveInfo> {
