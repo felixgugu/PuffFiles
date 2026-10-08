@@ -13,8 +13,8 @@ use std::path::PathBuf;
 const MAX_BYTES: u64 = 512 * 1024;
 
 fn log_dir() -> Option<PathBuf> {
-    let base = dirs::data_local_dir()?;
-    let dir = base.join("PuffFile").join("logs");
+    // 操作紀錄跟著執行檔走（見 `core::paths`；不可寫時那裡已處理回退）。
+    let dir = crate::core::paths::log_dir();
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }

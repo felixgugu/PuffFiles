@@ -7,6 +7,13 @@ pub use error::{AppError, AppResult};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    // WebView2 的設定檔（EBWebView）檔案很多，放在執行檔旁邊太亂，所以應用資料
+    // 統一收在使用者設定檔 %LOCALAPPDATA%\PuffFile（見 `core::paths`）。
+    context.config_mut().app.app_directories_override = Some(
+        tauri::utils::config::AppDirectoriesOverride::Root(core::paths::app_data_root()),
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -34,6 +41,6 @@ pub fn run() {
             commands::system::list_drives,
             commands::system::quick_locations,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

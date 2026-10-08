@@ -120,6 +120,10 @@ pub async fn save_binary_file(path: String, base64: String) -> AppResult<()> {
 ///
 /// 引數與工作目錄都由前端依樣板展開（例如 `$fullFolderPath`），
 /// 這裡只負責把程式找出來、把引號處理正確、用正確的主控台模式啟動。
+///
+/// 「按了沒反應」時最難查的就是後端到底送了什麼，所以啟動與結果都寫進操作
+/// 紀錄（`core::oplog`，設定頁看得到）。`args` 逐項以 ` | ` 分隔，設定時把
+/// 多個引數擠在同一行的錯誤一眼就看得出（只會有一個項目）。
 #[tauri::command]
 pub async fn run_external(
     program: String,
@@ -128,8 +132,37 @@ pub async fn run_external(
     new_console: bool,
 ) -> AppResult<()> {
     run_blocking(move || {
-        let command = build_command(&program, &args, working_dir.as_deref(), new_console)?;
-        spawn(command, &program)
+        let (command, display) =
+            match build_command(&program, &args, working_dir.as_deref(), new_console) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    core::oplog::write(
+                        "TOOL",
+                        "fail",
+                        &format!(
+                            "program={program:?} dir={working_dir:?} console={new_console} err={error}"
+                        ),
+                    );
+                    return Err(error);
+                }
+            };
+
+        let detail = format!(
+            "program={program:?} dir={working_dir:?} console={new_console} cmd={display} args=[{}]",
+            args.join(" | ")
+        );
+        core::oplog::write("TOOL", "start", &detail);
+
+        match spawn(command, &program) {
+            Ok(()) => {
+                core::oplog::write("TOOL", "ok", &detail);
+                Ok(())
+            }
+            Err(error) => {
+                core::oplog::write("TOOL", "fail", &format!("{detail} err={error}"));
+                Err(error)
+            }
+        }
     })
     .await
 }
@@ -139,13 +172,16 @@ const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// 組出一個「還沒啟動」的行程，方便測試直接檢查命令列。
+///
+/// 回傳 `(行程, 可讀命令列)`；命令列已把執行檔解析成完整路徑、引數逐一加引號，
+/// 只給操作紀錄顯示用（實際啟動仍走上方的 `Command`）。
 #[cfg(windows)]
 fn build_command(
     program: &str,
     args: &[String],
     working_dir: Option<&str>,
     new_console: bool,
-) -> AppResult<std::process::Command> {
+) -> AppResult<(std::process::Command, String)> {
     use std::os::windows::process::CommandExt;
 
     let program = program.trim();
@@ -164,7 +200,7 @@ fn build_command(
         Some("cmd") | Some("bat")
     );
 
-    let mut command = if is_script {
+    let (mut command, display) = if is_script {
         // `.cmd` / `.bat` 不是執行檔映像，CreateProcess 不能直接跑，必須交給 cmd.exe。
         let mut line = quote_arg(&exe.to_string_lossy());
         for arg in args {
@@ -175,11 +211,16 @@ fn build_command(
         command.raw_arg("/C");
         // cmd 的規則：/C 後面的命令列以引號開頭時會吃掉頭尾引號，所以要再包一層。
         command.raw_arg(format!("\"{line}\""));
-        command
+        (command, format!("cmd.exe /C \"{line}\""))
     } else {
         let mut command = std::process::Command::new(&exe);
         command.args(args);
-        command
+        let mut display = quote_arg(&exe.to_string_lossy());
+        for arg in args {
+            display.push(' ');
+            display.push_str(&quote_arg(arg));
+        }
+        (command, display)
     };
 
     if let Some(directory) = working_dir.map(str::trim).filter(|value| !value.is_empty()) {
@@ -198,7 +239,7 @@ fn build_command(
         CREATE_NO_WINDOW
     });
 
-    Ok(command)
+    Ok((command, display))
 }
 
 #[cfg(not(windows))]
@@ -207,7 +248,7 @@ fn build_command(
     _args: &[String],
     _working_dir: Option<&str>,
     _new_console: bool,
-) -> AppResult<std::process::Command> {
+) -> AppResult<(std::process::Command, String)> {
     Err(AppError::Unsupported {
         feature: "外部工具（僅支援 Windows）".to_string(),
     })
@@ -476,7 +517,7 @@ mod tests {
         std::fs::create_dir_all(&project).expect("project dir");
         let argument = project.join("file.txt").to_string_lossy().into_owned();
 
-        let mut command = build_command(
+        let (mut command, _display) = build_command(
             &script.to_string_lossy(),
             std::slice::from_ref(&argument),
             Some(&dir.to_string_lossy()),

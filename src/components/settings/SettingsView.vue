@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { IconName } from "@/components/common/icons";
 import ShortcutList from "./ShortcutList.vue";
@@ -68,6 +68,19 @@ async function loadLog() {
     ui.showNotice(normalizeBackendError(cause).message);
   }
 }
+
+/** 「關於」頁要顯示實際的日誌路徑（可能因回退而不同），掛載時先取一次。 */
+async function loadLogPath() {
+  try {
+    logPath.value = await api.operationLogPath();
+  } catch {
+    // 純顯示用，取不到就維持空字串，紀錄頁開啟時會再試一次。
+  }
+}
+
+onMounted(() => {
+  void loadLogPath();
+});
 
 watch(section, (value) => {
   if (value === "log") {
@@ -393,7 +406,7 @@ async function selectSection(id: SectionId) {
           <!-- 紀錄：撐滿可用高度（高度交給 flex 算，不必自己減一整串固定高度） -->
           <div v-else-if="section === 'log'" class="flex min-h-0 flex-1 flex-col gap-3">
             <div class="flex items-center justify-between">
-              <h3 class="text-base font-semibold text-ink">檔案操作紀錄</h3>
+              <h3 class="text-base font-semibold text-ink">操作紀錄</h3>
               <div class="flex items-center gap-1">
                 <button
                   type="button"
@@ -414,8 +427,8 @@ async function selectSection(id: SectionId) {
             </div>
 
             <p class="text-sm leading-relaxed text-ink-muted">
-              剪下、複製、貼上與刪除的每一次操作、結果與錯誤都寫在這裡。
-              紀錄只存在本機，不會上傳；超過 512 KB 會自動輪替成舊檔。
+              剪下、複製、貼上與刪除的每一次操作、結果與錯誤，以及外部工具的啟動命令，
+              都寫在這裡。紀錄只存在本機，不會上傳；超過 512 KB 會自動輪替成舊檔。
             </p>
 
             <pre
@@ -458,12 +471,12 @@ async function selectSection(id: SectionId) {
               </div>
               <div class="flex gap-3">
                 <dt class="w-24 shrink-0 text-ink-faint">設定存放</dt>
-                <dd>本機 localStorage，不會上傳</dd>
+                <dd>%LOCALAPPDATA%\PuffFile（本機，不會上傳）</dd>
               </div>
               <div class="flex gap-3">
                 <dt class="w-24 shrink-0 text-ink-faint">操作紀錄</dt>
                 <dd class="min-w-0 break-all">
-                  %LOCALAPPDATA%\PuffFile\logs\file-ops.log（超過 512 KB 自動輪替）
+                  {{ logPath || "讀取中…" }}（超過 512 KB 自動輪替）
                 </dd>
               </div>
             </dl>

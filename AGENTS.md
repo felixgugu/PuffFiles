@@ -73,10 +73,11 @@ PuffFiles/
       ├─ model.rs              # FileEntry / DirListing / DirEvent / ViewerEvent / DriveInfo / QuickLocation
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
+      │  ├─ paths.rs           # 應用資料與日誌位置（資料收在 %LOCALAPPDATA%\PuffFile，日誌跟執行檔）
       │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
       │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
-      │  └─ oplog.rs           # 檔案操作紀錄（%LOCALAPPDATA%\PuffFile\logs）
+      │  └─ oplog.rs           # 檔案操作紀錄（<資料根>\logs）
       └─ commands/
          ├─ fs.rs              # list_dir_stream、list_subdirs、建立資料夾／檔案、外部工具、reveal
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
@@ -293,6 +294,12 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   不要另造同義詞（例如把「左右分割」寫成「垂直分割」）。
 - **檔案系統路徑**：Rust 端回傳的是 `display_path()` 處理過的一般路徑（去掉 `\\?\`）；
   要交給 Shell API 前若拿到 canonicalize 的結果，務必先過 `display_path()`，否則會踩 `0x80070057`。
+- **應用資料位置**：設定、瀏覽紀錄等（WebView2 的 localStorage）收在使用者設定檔
+  `%LOCALAPPDATA%\PuffFile`，不跟執行檔走 —— `EBWebView` 是完整 Chromium profile，放在 exe
+  旁邊會多出上百個檔案。只有操作紀錄這類單檔跟著執行檔走（`<執行檔>\logs`），該處不可寫時
+  回退到 `%LOCALAPPDATA%\PuffFile\logs`。位置只有一個來源 `core::paths`（`app_data_root()`／
+  `log_dir()`）：`lib.rs` 用它設定 Tauri 的 `appDirectoriesOverride`，`oplog` 用它決定日誌位置。
+  **新增任何落地檔案時一律經過它**，不要直接用 `%LOCALAPPDATA%` 或 `dirs::data_local_dir()`。
 
 ## 5. 版面區塊與命名用語
 

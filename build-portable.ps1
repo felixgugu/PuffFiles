@@ -194,7 +194,7 @@ else {
     Write-Host "  2. 單一檔案：把 PuffFile.exe 複製到任何 Windows 10/11 電腦或隨身碟即可執行。" -ForegroundColor Green
 }
 Write-Host "  3. 需要系統的 WebView2 Runtime（Windows 11 內建；Windows 10 多半已隨 Edge 更新安裝）。" -ForegroundColor White
-Write-Host "  4. 設定與瀏覽紀錄存在使用者設定檔（%LOCALAPPDATA%），不會跟著執行檔移動。" -ForegroundColor White
+Write-Host "  4. 設定與瀏覽紀錄存在 %LOCALAPPDATA%\PuffFile；操作紀錄在執行檔同層的 logs\。" -ForegroundColor White
 Write-Host "========================================================================" -ForegroundColor Cyan
 Write-Host ""
 

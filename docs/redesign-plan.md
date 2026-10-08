@@ -137,6 +137,12 @@ AppShell
 | 工作階段 | 啟動時還原上次分頁 |
 | 關於 | 版號（唯一來源 `package.json`，由 `src/version.ts` 內嵌）、外部工具數量、設定存放位置、操作紀錄路徑、**快速鍵一覽**（資料在 `utils/shortcuts.ts`，分頁／導覽／檢視器／選取／剪貼簿／對話框六組） |
 
+**資料位置**：設定、瀏覽紀錄等（WebView2 的 localStorage）收在使用者設定檔 `%LOCALAPPDATA%\PuffFile`，
+不跟執行檔走 —— `EBWebView` 是完整 Chromium profile，放在 exe 旁邊會多出上百個檔案。只有操作紀錄
+這類單檔跟著執行檔走（`<執行檔>\logs`），exe 所在位置不可寫時才回退到 `%LOCALAPPDATA%\PuffFile\logs`。
+位置只有一個來源 `core::paths`（`app_data_root()`／`log_dir()`）：`lib.rs` 用它設定 Tauri 的
+`appDirectoriesOverride`，`oplog` 用它決定 `logs\file-ops.log`。
+
 版面：左側分類固定 176px，內容**緊接其右（左靠，不置中）**、上限 768px，所以視窗最大化時
 不會在分類與表單之間拉出大片空白；區塊之間以 `--color-line` 畫一條分隔線分段，區塊的次要動作
 （重設字型、重設顯示格式、重設欄寬）統一放在標題列右側。
