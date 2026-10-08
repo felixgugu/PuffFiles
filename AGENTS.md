@@ -260,6 +260,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **讀取**：`services/api.ts` 的 `readViewerFile` → 後端 `read_viewer_file`
   （`core/viewer.rs`）。文字回編碼後的字串片段（UTF-8 → Big5／GBK → lossy），
   圖片回 base64 片段（每塊 3 的倍數，可直接串接）；**不設大小上限**。
+  **文字一律先正規化換行**（`\r\n` 與單獨的 `\r` 都收成 `\n`，`viewer.rs` 的
+  `normalize_newlines()`）：高亮結果會經過 `v-html` 交給 HTML 剖析，而 hljs 會把
+  `<span>` 插在 `\r`／`\n` 之間，被拆開的 `\r\n` 會讓畫面每行多一個空白行（見 §11）。
 - **關閉時機**：Esc、標頭關閉鈕、窗格被銷毀、以及任何「使用者主動換位置」的導覽
   （`explorer.navigate／goBack／goForward／goUp`）。清單類的重新整理（剪貼簿完成後的
   `refreshPanes`）刻意不關閉檢視器。

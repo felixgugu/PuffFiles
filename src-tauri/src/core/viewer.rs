@@ -67,6 +67,7 @@ pub fn read_text(path: &Path) -> AppResult<TextFile> {
 
     let bytes = fs::read(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
     let (text, encoding) = decode_text(&bytes);
+    let text = normalize_newlines(&text);
 
     Ok(TextFile {
         path: display_path(&resolved),
@@ -146,6 +147,33 @@ pub fn decode_text(bytes: &[u8]) -> (String, &'static str) {
     } else {
         (big5.into_owned(), "Big5")
     }
+}
+
+/// 把換行統一成 `\n`：`\r\n` 與單獨的 `\r` 都收成一個換行，真正的空行照舊保留。
+///
+/// 檢視器的語法高亮結果會經過 `v-html`（等於 `innerHTML`）交給 HTML 剖析，而 hljs
+/// 會把 `<span>` 插在 `\r` 與 `\n` 之間（例如行註解那個 span 以 `\n` 開頭）。被拆開的
+/// `\r\n` 不再成對，孤立的 `\r` 會被剖析器當成另一次換行，畫面就每行多一個空白行。
+/// 原始碼在進高亮之前先正規化，這條路徑就不會踩到。
+fn normalize_newlines(text: &str) -> String {
+    if !text.contains('\r') {
+        return text.to_string();
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char != '\r' {
+            out.push(char);
+            continue;
+        }
+        // CRLF 算一個換行；單獨的 CR 也當一個換行（舊 Mac 的存檔方式）。
+        if chars.peek() == Some(&'\n') {
+            chars.next();
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// 由 NUL 的分佈猜測沒有 BOM 的 UTF-16；猜不出來時回 `None`。
@@ -344,6 +372,45 @@ mod tests {
             assert!(chunk.len() <= TEXT_CHUNK_BYTES + 3, "單塊不該超出上限太多");
             assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
         }
+    }
+
+    #[test]
+    fn normalizes_crlf_and_lone_cr_to_lf() {
+        assert_eq!(normalize_newlines("a\r\nb\rc\n"), "a\nb\nc\n");
+        // 真正的空行要保留（`\r\n\r\n` 是兩個換行，不是一個）。
+        assert_eq!(normalize_newlines("a\n\nb\r\n\r\nc"), "a\n\nb\n\nc");
+        assert_eq!(normalize_newlines("沒有換行"), "沒有換行");
+    }
+
+    #[test]
+    fn reads_crlf_file_as_lf_only() {
+        let root = scratch("crlf");
+        let file = root.join("script.bat");
+        fs::write(&file, "@echo off\r\nrem hi\r\n").expect("write");
+
+        let text = read_text(&file).expect("read text");
+        assert_eq!(text.text, "@echo off\nrem hi\n");
+        assert!(!text.text.contains('\r'), "檢視器的文字不該留下 CR");
+        assert_eq!(text.size, 19, "size 仍然是檔案的位元組數");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn normalizes_utf16_line_endings() {
+        let root = scratch("utf16-crlf");
+        let file = root.join("note.txt");
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in "a\r\nb\r\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        fs::write(&file, &bytes).expect("write");
+
+        let text = read_text(&file).expect("read text");
+        assert_eq!(text.encoding, "UTF-16LE");
+        assert_eq!(text.text, "a\nb\n");
+
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]
