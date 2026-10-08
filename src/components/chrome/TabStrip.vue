@@ -3,10 +3,13 @@ import { ref, useTemplateRef } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
+import { useViewerStore } from "@/stores/viewer";
+import type { TabState } from "@/types/fs";
 import { layoutIcon, layoutLabel } from "@/utils/layout";
 
 const tabs = useTabsStore();
 const explorer = useExplorerStore();
+const viewer = useViewerStore();
 
 const strip = useTemplateRef<HTMLElement>("strip");
 
@@ -19,14 +22,27 @@ interface DragSession {
 let drag: DragSession | null = null;
 const draggingIndex = ref(-1);
 
-function titleOf(tabId: string, paneId: string): string {
-  void tabId;
-  const pane = explorer.meta(paneId);
+/**
+ * 分頁標題：預設是焦點窗格的資料夾名稱；檢視器「放到最大」時改用檢視器的檔名
+ * ——那時另一窗格在畫面上已收合成 0，分頁的內容就是這份文件。
+ */
+function titleOf(tab: TabState): string {
+  const maximized = tab.maximizedPaneId ? viewer.of(tab.maximizedPaneId) : null;
+  if (maximized) {
+    return maximized.name;
+  }
+  const pane = explorer.meta(tab.activePaneId);
   return pane?.currentName || pane?.currentPath || "新分頁";
 }
 
 function pathOf(paneId: string): string {
   return explorer.meta(paneId)?.currentPath ?? "";
+}
+
+/** 分頁 hover 提示：放到最大時指向檢視器的檔案路徑。 */
+function tabTooltip(tab: TabState): string {
+  const maximized = tab.maximizedPaneId ? viewer.of(tab.maximizedPaneId) : null;
+  return `${maximized?.path ?? pathOf(tab.activePaneId)}　·　${layoutLabel(tab)}`;
 }
 
 function onPointerDown(event: PointerEvent, index: number) {
@@ -115,7 +131,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
           : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink',
         draggingIndex === index ? 'z-10 scale-[1.04] opacity-90 shadow-md' : '',
       ]"
-      :title="`${pathOf(tab.activePaneId)}　·　${layoutLabel(tab)}`"
+      :title="tabTooltip(tab)"
       @pointerdown="onPointerDown($event, index)"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp($event, tab.id)"
@@ -128,7 +144,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
         class="shrink-0"
         :class="tab.id === tabs.activeTabId ? 'text-accent' : 'text-ink-faint'"
       />
-      <span class="min-w-0 flex-1 truncate text-sm">{{ titleOf(tab.id, tab.activePaneId) }}</span>
+      <span class="min-w-0 flex-1 truncate text-sm">{{ titleOf(tab) }}</span>
       <button
         data-tab-close
         type="button"

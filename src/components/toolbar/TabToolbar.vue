@@ -41,36 +41,39 @@ const slotLabel = computed(() =>
 const layoutOptions = computed(() => {
   const tab = tabs.activeTab;
   const split = (tab?.paneIds.length ?? 0) > 1;
+  const maximized = tab?.maximizedPaneId != null;
   const direction = tab?.direction ?? "row";
   const rowActive = split && direction === "row";
   const columnActive = split && direction === "column";
   const remembered = settings.lastSplit.path;
   /** 讓使用者按之前就知道新窗格會開在哪 —— 不要自作主張。 */
   const hint = remembered ? `（新窗格：${fileNameOf(remembered) || remembered}）` : "";
+  /** 放到最大時版面被檢視器佔用，先請使用者還原再改版面。 */
+  const blocked = maximized ? "（放到最大中，請先還原）" : "";
 
   return [
     {
       id: "single",
       icon: "layoutSingle" as const,
       current: !split,
-      enabled: split,
-      title: split ? "取消分割，回到單一窗格" : "單一窗格（目前）",
+      enabled: split && !maximized,
+      title: split ? `取消分割，回到單一窗格${blocked}` : "單一窗格（目前）",
       run: () => tabs.unsplit(),
     },
     {
       id: "row",
       icon: "splitColumns" as const,
       current: rowActive,
-      enabled: !rowActive,
-      title: rowActive ? "左右分割（目前）" : `左右分割${hint} (Ctrl+\\)`,
+      enabled: !rowActive && !maximized,
+      title: rowActive ? "左右分割（目前）" : `左右分割${hint} (Ctrl+\\)${blocked}`,
       run: () => tabs.split("row"),
     },
     {
       id: "column",
       icon: "splitRows" as const,
       current: columnActive,
-      enabled: !columnActive,
-      title: columnActive ? "上下分割（目前）" : `上下分割${hint} (Ctrl+Shift+\\)`,
+      enabled: !columnActive && !maximized,
+      title: columnActive ? "上下分割（目前）" : `上下分割${hint} (Ctrl+Shift+\\)${blocked}`,
       run: () => tabs.split("column"),
     },
   ];
@@ -156,11 +159,14 @@ const swapButton = computed(() => {
   const tab = tabs.activeTab;
   const split = (tab?.paneIds.length ?? 0) > 1;
   const direction = tab?.direction ?? "row";
+  const maximized = tab?.maximizedPaneId != null;
   return {
     icon: swapIcon(direction),
-    enabled: split && !tabs.collapsing,
+    enabled: split && !tabs.collapsing && !maximized,
     title: split
-      ? `交換${direction === "row" ? "左右" : "上下"}窗格`
+      ? maximized
+        ? "交換窗格（放到最大中，請先還原）"
+        : `交換${direction === "row" ? "左右" : "上下"}窗格`
       : "交換窗格（需先分割）",
   };
 });

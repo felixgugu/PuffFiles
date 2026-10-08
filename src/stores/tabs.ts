@@ -58,6 +58,7 @@ export const useTabsStore = defineStore("tabs", () => {
       direction,
       activePaneId: paneIds[0],
       ratio,
+      maximizedPaneId: null,
     };
   }
 
@@ -171,6 +172,8 @@ export const useTabsStore = defineStore("tabs", () => {
     if (!tab || tab.paneIds.length < 2) {
       return;
     }
+    // 放到最大本身的視覺會和收合動畫搶版面，先還原回正常分割再收。
+    tab.maximizedPaneId = null;
     // 檢視器是暫時的：收起分割時優先留下檔案清單那一邊，兩邊都是檢視器才留焦點窗格。
     if (viewer.isOpen(tab.activePaneId)) {
       const other = tab.paneIds.find((id) => id !== tab.activePaneId);
@@ -243,6 +246,43 @@ export const useTabsStore = defineStore("tabs", () => {
     }
     tab.paneIds = [...tab.paneIds].reverse();
     tab.ratio = 1 - tab.ratio;
+  }
+
+  /** 某個窗格是不是「放到最大」的那一個（只在目前分頁成立）。 */
+  function isMaximizedPane(paneId: PaneId): boolean {
+    return activeTab.value?.maximizedPaneId === paneId;
+  }
+
+  /**
+   * 檢視器「放到最大」：記下是哪一個窗格，另一窗格在畫面上收合成 0。
+   *
+   * 只有在分割（≥2 窗格）時才有意義；`tab.ratio` 完全不動，所以還原時
+   * 回得到精確的原寬（見 `WorkspaceView` 的 `maximizeSpring`）。
+   */
+  function maximizePane(paneId: PaneId) {
+    const tab = activeTab.value;
+    if (!tab || tab.paneIds.length < 2 || !tab.paneIds.includes(paneId)) {
+      return;
+    }
+    tab.maximizedPaneId = paneId;
+    tab.activePaneId = paneId;
+  }
+
+  /** 還原被放大的窗格：另一窗格回到原本的寬度。 */
+  function restorePane() {
+    const tab = activeTab.value;
+    if (tab) {
+      tab.maximizedPaneId = null;
+    }
+  }
+
+  /** 檢視器標題列的切換鈕：同一個窗格再按一次＝還原。 */
+  function toggleMaximize(paneId: PaneId) {
+    if (isMaximizedPane(paneId)) {
+      restorePane();
+    } else {
+      maximizePane(paneId);
+    }
   }
 
   function snapshot(): SessionSnapshot {
@@ -365,6 +405,33 @@ export const useTabsStore = defineStore("tabs", () => {
     },
   );
 
+  /**
+   * 「放到最大」是檢視器的暫時狀態：檢視器一關（Esc／關閉鈕／導覽離開）或窗格消失，
+   * 就自動還原分割與分頁標題。集中在這裡處理，其他呼叫端不必各自記得收拾。
+   *
+   * 用預設的 `flush`（microtask 批次）而非同步：`viewer.open()` 會先 `close()` 舊狀態
+   * 再同步寫入新的，同步 watcher 會在中間誤判「檢視器已關」。
+   */
+  watch(
+    () =>
+      tabs.value
+        .filter(
+          (tab) =>
+            tab.maximizedPaneId !== null &&
+            (!tab.paneIds.includes(tab.maximizedPaneId) || !viewer.isOpen(tab.maximizedPaneId)),
+        )
+        .map((tab) => tab.id)
+        .join("|"),
+    () => {
+      for (const tab of tabs.value) {
+        const id = tab.maximizedPaneId;
+        if (id !== null && (!tab.paneIds.includes(id) || !viewer.isOpen(id))) {
+          tab.maximizedPaneId = null;
+        }
+      }
+    },
+  );
+
   /** 套用一筆歷史版面：一個路徑＝單窗導覽，兩個路徑＝重建整個分割。 */
   function applyLayout(paths: string[], direction?: SplitDirection) {
     const tab = activeTab.value;
@@ -409,6 +476,10 @@ export const useTabsStore = defineStore("tabs", () => {
     setRatio,
     otherPaneId,
     swapPanes,
+    isMaximizedPane,
+    maximizePane,
+    restorePane,
+    toggleMaximize,
     bootstrap,
     reloadAll,
     applyLayout,

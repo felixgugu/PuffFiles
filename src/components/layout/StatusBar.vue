@@ -21,7 +21,14 @@ const compare = useCompareStore();
 
 const isMock = !isDesktopRuntime();
 
-const paneIds = computed<PaneId[]>(() => tabs.activeTab?.paneIds ?? []);
+const paneIds = computed<PaneId[]>(() => {
+  const tab = tabs.activeTab;
+  // 放到最大時另一窗格在畫面上已收成 0，狀態列也只剩被放大的那一行。
+  if (tab?.maximizedPaneId) {
+    return [tab.maximizedPaneId];
+  }
+  return tab?.paneIds ?? [];
+});
 const isSplit = computed(() => paneIds.value.length > 1);
 const activePane = computed(() => explorer.meta(tabs.activePaneId));
 

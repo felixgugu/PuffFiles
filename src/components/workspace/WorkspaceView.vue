@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useTemplateRef, watch } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import FolderTreePanel from "@/components/tree/FolderTreePanel.vue";
 import BrowserPane from "./BrowserPane.vue";
@@ -7,6 +7,7 @@ import { useDragGesture } from "@/composables/useDragGesture";
 import { useSpringValue } from "@/composables/useSpringValue";
 import { useSettingsStore } from "@/stores/settings";
 import { MAX_RATIO, MIN_RATIO, useTabsStore } from "@/stores/tabs";
+import type { PaneId } from "@/types/fs";
 import { rubberband, SPRINGS } from "@/utils/spring";
 
 /**
@@ -35,14 +36,63 @@ const showTree = computed(() => !settings.treeCollapsed);
 const ratioSpring = useSpringValue(0.5, SPRINGS.panel);
 
 /**
+ * 檢視器「放到最大」：另一窗格收合到 0 的進度（0＝正常分割、1＝另一邊完全隱藏）。
+ *
+ * 刻意與 `ratioSpring` 分開 —— `tab.ratio` 完全不動，還原時才回得到精確的原寬。
+ * `animatedPaneId` 記的是「正在（或剛）放大的窗格」：還原時 store 的
+ * `maximizedPaneId` 會先變 `null`，但動畫還要靠它才知道是哪一邊在滑回去；
+ * 當進度回到 0 時，下面的公式本來就會收斂成 `ratio`，不必額外清理。
+ */
+const maximizeSpring = useSpringValue(0, SPRINGS.panel);
+/** 彈簧目前的數值（0～1 的進度）；`useSpringValue` 回傳的是 ref。 */
+const maximizeProgress = maximizeSpring.value;
+const animatedPaneId = ref<PaneId | null>(null);
+const maximizedPaneId = computed(() => tabs.activeTab?.maximizedPaneId ?? null);
+/** 收合／展開動畫進行中（含停在最大）：用來決定是否裁切溢出的窗格內容。 */
+const maximizing = computed(() => maximizeProgress.value > 0.001);
+
+// 切換分頁時直接跳到該分頁的狀態，不讓上一頁的最大化在切換瞬間滑動。
+watch(
+  () => tabs.activeTabId,
+  () => {
+    const id = tabs.activeTab?.maximizedPaneId ?? null;
+    animatedPaneId.value = id;
+    maximizeSpring.jump(id ? 1 : 0);
+  },
+);
+
+watch(
+  () => tabs.activeTab?.maximizedPaneId ?? null,
+  (id) => {
+    if (id) {
+      animatedPaneId.value = id;
+    }
+    maximizeSpring.set(id ? 1 : 0);
+  },
+);
+
+/**
  * 分割時每個窗格容器的位置與大小。
  *
  * 位置用 flex `order` 指定（第一個窗格 0、分隔線 1、第二個窗格 2），這樣分隔線即使
  * 排在 DOM 最後也仍夾在兩者之間；第一個窗格的佔比由 `ratio` 決定，第二個吃剩下的。
+ *
+ * 「放到最大」時改寫第一個窗格的 flex-basis：它最大化就去吃滿（另一邊收成 0）、
+ * 另一邊最大化就縮到 0（第二個窗格永遠 `flex-1`，自然補滿剩下的空間）。
  */
 function slotStyle(index: number) {
   if (index === 0) {
-    return { order: 0, flexBasis: `${ratio.value * 100}%`, flexGrow: 0, flexShrink: 0 };
+    const progress = maximizeProgress.value;
+    const maximizedIndex = animatedPaneId.value
+      ? paneIds.value.indexOf(animatedPaneId.value)
+      : -1;
+    let basis = ratio.value;
+    if (maximizedIndex === 0) {
+      basis = ratio.value + (1 - ratio.value) * progress;
+    } else if (maximizedIndex === 1) {
+      basis = ratio.value * (1 - progress);
+    }
+    return { order: 0, flexBasis: `${basis * 100}%`, flexGrow: 0, flexShrink: 0 };
   }
   return { order: 2 };
 }
@@ -173,14 +223,17 @@ function resetRatio() {
         v-for="(id, index) in paneIds"
         :key="id"
         class="flex min-h-0 min-w-0"
-        :class="isSplit ? (index === 0 ? '' : 'flex-1') : 'flex-1'"
+        :class="[
+          isSplit ? (index === 0 ? '' : 'flex-1') : 'flex-1',
+          maximizing && id !== animatedPaneId ? 'overflow-hidden' : '',
+        ]"
         :style="isSplit ? slotStyle(index) : undefined"
       >
         <BrowserPane :pane-id="id" />
       </div>
 
       <div
-        v-if="isSplit"
+        v-if="isSplit && !maximizedPaneId"
         class="group relative z-20 flex shrink-0 items-center justify-center"
         :class="
           direction === 'row' ? 'h-full w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize'

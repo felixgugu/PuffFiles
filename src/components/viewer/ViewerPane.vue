@@ -9,6 +9,7 @@ import TextView from "./TextView.vue";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
+import { useTabsStore } from "@/stores/tabs";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { formatBytes } from "@/utils/format";
@@ -25,6 +26,7 @@ const props = defineProps<{ paneId: PaneId }>();
 
 const explorer = useExplorerStore();
 const settings = useSettingsStore();
+const tabs = useTabsStore();
 const viewer = useViewerStore();
 
 const state = computed(() => viewer.of(props.paneId));
@@ -84,6 +86,13 @@ const searchTitle = computed(() => {
   }
   return searchOpen.value ? "關閉搜尋 (Ctrl+F)" : "在檢視器內搜尋 (Ctrl+F)";
 });
+
+/*
+ * 放到最大：把同一個分頁的另一個窗格收合成 0，分頁標題改用檔名（見 `stores/tabs.ts`）。
+ * 只有分割時才有「另一窗格」可隱藏；單一窗格時按鈕維持可見但淡化停用。
+ */
+const canMaximize = computed(() => (tabs.activeTab?.paneIds.length ?? 0) > 1);
+const maximized = computed(() => tabs.activeTab?.maximizedPaneId === props.paneId);
 
 const extension = computed(() => extensionOf(state.value?.path ?? ""));
 
@@ -218,6 +227,21 @@ function reveal() {
           @click="viewer.reload(paneId)"
         >
           <AppIcon name="refresh" :size="15" />
+        </button>
+        <button
+          type="button"
+          class="flex size-7 items-center justify-center rounded-md pressable disabled:opacity-30"
+          :class="
+            maximized
+              ? 'bg-accent-soft text-accent'
+              : 'text-ink-muted enabled:hover:bg-surface-hover enabled:active:bg-pressed enabled:hover:text-ink'
+          "
+          :aria-pressed="maximized"
+          :disabled="!canMaximize"
+          :title="maximized ? '還原分割' : '放到最大'"
+          @click="tabs.toggleMaximize(paneId)"
+        >
+          <AppIcon :name="maximized ? 'paneRestore' : 'paneMaximize'" :size="15" />
         </button>
         <button
           type="button"

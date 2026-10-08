@@ -302,13 +302,20 @@ export function useKeyboardShortcuts() {
     }
   }
 
-  /** F6：在窗格之間移動焦點；只有一個窗格時改為切換左側資料夾清單。 */
+  /**
+   * F6：在窗格之間移動焦點；只有一個窗格時改為切換左側資料夾清單。
+   *
+   * 檢視器放到最大時，另一窗格在畫面上是收合的，先還原分割再切過去。
+   */
   function cycleFocus() {
     const tab = tabs.activeTab;
     if (!tab) {
       return;
     }
     if (tab.paneIds.length > 1) {
+      if (tab.maximizedPaneId) {
+        tabs.restorePane();
+      }
       const index = tab.paneIds.indexOf(tab.activePaneId);
       tab.activePaneId = tab.paneIds[(index + 1) % tab.paneIds.length];
       return;

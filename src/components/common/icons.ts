@@ -143,6 +143,13 @@ export const ICON_PATHS = {
   winMinimize: ["M6.5 12h11"],
   winMaximize: ["M7.5 7.5h9v9h-9z"],
   winRestore: ["M9 7.5h7.5V15", "M7.5 9h7.5v7.5H7.5z"],
+  /**
+   * 檢視器放到最大：方框。刻意比視窗控制的 `winMaximize`（只有 9 格）大，
+   * 才和標題列其他圖示（多為 13～15 格）同一個視覺重量。
+   */
+  paneMaximize: ["M5 5h14v14H5z"],
+  /** 檢視器還原：兩張錯位疊在一起的方框（與視窗控制同語彙，只是放大到 14 格）。 */
+  paneRestore: ["M9 5h10v10", "M5 9h10v10H5z"],
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

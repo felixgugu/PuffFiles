@@ -61,6 +61,14 @@ export interface TabState {
   activePaneId: PaneId;
   /** 第一個窗格所佔的比例（0.2 ~ 0.8）。 */
   ratio: number;
+  /**
+   * 檢視器「放到最大」的那個窗格 id；`null`＝正常分割。
+   *
+   * 只有檢視器標題列能設定。設著時另一窗格在畫面上收合成 0（等於隱藏），
+   * 分頁標題改用檢視器的檔名；檢視器關閉或窗格消失時會自動清除（見 `stores/tabs.ts`）。
+   * 這是暫時狀態，不寫進工作階段快照。
+   */
+  maximizedPaneId: PaneId | null;
 }
 
 /** 左側樹狀清單的使用者自訂資料夾根。 */
