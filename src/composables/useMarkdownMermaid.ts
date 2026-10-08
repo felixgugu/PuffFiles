@@ -68,6 +68,14 @@ function naturalSize(svg: SVGSVGElement): { width: number; height: number } {
  * 整張圖會被等比縮小，愈縮愈長也愈難讀。這裡把 `width`／`height` 寫成 viewBox 的內在
  * 尺寸、拿掉 inline `max-width`，超出的部分交給 `.md-mermaid-view` 的自動捲軸處理。
  * 因為寫死的是自然尺寸，比窗格小的圖也不會被放大。
+ *
+ * **viewBox 一律保持 mermaid 原樣，不可以歸零。** mermaid 的 viewBox 是
+ * `(bbox.x - padding) (bbox.y - padding) (bbox.width + 2p) (bbox.height + 2p)` ——
+ * 內容在四個方向各留 `padding`。改寫成 `0 0 w h` 尺寸雖然不變，卻等於把可見視窗往
+ * 右下推 `(p - bbox.x, p - bbox.y)`，右下留白從 `p` 變成 `2p - bbox.x`；內容 inset
+ * 一旦大於 `2p` 就會切掉右緣與下緣（SVG 根元素預設 `overflow: hidden`，所以症狀是
+ * 裁切而不是溢出）。各圖表型別的 padding 與內容偏移都不一樣，只有保留原點才對每一種
+ * 都安全。
  */
 function applyNaturalSize(svg: SVGSVGElement) {
   const box = svg.viewBox.baseVal;
@@ -75,11 +83,8 @@ function applyNaturalSize(svg: SVGSVGElement) {
     return;
   }
 
-  const w = String(Math.round(box.width));
-  const h = String(Math.round(box.height));
-  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  svg.setAttribute("width", w);
-  svg.setAttribute("height", h);
+  svg.setAttribute("width", String(Math.round(box.width)));
+  svg.setAttribute("height", String(Math.round(box.height)));
   // inline `max-width` 會蓋掉 CSS 的尺寸規則，一定要移除。
   svg.style.removeProperty("max-width");
   svg.style.removeProperty("width");
@@ -293,7 +298,8 @@ export function useMarkdownMermaid(options: {
             flowchart: {
               htmlLabels: false,
               wrappingWidth: 250,
-              diagramPadding: 24,
+              // mermaid 預設值。留白交給 `.md-mermaid-view` 自己的內距，不需要在圖裡再留一次。
+              diagramPadding: 8,
               nodeSpacing: 24,
               rankSpacing: 24,
             },
