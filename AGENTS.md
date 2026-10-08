@@ -223,6 +223,10 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   該行。面板可拖曳、可調整寬高、可收合成只剩標題列，左下角把手往外拖＝放大；
   底色不透明度（預設 50%）與最小寬度（預設 200px）在設定頁的「瀏覽 → 檢視器」調整
   （`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，兩種浮動面板共用）。
+  **沒有滑鼠移過、鍵盤焦點也不在面板裡時整塊幾乎隱形**（`FloatingPanel.vue` 的
+  `--panel-idle-opacity`，預設 0.2，模糊也一起關掉）：面板浮在內文上，平常不該擋住
+  閱讀，只留淡淡的輪廓提醒它還在；`hover`／`:focus-within`／拖曳縮放中才回到設定的
+  材質。搜尋面板開啟時會自動聚焦搜尋框，所以一開就是清楚的。
   **面板的收合、位置與尺寸不持久化、也不跨文件沿用**：住在 `ViewerState.tocPanel`
   （每個檢視器一份），開啟新文件一律回到預設（展開、`x === null` 維持右上角對齊、
   預設寬度與自適應高度）。文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，

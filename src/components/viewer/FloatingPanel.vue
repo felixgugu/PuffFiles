@@ -55,6 +55,7 @@ const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, 
     v-if="rect"
     :data-panel="panel"
     class="viewer-panel absolute z-30 flex flex-col overflow-hidden rounded-xl text-base"
+    :class="{ 'is-active': moving || resizing }"
     :style="{ ...panelStyle, '--panel-opacity': `${settings.viewerPanelOpacity}%` }"
   >
     <div
@@ -113,6 +114,10 @@ const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, 
 /*
  * 半透明底色 + 背景模糊：看得見底下的內文，但文字對比仍然足夠。
  * 不透明度由設定值餵進 `--panel-opacity`；系統要求減少透明度時改回不透明。
+ *
+ * 沒有滑鼠移過、鍵盤焦點也不在面板裡時，整塊幾乎隱形（也一起關掉模糊）：
+ * 面板浮在內文上，平常不該擋住閱讀，只留一點淡淡的輪廓提醒它還在。
+ * 移上去、焦點進入，或正在拖曳／縮放時才回到設定的材質。
  */
 .viewer-panel {
   background: color-mix(in oklab, var(--color-menu) var(--panel-opacity, 50%), transparent);
@@ -121,6 +126,17 @@ const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, 
     0 0 0 0.5px var(--color-hairline-bright) inset,
     0 12px 28px -8px oklch(0 0 0 / 0.28),
     0 2px 8px -2px oklch(0 0 0 / 0.18);
+  backdrop-filter: blur(0);
+  opacity: var(--panel-idle-opacity, 0.2);
+  transition:
+    opacity 160ms ease,
+    backdrop-filter 160ms ease;
+}
+
+.viewer-panel:hover,
+.viewer-panel:focus-within,
+.viewer-panel.is-active {
+  opacity: 1;
   /* 不透明度可以調到 50%，模糊要夠強才不會讓底下的文字穿過來干擾閱讀。 */
   backdrop-filter: blur(16px);
 }
