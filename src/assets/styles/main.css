@@ -36,6 +36,8 @@
   --color-accent: oklch(0.53 0.155 252);
   --color-accent-ink: oklch(1 0 0);
   --color-accent-soft: oklch(0.95 0.028 252);
+  /* 使用中的分頁：淺色佈景是淺紫，深色佈景再換成紫（見 .dark）。 */
+  --color-tab-active: oklch(0.9 0.06 300);
   --color-danger: oklch(0.55 0.19 25);
   --color-danger-soft: oklch(0.96 0.03 25);
 
@@ -114,6 +116,7 @@
   --color-accent: oklch(0.72 0.13 252);
   --color-accent-ink: oklch(0.18 0.02 265);
   --color-accent-soft: oklch(0.32 0.06 252);
+  --color-tab-active: oklch(0.46 0.12 300);
   --color-danger: oklch(0.72 0.16 25);
   --color-danger-soft: oklch(0.3 0.06 25);
 

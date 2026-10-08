@@ -111,7 +111,7 @@ function onMiddleClick(event: MouseEvent, tabId: string) {
       class="group flex h-7 min-w-[112px] max-w-[210px] shrink-0 cursor-default items-center gap-2 rounded-md pr-1 pl-2.5 pressable"
       :class="[
         tab.id === tabs.activeTabId
-          ? 'bg-surface text-ink shadow-sm'
+          ? 'bg-tab-active text-ink shadow-sm'
           : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink',
         draggingIndex === index ? 'z-10 scale-[1.04] opacity-90 shadow-md' : '',
       ]"
