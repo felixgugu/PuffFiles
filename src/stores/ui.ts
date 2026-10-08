@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import type { PaneId } from "@/types/fs";
 
 export interface NoticeAction {
   label: string;
@@ -42,6 +43,20 @@ export interface ChoiceOptions {
 }
 
 /**
+ * 就地編輯的請求。
+ *
+ * F2 是「對焦點列」，貼上產生「- 複製」之後則是「指名某一列」（見
+ * `stores/clipboard.ts` 的 `paste()`）。`seq` 讓連續兩次一樣的請求也各自觸發一次。
+ */
+export interface RenameRequest {
+  seq: number;
+  /** 指定的窗格；null＝焦點窗格。 */
+  paneId: PaneId | null;
+  /** 指定的那一列；null＝焦點列。 */
+  path: string | null;
+}
+
+/**
  * 短生命週期的 UI 狀態：通知、跨元件的焦點請求、浮層開關。
  *
  * 主題與其他偏好屬於 `settings` store；這裡只放「用完即丟」的東西。
@@ -51,7 +66,7 @@ export const useUiStore = defineStore("ui", () => {
   const noticeAction = ref<NoticeAction | null>(null);
   const searchFocusRequest = ref(0);
   const pathEditRequest = ref(0);
-  const renameRequest = ref(0);
+  const renameRequest = ref<RenameRequest>({ seq: 0, paneId: null, path: null });
   const settingsOpen = ref(false);
   const historyOpen = ref(false);
   const confirmState = ref<ConfirmOptions | null>(null);
@@ -132,7 +147,12 @@ export const useUiStore = defineStore("ui", () => {
 
   /** 要求焦點窗格的檔案清單就地重新命名焦點列（F2）。 */
   function requestRename() {
-    renameRequest.value += 1;
+    renameRequest.value = { seq: renameRequest.value.seq + 1, paneId: null, path: null };
+  }
+
+  /** 貼上產生「- 複製」之後，直接讓那一列進入就地編輯。 */
+  function requestRenameAt(paneId: PaneId, path: string) {
+    renameRequest.value = { seq: renameRequest.value.seq + 1, paneId, path };
   }
 
   return {
@@ -157,6 +177,7 @@ export const useUiStore = defineStore("ui", () => {
     requestSearchFocus,
     requestPathEdit,
     requestRename,
+    requestRenameAt,
   };
 });
 

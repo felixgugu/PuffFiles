@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { isDesktopRuntime } from "@/services/api";
+import { useCompareStore } from "@/stores/compare";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
 import { useViewerStore } from "@/stores/viewer";
@@ -16,6 +17,7 @@ import { paneSlotLabel } from "@/utils/layout";
 const explorer = useExplorerStore();
 const tabs = useTabsStore();
 const viewer = useViewerStore();
+const compare = useCompareStore();
 
 const isMock = !isDesktopRuntime();
 
@@ -46,6 +48,20 @@ function summaryOf(paneId: PaneId, withFilterHint: boolean): string {
 
 const singleSummary = computed(() => summaryOf(tabs.activePaneId, true));
 
+/**
+ * 目錄比對的統計（見 §同步瀏覽與目錄比對）；顏色語意寫在 tooltip。
+ * 關閉比對或沒有分割時回空字串，那一行就只顯示原本的項目數。
+ */
+function compareSummaryOf(paneId: PaneId): string {
+  if (!compare.enabled) {
+    return "";
+  }
+  const counts = compare.counts(paneId);
+  return `僅此窗格 ${formatCount(counts.only)} · 不同 ${formatCount(counts.different)}`;
+}
+
+const singleCompare = computed(() => compareSummaryOf(tabs.activePaneId));
+
 interface StatusRow {
   id: PaneId;
   label: string;
@@ -53,6 +69,7 @@ interface StatusRow {
   active: boolean;
   loading: boolean;
   summary: string;
+  compare: string;
 }
 
 const rows = computed<StatusRow[]>(() => {
@@ -66,6 +83,7 @@ const rows = computed<StatusRow[]>(() => {
       active: tabs.activePaneId === id,
       loading: meta?.status === "loading",
       summary: summaryOf(id, false),
+      compare: compareSummaryOf(id),
     };
   });
 });
@@ -98,6 +116,13 @@ const rows = computed<StatusRow[]>(() => {
         >
           瀏覽器預覽模式
         </span>
+        <span
+          v-if="row.compare"
+          class="shrink-0 tabular-nums"
+          title="目錄比對：綠＝只在這一邊、琥珀＝兩邊都有但大小或修改時間不同"
+        >
+          {{ row.compare }}
+        </span>
         <span class="shrink-0 tabular-nums">{{ row.summary }}</span>
       </button>
     </template>
@@ -113,6 +138,13 @@ const rows = computed<StatusRow[]>(() => {
         class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 dark:text-amber-400"
       >
         瀏覽器預覽模式
+      </span>
+      <span
+        v-if="singleCompare"
+        class="shrink-0 tabular-nums"
+        title="目錄比對：綠＝只在這一邊、琥珀＝兩邊都有但大小或修改時間不同"
+      >
+        {{ singleCompare }}
       </span>
       <span class="shrink-0 tabular-nums">{{ singleSummary }}</span>
     </div>

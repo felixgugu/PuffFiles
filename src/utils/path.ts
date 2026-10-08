@@ -66,6 +66,35 @@ export function parentOf(path: string): string | null {
 }
 
 /**
+ * 從 `from` 往上幾層會到 `to`。
+ *
+ * 同一個位置回 0；`to` 不是 `from` 的上層（或根本不是它的祖先）時回 `null`。
+ * 麵包屑點上層片段時靠它換算，同步瀏覽才能讓兩邊各自往上同樣的層數 ——
+ * 兩個窗格深度不同時，「往上幾層」比「往哪個路徑」有意義。
+ */
+export function stepsUp(from: string, to: string): number | null {
+  if (!from || !to) {
+    return null;
+  }
+  if (samePath(from, to)) {
+    return 0;
+  }
+  let current: string | null = from;
+  let steps = 0;
+  while (current) {
+    current = parentOf(current);
+    if (!current) {
+      return null;
+    }
+    steps += 1;
+    if (samePath(current, to)) {
+      return steps;
+    }
+  }
+  return null;
+}
+
+/**
  * Windows 路徑 → Linux 風格純路徑。
  *
  * 依需求「去掉 /mnt/c」：只保留目錄結構，不帶磁碟機與 WSL 掛載前綴。

@@ -40,6 +40,14 @@
   --color-tab-active: oklch(0.9 0.06 300);
   --color-danger: oklch(0.55 0.19 25);
   --color-danger-soft: oklch(0.96 0.03 25);
+  /*
+   * 目錄比對：綠＝只在這一邊、琥珀＝兩邊都有但不同。
+   * 底色刻意壓到跟 accent-soft 同一個亮度，列上的文字對比才不會掉下來。
+   */
+  --color-compare-only: oklch(0.52 0.13 152);
+  --color-compare-only-soft: oklch(0.955 0.04 152);
+  --color-compare-different: oklch(0.62 0.14 80);
+  --color-compare-different-soft: oklch(0.965 0.05 85);
 
   /*
    * 語法高亮（highlight.js）：每一色都要在 canvas 上達 WCAG AA 4.5:1。
@@ -119,6 +127,10 @@
   --color-tab-active: oklch(0.46 0.12 300);
   --color-danger: oklch(0.72 0.16 25);
   --color-danger-soft: oklch(0.3 0.06 25);
+  --color-compare-only: oklch(0.78 0.11 152);
+  --color-compare-only-soft: oklch(0.31 0.055 152);
+  --color-compare-different: oklch(0.83 0.11 80);
+  --color-compare-different-soft: oklch(0.33 0.06 80);
 
   --color-syntax-keyword: oklch(0.79 0.12 292);
   --color-syntax-string: oklch(0.8 0.11 152);

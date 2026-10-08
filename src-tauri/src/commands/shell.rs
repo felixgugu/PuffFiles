@@ -73,6 +73,18 @@ fn describe_outcome(done: &bool) -> String {
     }
 }
 
+/// 複製的結果。
+///
+/// `renamed` 是「同一個資料夾裡的複製」自動產生的新項目（`主檔名 - 複製.副檔名`）：
+/// 前端貼上完會直接對那一列進入就地編輯，所以後端要把實際建立的路徑講出來。
+/// 跨資料夾的複製（含撞名時 Windows 自己處理的情況）不會列在這裡。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyOutcome {
+    pub completed: bool,
+    pub renamed: Vec<String>,
+}
+
 /// 讀取系統剪貼簿裡的檔案清單（與檔案總管互通）。
 #[tauri::command]
 pub async fn clipboard_files() -> AppResult<ClipboardFiles> {
@@ -101,18 +113,40 @@ pub async fn clear_clipboard() -> AppResult<()> {
     run_logged("CLIPBOARD-CLEAR", String::new(), shell::clear_clipboard, |_| String::new()).await
 }
 
-/// 複製項目到目的資料夾。回傳 false 代表使用者中途取消。
+/// 複製項目到目的資料夾。`completed` 為 false 代表使用者中途取消。
 #[tauri::command]
-pub async fn copy_items(sources: Vec<String>, destination: String) -> AppResult<bool> {
+pub async fn copy_items(sources: Vec<String>, destination: String) -> AppResult<CopyOutcome> {
     let detail = describe_paths(&sources, Some(&destination));
     run_logged(
         "COPY",
         detail,
         move || {
             let target = existing_directory(&destination)?;
-            shell::run(&to_paths(sources), Some(&target), FileOp::Copy, false)
+            let items = to_paths(sources);
+            // 先算好「同一層複製」會用到的新名字 —— 複製完成後那些名字就已經被自己占用了，
+            // 那時候再算會變成下一個名字。
+            let planned: Vec<String> = items
+                .iter()
+                .filter_map(|item| shell::same_folder_copy_name(item, Some(&target)))
+                .map(|name| core::dir::display_path(&target.join(name)))
+                .collect();
+
+            let completed = shell::run(&items, Some(&target), FileOp::Copy, false)?;
+
+            // 使用者中途取消時，排在後面的項目根本沒被建立；只回報真的存在的那些。
+            let renamed = planned
+                .into_iter()
+                .filter(|path| Path::new(path).exists())
+                .collect();
+            Ok(CopyOutcome { completed, renamed })
         },
-        describe_outcome,
+        |outcome| {
+            format!(
+                "{} renamed={}",
+                describe_outcome(&outcome.completed),
+                outcome.renamed.len()
+            )
+        },
     )
     .await
 }
@@ -223,7 +257,9 @@ mod tests {
         let into = destination.to_string_lossy().into_owned();
 
         let copied = tauri::async_runtime::block_on(copy_items(vec![from.clone()], into.clone()));
-        assert!(copied.expect("copy should succeed"));
+        let outcome = copied.expect("copy should succeed");
+        assert!(outcome.completed, "複製被回報為取消");
+        assert!(outcome.renamed.is_empty(), "跨資料夾的複製不該自動改名");
 
         // 目的資料夾不存在 → 應該失敗，而且失敗也要留下紀錄。
         let missing = root.join("no-such-folder").to_string_lossy().into_owned();
@@ -235,6 +271,28 @@ mod tests {
         assert!(log.contains("ok"), "日誌應該有成功紀錄：{log}");
         assert!(log.contains("fail"), "日誌應該有失敗紀錄：{log}");
         assert!(log.contains("logged.txt"), "日誌應該記下來源路徑：{log}");
+    }
+
+    /// 在同一層複製時，後端要把「- 複製」的新路徑回報給前端（貼上後要就地編輯它）。
+    #[test]
+    fn same_folder_copy_reports_the_new_name() {
+        let root = scratch("dup-copy");
+        let source = root.join("note.txt");
+        fs::write(&source, "x").expect("write source");
+
+        let from = source.to_string_lossy().into_owned();
+        let into = root.to_string_lossy().into_owned();
+        let outcome =
+            tauri::async_runtime::block_on(copy_items(vec![from], into)).expect("copy should work");
+
+        assert!(outcome.completed, "複製被回報為取消");
+        assert_eq!(outcome.renamed.len(), 1, "應該回報一個自動改名的項目");
+        assert!(
+            root.join("note - 複製.txt").exists(),
+            "回報的路徑應該真的存在：{:?}",
+            outcome.renamed
+        );
+        assert!(outcome.renamed[0].ends_with("note - 複製.txt"), "{}", outcome.renamed[0]);
     }
 
     /// 重新命名：成功、非法名稱與不存在的來源都要走完整條指令路徑並留下紀錄。

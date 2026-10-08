@@ -72,6 +72,16 @@ export const useExplorerStore = defineStore("explorer", () => {
     return visibleByPane.get(id)!;
   }
 
+  /**
+   * 完整清單（未經隱藏項目與搜尋篩選、也還沒排序），窗格不存在時回空陣列。
+   *
+   * 目錄比對與「另一邊有沒有同名資料夾」都要看完整清單 —— 畫面被篩選過的內容
+   * 不能拿來判斷檔案系統的實況。
+   */
+  function entries(id: PaneId): FileEntry[] {
+    return entriesByPane.get(id)?.value ?? [];
+  }
+
   function meta(id: PaneId): PaneMeta | undefined {
     return panes[id];
   }
@@ -761,6 +771,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     createPane,
     destroyPane,
     visibleRef,
+    entries,
     meta,
     load,
     navigate,

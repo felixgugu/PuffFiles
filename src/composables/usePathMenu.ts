@@ -39,8 +39,9 @@ export interface MenuRequest {
 /**
  * 選單的可選區塊。
  *
- * 檔案清單預設不顯示剪貼與重新命名，只有按住 Shift 右鍵的「擴充選單」才出現；
- * 左側資料夾樹沒有就地編輯，所以固定顯示剪貼組、不顯示重新命名。
+ * 檔案清單預設不顯示剪貼組（剪下／複製／貼上／刪除），只有按住 Shift 右鍵的
+ * 「擴充選單」才出現；左側資料夾樹是書籤清單，兩者都不顯示（它不傳
+ * `MenuOptions`，見 `FolderTreePanel`）。
  */
 export interface MenuOptions {
   /** 顯示「剪下／複製／貼上／刪除」這一組。 */
@@ -393,7 +394,7 @@ export function usePathMenu() {
         await clipboard.paste(paneId, target.isDir ? target.path : undefined);
         return;
       case "delete":
-        await clipboard.removePaths(paths);
+        await clipboard.removePaths(paths, paneId);
         return;
       case "transfer-copy":
         await clipboard.transferToOtherPane("copy");

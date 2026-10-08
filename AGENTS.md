@@ -37,6 +37,7 @@ PuffFiles/
 │  │  ├─ tabs.ts               # 分頁與分割版面、窗格生命週期、工作階段還原
 │  │  ├─ folders.ts            # 左側「我的資料夾」清單（含虛擬目錄、順序、展開狀態）
 │  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除／重新命名、送到另一窗格、忙碌狀態
+│  │  ├─ compare.ts            # 目錄比對：以另一個窗格的完整清單為索引
 │  │  ├─ history.ts            # 瀏覽紀錄（MRU，含分割版面）
 │  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
 │  │  ├─ system.ts             # 磁碟機、快速存取位置（只用於啟動時的起始路徑）
@@ -45,6 +46,7 @@ PuffFiles/
 │  ├─ composables/
 │  │  ├─ useKeyboardShortcuts.ts # 全域快速鍵（分頁、分割、剪貼簿、檔案操作）
 │  │  ├─ usePathMenu.ts        # 右鍵選單的內容與動作（依選取情境分流、外部工具篩選）
+│  │  ├─ useSyncedNavigation.ts # 同步瀏覽：把相對移動鏡射到另一個窗格
 │  │  ├─ useImageNavigation.ts # 圖片檢視器的上一張／下一張（依來源檔案清單的順序）
 │  │  ├─ useDragGesture.ts     # 通用拖曳手勢（含速度取樣，交給彈簧接手）
 │  │  ├─ useSpringValue.ts     # 以自製彈簧驅動的數值
@@ -60,7 +62,7 @@ PuffFiles/
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer …）
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer / compare …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
@@ -161,6 +163,25 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 「複製到另一窗格／移動到另一窗格」執行前會以 `ui.confirm` 彈窗，訊息列出**來源窗格與
 路徑**、**目標窗格與路徑**以及會作用的項目數量與名稱，按確定才動手 —— 避免左右／上下
 方向搞錯（見 `stores/clipboard.ts` 的 `transferMessage()`）。
+
+**同一個資料夾裡的貼上**（來源就是目的，例如 Ctrl+C／Ctrl+V 都在同一層）比照檔案總管，
+由 `core/shell.rs` 先算出 `主檔名 - 複製.副檔名`（再貼一次是 `- 複製 (2)`）當成
+`IFileOperation::CopyItem` 的新名字，因此**不會**跳「已有同名檔案」的對話框；資料夾不看
+副檔名（`排程.v2` → `排程.v2 - 複製`）。跨資料夾的撞名仍交給 Windows 的衝突對話框。
+
+後端會把這些自動改名產生的路徑放在 `copy_items` 的 `renamed` 裡回報（`commands/shell.rs`
+的 `CopyOutcome`）。`stores/clipboard.ts` 的 `paste()` 在清單重讀完成後，若 `renamed`
+剛好一個，就送 `ui.requestRenameAt(paneId, path)`，讓那一列**直接進入就地編輯**（§3.6）——
+也就是「貼上 → 檔名多 `- 複製` → 直接改名」一氣呵成。同時貼上多個時不猜要改哪一個，
+只有一次一個才會自動編輯；「複製到另一窗格」也刻意不接手編輯。
+
+**刪除後的落點**：`removePaths(targets, paneId)` 刪除前先記下被刪項目中最上面那一項在
+**可見清單**（含搜尋篩選與排序）的索引，`await refreshPanes()` 之後把選取放回同一個位置
+—— 由後面那一列遞補（與檔案總管一致），被刪的是最後一列就停在新的最後一列，清單變空則
+不選取。重讀本身會清空選取、把 `focusedIndex` 歸零（焦點框會跳回第一列），所以這段補位
+是必要的。取消刪除、窗格已經換了資料夾、或落點算不出來（被篩掉）都不套用；右鍵在未被
+選取的那一列刪除時，落點由實際被刪的列算，不是由 `pane.selected` 算。其他會讓項目消失
+的操作（複製到另一窗格、搬移）維持原樣。
 
 ### 3.5 檢視器（Viewer）
 
@@ -265,8 +286,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 
 重新命名是**檔案清單**的功能，資料夾樹與檢視器都不提供：
 
-- **入口**：Shift+右鍵的擴充選單「重新命名」，或焦點在清單時按 **F2**
-  （`ui.renameRequest` 計數器 → `FileListView` 對焦點列開始編輯）。
+- **入口**：Shift+右鍵的擴充選單「重新命名」、焦點在清單時按 **F2**，以及「同一層貼上」
+  自動接上的就地編輯（`ui.renameRequest`：F2 是 `{ path: null }` ＝焦點列，
+  貼上是 `requestRenameAt()` 指名的某一列 → `FileListView` 開始編輯）。
 - **就地編輯**：`FileTableRow` 在名稱欄換成輸入框；檔案的初始選取範圍只到主檔名
   （最後一個句點之前），資料夾全選。Enter／失去焦點確認、Esc 取消；名稱清空或沒變
   直接結束，不叫後端。
@@ -276,6 +298,31 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   名稱驗證沿用建立新項目的 `validated_name`。
 - **成功後**：重讀窗格並選取新名字；被剪下的項目、開著的檢視器（`viewer.retarget`）
   一起改指向新路徑。使用者取消時維持原名、不留錯誤狀態。
+
+### 3.7 同步瀏覽與目錄比對
+
+兩顆**互相獨立**的切換鈕住在路徑列右側的「窗格模式」膠囊（版面膠囊的左邊，見 §5.1），
+都**預設關閉、狀態記住**（`settings.syncBrowsing`／`settings.compareDirectories`）、
+**只在分割時可用**（未分割時停用、淡化）。它們是進階對照工具，單窗使用者的行為完全不變。
+
+- **同步瀏覽**：只鏡射「相對移動」——進入同名的子資料夾、上一層、點麵包屑的上層片段。
+  輸入絕對路徑、資料夾樹、歷史面板與檢視器內的連結都是「跳到某個位置」，用相對名稱對應
+  只會猜錯，因此一律只動焦點窗格。實作在 `composables/useSyncedNavigation.ts`，
+  由五個入口呼叫：列開啟（雙擊／Enter）、上一層（Backspace、Alt+↑、路徑列的按鈕）
+  與麵包屑片段；**焦點窗格先真的移動成功，另一邊才跟**（進不去時另一邊不該跟著跑掉）。
+  兩邊不需要在同一個資料夾、深度也可以不同（麵包屑是換算成「往上幾層」再鏡射）。
+  另一邊沒有同名資料夾時**只發通知、完全不動它**，也不會在磁碟上建立任何東西：
+  判斷用另一邊已載入的完整清單，還沒載完才問一次 `api.listSubdirs` ——
+  可見清單被搜尋篩選過，不能拿來判斷實況。「往上」時另一邊已經在磁碟根目錄同樣只通知。
+- **目錄比對**：以「檔名（不分大小寫）」配對兩個窗格**目前**的資料夾，**不遞迴**。
+  相同＝不上色；只在這一邊＝綠；兩邊都有但不同＝琥珀。判定見 `utils/compare.ts`：
+  型別不同就算不同；檔案比大小＋修改時間 **2 秒寬容**（FAT／exFAT 的粒度）。
+  索引由 `stores/compare.ts` 維護：每個窗格拿**另一個窗格**的完整清單當索引，
+  另一邊還在載入時不上色（串流每批都會換陣列，跟著重建索引是白工）。
+  列上多一個左緣 3px 色條（絕對定位，開關比對不會讓整列左右跳動）＋極淡底色，
+  選取時底色讓給 `bg-accent-soft`、色條保留；狀態列每一行顯示「僅此窗格 N · 不同 M」，
+  數的是**可見列**（看到什麼就數什麼）。顏色權杖是 `main.css` 的 `--color-compare-*`
+  （淺／深各一組，底色亮度比照 `accent-soft`，文字對比不掉）。
 
 ## 4. 開發與修改規範
 
@@ -312,7 +359,7 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | --- | --- | --- |
 | 標題列（Window Chrome） | 視窗最上方整條、可拖曳；內含分頁列、紀錄／設定動作、視窗控制 | `components/chrome/` |
 | 分頁列（Tab Strip） | 標題列內的分頁籤與新增鈕 | `chrome/TabStrip.vue` |
-| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜版面切換（含交換窗格） | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
+| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜窗格模式（同步瀏覽、目錄比對）｜版面切換（含交換窗格） | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
 | 工作區（Workspace） | 路徑列與狀態列之間：左邊「資料夾樹面板」＋右邊「窗格區」 | `workspace/WorkspaceView.vue` |
 | 資料夾樹面板（Folder Tree Panel） | 左側「我的資料夾」；頂端是**樹工具列**（加入／移除／別名／排序／定位／收合全部／收合側欄），右緣是寬度把手 | `tree/FolderTreePanel.vue` |
 | 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |

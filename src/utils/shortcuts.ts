@@ -74,7 +74,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
   {
     title: "剪貼簿與檔案",
-    note: "實作交給 Windows shell，行為與檔案總管一致（衝突、進度、取消、資源回收筒）。檔案清單的一般右鍵選單只留常用動作，按住 Shift 再右鍵才會出現剪下／複製／貼上／刪除／重新命名。",
+    note: "實作交給 Windows shell，行為與檔案總管一致（衝突、進度、取消、資源回收筒）。在同一個資料夾貼上時比照檔案總管直接產生「- 複製」的新名字，並接著進入就地編輯；一般右鍵選單只留常用動作，按住 Shift 再右鍵才會出現剪下／複製／貼上／刪除／重新命名。",
     items: [
       { keys: ["Ctrl+C"], label: "複製" },
       { keys: ["Ctrl+X"], label: "剪下" },

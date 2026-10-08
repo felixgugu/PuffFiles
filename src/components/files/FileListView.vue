@@ -7,7 +7,9 @@ import FileTableRow from "./FileTableRow.vue";
 import { ADD_TO_FOLDERS_ID, useAddToFolders } from "@/composables/useAddToFolders";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { usePathMenu } from "@/composables/usePathMenu";
+import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import { useClipboardStore } from "@/stores/clipboard";
+import { useCompareStore } from "@/stores/compare";
 import { useExplorerStore } from "@/stores/explorer";
 import { TREE_ROOT_CONTAINER } from "@/stores/folders";
 import { COLUMN_FIT_MAX, useSettingsStore } from "@/stores/settings";
@@ -26,9 +28,11 @@ const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
 const clipboard = useClipboardStore();
+const compare = useCompareStore();
 const ui = useUiStore();
 const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
 const addToFolders = useAddToFolders();
+const syncedNav = useSyncedNavigation();
 
 const ROW_BASE_HEIGHT = 24;
 /** 列高跟著字級縮放，否則放大字級時文字會擠出虛擬清單的固定列高。 */
@@ -552,7 +556,7 @@ async function onMenuSelect(id: string) {
   await runMenu(id, current.request);
 }
 
-/** 開始就地重新命名；清單裡找不到這一列（被搜尋篩掉）就不做。 */
+/** 開始就地重新命名；清單裡找不到這一列（被搜尋篩掉、或在別的資料夾）就不做。 */
 function startRename(path: string) {
   if (clipboard.busy) {
     return;
@@ -561,6 +565,8 @@ function startRename(path: string) {
   if (!entry) {
     return;
   }
+  // 貼上後自動進入編輯時，那一列原本沒有被選取；先選起來才與檔案總管一致。
+  explorer.select(props.paneId, entry.path, "replace");
   renaming.value = { path: entry.path, originalName: entry.name };
 }
 
@@ -582,11 +588,19 @@ function cancelRename() {
   renaming.value = null;
 }
 
-// F2：對焦點列開始就地重新命名；只有焦點窗格反應。
+// F2：對焦點列開始就地重新命名；貼上產生的「- 複製」則指名那一列（見 `clipboard.paste`）。
+// 兩者都只有焦點窗格反應。
 watch(
   () => ui.renameRequest,
-  () => {
+  (request) => {
+    if (request.paneId && request.paneId !== props.paneId) {
+      return;
+    }
     if (props.paneId !== tabs.activePaneId) {
+      return;
+    }
+    if (request.path) {
+      startRename(request.path);
       return;
     }
     const entry = explorer.focusedEntry(props.paneId);
@@ -695,9 +709,10 @@ function sortBy(column: ColumnId) {
             :selected="pane.selected.includes(entry.path)"
             :focused="pane.focusedIndex === start + index"
             :cut="clipboard.isCut(entry.path)"
+            :compare-state="compare.statusFor(props.paneId, entry)"
             :editing="renaming?.path === entry.path"
             :data-index="start + index"
-            @activate="explorer.activate(props.paneId, entry)"
+            @activate="syncedNav.open(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"
             @rename="commitRename"
             @rename-cancel="cancelRename"

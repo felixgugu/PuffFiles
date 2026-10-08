@@ -61,6 +61,8 @@ export const ICON_PATHS = {
   layoutSingle: ["M4.5 5.5h15v13h-15z"],
   splitColumns: ["M4.5 5.5h15v13h-15z", "M12 5.5v13"],
   splitRows: ["M4.5 5.5h15v13h-15z", "M4.5 12h15"],
+  /** 目錄比對：兩張錯位疊在一起的方框，代表兩邊互相對照。 */
+  compare: ["M4.5 4.5h10v10h-10z", "M9.5 9.5h10v10h-10z"],
   /** 交換窗格：兩個反向箭頭，方向跟著分割方向（左右 ⇄／上下 ⇅）。 */
   swapColumns: [
     "M5.5 9.25h12.5",

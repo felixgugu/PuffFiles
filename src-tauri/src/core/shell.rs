@@ -11,8 +11,9 @@
 use crate::error::AppError;
 #[cfg(not(windows))]
 use crate::error::{AppError, AppResult};
+use std::path::Path;
 #[cfg(not(windows))]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// 從系統剪貼簿讀到的檔案清單。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -28,6 +29,69 @@ pub enum FileOp {
     Copy,
     Move,
     Delete,
+}
+
+/// 同一個資料夾裡複製時，接在檔名後面的字（與檔案總管的中文版一致）。
+const COPY_SUFFIX: &str = "複製";
+
+/// 路徑的比較鍵：統一轉回一般路徑、去掉結尾分隔線，而且不分大小寫。
+///
+/// 來源路徑是前端傳來的顯示路徑，目的資料夾則是 `canonicalize` 過的（可能帶 `\\?\`），
+/// 兩邊直接比會永遠不相等，所以要先正規化。
+fn folder_key(path: &Path) -> String {
+    crate::core::dir::display_path(path)
+        .trim_end_matches(|c| c == '\\' || c == '/')
+        .to_lowercase()
+}
+
+fn same_folder(left: &Path, right: &Path) -> bool {
+    folder_key(left) == folder_key(right)
+}
+
+/// 複製到「來源自己所在的資料夾」時要用的新名字；不是同一層就回 `None`
+/// （撞名照舊交給 Windows 的衝突對話框）。
+pub fn same_folder_copy_name(item: &Path, destination: Option<&Path>) -> Option<String> {
+    let into = destination?;
+    match item.parent() {
+        Some(parent) if same_folder(parent, into) => Some(copy_name(item, into)),
+        _ => None,
+    }
+}
+
+/// `報告.docx` → `報告 - 複製.docx`，第二次 `報告 - 複製 (2).docx`，依此類推。
+///
+/// 資料夾不看副檔名（`排程.v2` → `排程.v2 - 複製`），與檔案總管一致。
+fn copy_name(item: &Path, folder: &Path) -> String {
+    let name = item
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (stem, extension) = if item.is_dir() {
+        (name, String::new())
+    } else {
+        let stem = item
+            .file_stem()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_else(|| name.clone());
+        let extension = item
+            .extension()
+            .map(|value| format!(".{}", value.to_string_lossy()))
+            .unwrap_or_default();
+        (stem, extension)
+    };
+
+    let mut index = 1usize;
+    loop {
+        let candidate = if index == 1 {
+            format!("{stem} - {COPY_SUFFIX}{extension}")
+        } else {
+            format!("{stem} - {COPY_SUFFIX} ({index}){extension}")
+        };
+        if !folder.join(&candidate).exists() {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 #[cfg(windows)]
@@ -79,7 +143,7 @@ pub fn rename(_item: &Path, _new_name: &str, _silent: bool) -> AppResult<bool> {
 
 #[cfg(windows)]
 mod platform {
-    use super::{io_error, ClipboardFiles, FileOp};
+    use super::{io_error, same_folder_copy_name, ClipboardFiles, FileOp};
     use crate::error::{AppError, AppResult};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -373,7 +437,17 @@ mod platform {
                 match op {
                     FileOp::Copy => {
                         let folder = target.as_ref().expect("copy 需要目的資料夾");
-                        operation.CopyItem(&source, folder, PCWSTR::null(), None)
+                        // 同一層的「複製貼上」（來源就是目的資料夾）比照檔案總管：直接產生
+                        // 「- 複製」的新名字，不要跳出「已有同名檔案」的對話框。
+                        // 其他情況維持原本的 null，撞名交給 Windows 的衝突對話框處理。
+                        match same_folder_copy_name(item, destination) {
+                            Some(name) => {
+                                let wide: Vec<u16> =
+                                    OsStr::new(&name).encode_wide().chain(Some(0)).collect();
+                                operation.CopyItem(&source, folder, PCWSTR(wide.as_ptr()), None)
+                            }
+                            None => operation.CopyItem(&source, folder, PCWSTR::null(), None),
+                        }
                     }
                     FileOp::Move => {
                         let folder = target.as_ref().expect("move 需要目的資料夾");
@@ -456,6 +530,51 @@ mod tests {
             "hello"
         );
         assert!(source.is_file(), "複製不應該移除來源");
+    }
+
+    #[test]
+    fn same_folder_copy_appends_the_copy_suffix() {
+        let root = scratch("same-folder-copy");
+        let source = root.join("報告.txt");
+        write_file(&source, "內容");
+        // 先占住第一個候選名字，確認會往後找下一個（與檔案總管的「- 複製 (2)」一致）。
+        write_file(&root.join("報告 - 複製.txt"), "舊的");
+
+        let copied =
+            run(std::slice::from_ref(&source), Some(&root), FileOp::Copy, true).expect("copy");
+        assert!(copied, "操作被回報為取消");
+        assert_eq!(
+            fs::read_to_string(root.join("報告 - 複製 (2).txt")).expect("第二次複製"),
+            "內容"
+        );
+
+        let copied =
+            run(std::slice::from_ref(&source), Some(&root), FileOp::Copy, true).expect("copy");
+        assert!(copied, "操作被回報為取消");
+        assert!(root.join("報告 - 複製 (3).txt").is_file(), "第三次要再往後一名");
+        assert!(source.is_file(), "複製不應該移除來源");
+        assert_eq!(
+            fs::read_to_string(root.join("報告 - 複製.txt")).expect("原本的檔案"),
+            "舊的",
+            "既有的同名檔案不能被覆蓋"
+        );
+    }
+
+    /// 資料夾不看副檔名：`排程.v2` 的複製品是 `排程.v2 - 複製`。
+    #[test]
+    fn same_folder_copy_of_a_folder_keeps_dots_in_the_name() {
+        let root = scratch("same-folder-folder");
+        let source = root.join("排程.v2");
+        write_file(&source.join("inner.txt"), "x");
+
+        let copied =
+            run(std::slice::from_ref(&source), Some(&root), FileOp::Copy, true).expect("copy");
+
+        assert!(copied, "操作被回報為取消");
+        assert!(
+            root.join("排程.v2 - 複製").join("inner.txt").is_file(),
+            "資料夾的複製品應該沿用整個名字"
+        );
     }
 
     #[test]

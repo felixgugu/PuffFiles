@@ -172,13 +172,24 @@ export async function clearClipboard(): Promise<void> {
   return guarded(() => invoke("clear_clipboard"));
 }
 
-/** 複製／搬移／刪除都交給 Windows shell；回傳 false 代表使用者取消。 */
-export async function copyItems(sources: string[], destination: string): Promise<boolean> {
+/**
+ * 複製的結果。
+ *
+ * `renamed` 是「同一個資料夾裡的複製」自動產生（`主檔名 - 複製.副檔名`）的新項目路徑，
+ * 貼上完要直接對那一列進入就地編輯；跨資料夾的複製不會有。
+ */
+export interface CopyOutcome {
+  completed: boolean;
+  renamed: string[];
+}
+
+/** 複製／搬移／刪除都交給 Windows shell；`completed` 為 false 代表使用者取消。 */
+export async function copyItems(sources: string[], destination: string): Promise<CopyOutcome> {
   if (!isDesktopRuntime()) {
     console.info("[mock] copy", sources, "->", destination);
-    return true;
+    return { completed: true, renamed: [] };
   }
-  return guarded(() => invoke<boolean>("copy_items", { sources, destination }));
+  return guarded(() => invoke<CopyOutcome>("copy_items", { sources, destination }));
 }
 
 export async function moveItems(sources: string[], destination: string): Promise<boolean> {

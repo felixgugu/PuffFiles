@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
+import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useUiStore } from "@/stores/ui";
 import type { PaneId } from "@/types/fs";
@@ -10,6 +11,7 @@ const props = defineProps<{ paneId: PaneId }>();
 
 const explorer = useExplorerStore();
 const ui = useUiStore();
+const syncedNav = useSyncedNavigation();
 
 const isEditing = ref(false);
 const draft = ref("");
@@ -73,7 +75,7 @@ function commit() {
               ? 'font-medium text-ink'
               : 'text-ink-muted hover:bg-surface-hover active:bg-pressed hover:text-ink'
           "
-          @click="explorer.navigate(props.paneId, segment.path)"
+          @click="syncedNav.toAncestor(props.paneId, segment.path)"
         >
           {{ segment.label }}
         </button>

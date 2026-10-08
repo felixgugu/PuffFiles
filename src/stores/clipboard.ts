@@ -40,6 +40,19 @@ export const useClipboardStore = defineStore("clipboard", () => {
     ui.showNotice(normalizeBackendError(cause).message, undefined, 4200);
   }
 
+  /** 被刪項目中最上面那一項在可見清單的索引；都找不到（被搜尋篩掉）時回 null。 */
+  function landingIndex(paneId: PaneId, targets: string[]): number | null {
+    const visible = explorer.visibleRef(paneId).value;
+    let landing: number | null = null;
+    for (const path of targets) {
+      const index = visible.findIndex((item) => samePath(item.path, path));
+      if (index >= 0 && (landing === null || index < landing)) {
+        landing = index;
+      }
+    }
+    return landing;
+  }
+
   /** 畫面上被打開的每一個窗格都重讀，這樣另一邊的變動也會立刻出現。 */
   async function refreshPanes() {
     const paneIds = tabs.tabs.flatMap((tab) => tab.paneIds);
@@ -68,7 +81,13 @@ export const useClipboardStore = defineStore("clipboard", () => {
     return put(selectionOf(paneId), true);
   }
 
-  /** 貼上（來源可以是檔案總管）；`into` 省略時貼到該窗格目前的資料夾。 */
+  /**
+   * 貼上（來源可以是檔案總管）；`into` 省略時貼到該窗格目前的資料夾。
+   *
+   * 貼上的是同一個資料夾裡的項目時，shell 會直接產生「- 複製」的新名字（見
+   * `core/shell.rs`）。那種情況只會有一個新項目，就在貼完後直接讓它進入就地編輯，
+   * 省掉「先貼上、再自己按 F2」這一步；同時貼多個時不猜要改哪一個，維持原樣。
+   */
   async function paste(paneId: PaneId, into?: string) {
     if (busy.value) {
       return;
@@ -77,6 +96,8 @@ export const useClipboardStore = defineStore("clipboard", () => {
     if (!destination) {
       return;
     }
+    // 就地編輯要等檔案操作結束（`busy` 放掉）才開始，所以先記下來、最後再送出去。
+    let renamed: string | null = null;
     try {
       const clip = await api.clipboardFiles();
       if (!clip.paths.length) {
@@ -85,11 +106,11 @@ export const useClipboardStore = defineStore("clipboard", () => {
       }
 
       busy.value = true;
-      const completed = clip.cut
-        ? await api.moveItems(clip.paths, destination)
+      const outcome: api.CopyOutcome = clip.cut
+        ? { completed: await api.moveItems(clip.paths, destination), renamed: [] }
         : await api.copyItems(clip.paths, destination);
 
-      if (!completed) {
+      if (!outcome.completed) {
         ui.showNotice("操作已取消");
         return;
       }
@@ -103,10 +124,15 @@ export const useClipboardStore = defineStore("clipboard", () => {
       const count = clip.paths.length;
       ui.showNotice(clip.cut ? `已搬移 ${count} 個項目` : `已複製 ${count} 個項目`);
       await refreshPanes();
+      // 剛好一個「- 複製」：清單已經重讀完了，直接把那一列交給就地編輯。
+      renamed = outcome.renamed.length === 1 ? outcome.renamed[0] : null;
     } catch (cause) {
       report(cause);
     } finally {
       busy.value = false;
+    }
+    if (renamed) {
+      ui.requestRenameAt(paneId, renamed);
     }
   }
 
@@ -163,9 +189,11 @@ export const useClipboardStore = defineStore("clipboard", () => {
 
     try {
       busy.value = true;
+      // 「複製到另一窗格」就算兩個窗格剛好開在同一個資料夾，也只做檔案操作、
+      // 不接手就地編輯：那是使用者自己按了確認的明確動作。
       const completed =
         mode === "copy"
-          ? await api.copyItems(sources, destination)
+          ? (await api.copyItems(sources, destination)).completed
           : await api.moveItems(sources, destination);
 
       if (!completed) {
@@ -191,8 +219,15 @@ export const useClipboardStore = defineStore("clipboard", () => {
     }
   }
 
-  /** 刪除（預設進資源回收筒，確認與否由 Windows 決定）。 */
-  async function removePaths(targets: string[]) {
+  /**
+   * 刪除（預設進資源回收筒，確認與否由 Windows 決定）。
+   *
+   * 刪完會重讀清單，而重讀本身會清掉選取、把焦點歸零，於是焦點框跳回第一列；
+   * 所以刪除前先記下「被刪項目中最上面那一項」在可見清單的位置，重讀後把選取放回
+   * 同一個位置 —— 由後面那一列遞補（與檔案總管一致），被刪的是最後一列時就停在新的
+   * 最後一列。清單變空、或窗格已經換了資料夾就不選。
+   */
+  async function removePaths(targets: string[], paneId: PaneId) {
     if (busy.value) {
       return;
     }
@@ -200,6 +235,11 @@ export const useClipboardStore = defineStore("clipboard", () => {
       ui.showNotice("請先選取項目");
       return;
     }
+
+    // 落點一定要在刪除前算：刪完之後這些路徑已經不在清單裡了。
+    const pane = explorer.meta(paneId);
+    const folder = pane?.currentPath ?? "";
+    const landing = pane ? landingIndex(paneId, targets) : null;
 
     try {
       busy.value = true;
@@ -210,6 +250,16 @@ export const useClipboardStore = defineStore("clipboard", () => {
       }
       ui.showNotice(`已刪除 ${targets.length} 個項目`);
       await refreshPanes();
+
+      // 重讀後同一個位置由後面那一列遞補；超出新的長度就取最後一列。
+      // 刪除期間換了資料夾（或窗格已經不在）就不套用，免得在新的地方亂選。
+      const after = explorer.meta(paneId);
+      if (after && after.currentPath === folder && landing !== null) {
+        const list = explorer.visibleRef(paneId).value;
+        if (list.length > 0) {
+          explorer.select(paneId, list[Math.min(landing, list.length - 1)].path, "replace");
+        }
+      }
     } catch (cause) {
       report(cause);
     } finally {

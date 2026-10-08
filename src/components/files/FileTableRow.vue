@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { ColumnId, FileEntry } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
 import { colorFor, iconFor } from "@/utils/fileKind";
+import type { CompareState } from "@/utils/compare";
 
 const props = defineProps<{
   entry: FileEntry;
@@ -14,6 +15,8 @@ const props = defineProps<{
   cut: boolean;
   /** 這一列正在就地重新命名。 */
   editing: boolean;
+  /** 目錄比對的狀態（見 `utils/compare.ts`）；null＝相同或沒開啟比對。 */
+  compareState?: CompareState | null;
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +30,34 @@ const emit = defineEmits<{
 
 const draft = ref("");
 const input = ref<HTMLInputElement | null>(null);
+
+/** 目錄比對的底色；選取時讓給選取色，色條則一律留著。 */
+const compareRowClass = computed(() =>
+  props.compareState === "only"
+    ? "bg-compare-only-soft"
+    : props.compareState === "different"
+      ? "bg-compare-different-soft"
+      : "",
+);
+
+const compareStripeClass = computed(() =>
+  props.compareState === "only"
+    ? "bg-compare-only"
+    : props.compareState === "different"
+      ? "bg-compare-different"
+      : "",
+);
+
+const compareTitle = computed(() => {
+  switch (props.compareState) {
+    case "only":
+      return "另一邊沒有這個項目";
+    case "different":
+      return "兩邊都有，但大小或修改時間不同";
+    default:
+      return null;
+  }
+});
 
 /**
  * 輸入框的 template ref。
@@ -109,15 +140,27 @@ onBeforeUnmount(() => {
     data-row
     role="option"
     :aria-selected="selected"
-    class="file-grid h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-base pressable"
+    class="file-grid relative h-[var(--row-height)] cursor-default pr-3 pl-2.5 text-base pressable"
     :class="[
       cut ? 'opacity-45' : '',
-      selected ? 'bg-accent-soft text-ink' : 'hover:bg-surface-hover active:bg-pressed',
+      selected
+        ? 'bg-accent-soft text-ink'
+        : [compareRowClass, 'hover:bg-surface-hover active:bg-pressed'],
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
     ]"
+    :title="compareTitle ?? undefined"
     @dblclick="onDblclick"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
+    <!--
+      目錄比對的左緣色條：絕對定位蓋在左邊留白上，開關比對時整列不會左右跳動；
+      選取時底色讓給 accent-soft，色條仍然看得見。
+    -->
+    <span
+      v-if="compareStripeClass"
+      class="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
+      :class="compareStripeClass"
+    />
     <!--
       格子要撐滿整列高度（h-full），否則 border-r 只會畫在文字那一小段，
       分隔線就會上下斷開。內容各自再用 flex 置中。

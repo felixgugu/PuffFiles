@@ -138,6 +138,10 @@ interface StoredSettings {
   viewerPanelMinWidth: number;
   /** 檢視器浮動面板共用的底色不透明度（%）。 */
   viewerPanelOpacity: number;
+  /** 同步瀏覽：進入子資料夾／上一層時，另一個窗格跟著做相對移動。 */
+  syncBrowsing: boolean;
+  /** 目錄比對：用顏色標出兩個窗格之間的差異。 */
+  compareDirectories: boolean;
   /** 舊版鍵名，僅用於讀取時搬移（改名後第一次存檔就不再寫入）。 */
   markdownTocMinWidth?: number;
   markdownTocOpacity?: number;
@@ -173,6 +177,8 @@ const DEFAULTS: StoredSettings = {
   viewerSearchKeepQuery: false,
   viewerPanelMinWidth: PANEL_MIN_WIDTH_DEFAULT,
   viewerPanelOpacity: PANEL_OPACITY_DEFAULT,
+  syncBrowsing: false,
+  compareDirectories: false,
 };
 
 const COLUMN_IDS = new Set<string>(ALL_COLUMNS.map((column) => column.id));
@@ -234,6 +240,12 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.viewerSearchKeepQuery === "boolean"
         ? raw.viewerSearchKeepQuery
         : DEFAULTS.viewerSearchKeepQuery,
+    syncBrowsing:
+      typeof raw.syncBrowsing === "boolean" ? raw.syncBrowsing : DEFAULTS.syncBrowsing,
+    compareDirectories:
+      typeof raw.compareDirectories === "boolean"
+        ? raw.compareDirectories
+        : DEFAULTS.compareDirectories,
     // 面板共用值 2026-10-06 從 markdownToc* 改名，舊鍵要先搬過來才不會白掉設定。
     viewerPanelMinWidth: clampPanelMinWidth(
       numberOr(raw.viewerPanelMinWidth ?? raw.markdownTocMinWidth, PANEL_MIN_WIDTH_DEFAULT),
@@ -280,6 +292,8 @@ export const useSettingsStore = defineStore("settings", () => {
   const viewerSearchKeepQuery = ref(stored.viewerSearchKeepQuery);
   const viewerPanelMinWidth = ref(stored.viewerPanelMinWidth);
   const viewerPanelOpacity = ref(stored.viewerPanelOpacity);
+  const syncBrowsing = ref(stored.syncBrowsing);
+  const compareDirectories = ref(stored.compareDirectories);
 
   const prefersDark = ref(
     typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -328,7 +342,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, syncBrowsing, compareDirectories],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -354,6 +368,8 @@ export const useSettingsStore = defineStore("settings", () => {
           viewerSearchKeepQuery: viewerSearchKeepQuery.value,
           viewerPanelMinWidth: viewerPanelMinWidth.value,
           viewerPanelOpacity: viewerPanelOpacity.value,
+          syncBrowsing: syncBrowsing.value,
+          compareDirectories: compareDirectories.value,
         } satisfies StoredSettings);
       }, 200);
     },
@@ -411,6 +427,16 @@ export const useSettingsStore = defineStore("settings", () => {
   /** Markdown 檢視器的目錄索引開關；沒有標題時呼叫端會自行停用。 */
   function toggleMarkdownToc() {
     markdownTocEnabled.value = !markdownTocEnabled.value;
+  }
+
+  /** 同步瀏覽：開啟後另一個窗格跟著做相對移動（見 §同步瀏覽）。 */
+  function toggleSyncBrowsing() {
+    syncBrowsing.value = !syncBrowsing.value;
+  }
+
+  /** 目錄比對：開啟後清單用顏色標出兩邊的差異。 */
+  function toggleCompareDirectories() {
+    compareDirectories.value = !compareDirectories.value;
   }
 
   function setViewerSearchKeepQuery(value: boolean) {
@@ -501,7 +527,11 @@ export const useSettingsStore = defineStore("settings", () => {
     viewerSearchKeepQuery,
     viewerPanelMinWidth,
     viewerPanelOpacity,
+    syncBrowsing,
+    compareDirectories,
     toggleMarkdownToc,
+    toggleSyncBrowsing,
+    toggleCompareDirectories,
     setViewerSearchKeepQuery,
     setViewerPanelMinWidth,
     setViewerPanelOpacity,

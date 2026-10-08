@@ -9,6 +9,7 @@ import { useViewerStore } from "@/stores/viewer";
 import { useImageNavigation } from "@/composables/useImageNavigation";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
+import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import type { PaneId } from "@/types/fs";
 import { samePath } from "@/utils/path";
 
@@ -27,6 +28,7 @@ export function useKeyboardShortcuts() {
   const refreshView = useRefreshView();
   const clipboard = useClipboardStore();
   const pathMenu = usePathMenu();
+  const syncedNav = useSyncedNavigation();
   const viewer = useViewerStore();
   const imageNav = useImageNavigation();
 
@@ -232,15 +234,15 @@ export function useKeyboardShortcuts() {
         break;
       case "Delete":
         event.preventDefault();
-        void clipboard.removePaths(clipboard.selectionOf(paneId));
+        void clipboard.removePaths(clipboard.selectionOf(paneId), paneId);
         break;
       case "Backspace":
         event.preventDefault();
-        void explorer.goUp(paneId);
+        void syncedNav.up(paneId);
         break;
       case "Enter":
         event.preventDefault();
-        void explorer.activate(paneId, explorer.focusedEntry(paneId));
+        void syncedNav.open(paneId, explorer.focusedEntry(paneId));
         break;
       case " ":
         event.preventDefault();
@@ -253,7 +255,7 @@ export function useKeyboardShortcuts() {
       case "ArrowUp":
         event.preventDefault();
         if (altKey) {
-          void explorer.goUp(paneId);
+          void syncedNav.up(paneId);
         } else {
           explorer.moveFocus(paneId, -1);
         }

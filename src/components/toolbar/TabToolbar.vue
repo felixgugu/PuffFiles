@@ -4,6 +4,7 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import SearchField from "@/components/common/SearchField.vue";
 import PathBreadcrumb from "./PathBreadcrumb.vue";
 import { useRefreshView } from "@/composables/useRefreshView";
+import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
 import { useTabsStore } from "@/stores/tabs";
@@ -22,6 +23,7 @@ const tabs = useTabsStore();
 const settings = useSettingsStore();
 const viewer = useViewerStore();
 const refreshView = useRefreshView();
+const syncedNav = useSyncedNavigation();
 
 const paneId = computed(() => tabs.activePaneId);
 const pane = computed(() => explorer.meta(paneId.value));
@@ -97,7 +99,7 @@ const navButtons = computed(() => {
       icon: "arrowUp" as const,
       title: "上一層 (Backspace)",
       run: (): void => {
-        void explorer.goUp(paneId.value);
+        void syncedNav.up(paneId.value);
       },
       enabled: current?.parentPath !== null && current?.parentPath !== undefined,
     },
@@ -108,6 +110,39 @@ const navButtons = computed(() => {
         void refreshView(paneId.value);
       },
       enabled: true,
+    },
+  ];
+});
+
+/**
+ * 窗格模式：同步瀏覽與目錄比對兩顆切換鈕。
+ *
+ * 它們描述的是「兩個窗格之間的關係」，所以與版面切換分開放 —— 版面膠囊回答
+ * 「怎麼排」，這一組回答「兩邊要不要一起移動、要不要互相對照」。沒分割就沒有
+ * 另一個窗格可言，兩顆都停用（設定會記住，等使用者分割時自己亮起來）。
+ */
+const modeOptions = computed(() => {
+  const split = (tabs.activeTab?.paneIds.length ?? 0) > 1;
+  return [
+    {
+      id: "sync-browsing",
+      icon: "link" as const,
+      current: settings.syncBrowsing,
+      enabled: split,
+      title: split
+        ? "同步瀏覽：進入子資料夾、上一層與點麵包屑上層時，另一個窗格跟著做相對移動"
+        : "同步瀏覽（需要分割畫面）",
+      run: (): void => settings.toggleSyncBrowsing(),
+    },
+    {
+      id: "compare-directories",
+      icon: "compare" as const,
+      current: settings.compareDirectories,
+      enabled: split,
+      title: split
+        ? "目錄比對：用顏色標出「只在這一邊」與「兩邊都有但不同」"
+        : "目錄比對（需要分割畫面）",
+      run: (): void => settings.toggleCompareDirectories(),
     },
   ];
 });
@@ -204,6 +239,31 @@ function onSearch(value: string) {
       >
         <AppIcon name="externalLink" :size="15" />
       </button>
+      <!--
+        窗格模式：同步瀏覽與目錄比對。未分割時兩顆都停用。
+      -->
+      <div class="ml-1 flex items-center gap-0.5 rounded-lg bg-surface-muted p-0.5">
+        <button
+          v-for="mode in modeOptions"
+          :key="mode.id"
+          type="button"
+          class="flex size-6 active:scale-95 items-center justify-center rounded-md pressable enabled:hover:bg-surface-hover enabled:hover:text-ink enabled:active:bg-pressed disabled:cursor-default disabled:opacity-30"
+          :class="
+            !mode.enabled
+              ? 'text-ink-faint'
+              : mode.current
+                ? 'bg-accent-soft text-accent'
+                : 'text-ink-muted'
+          "
+          :aria-pressed="mode.enabled && mode.current"
+          :disabled="!mode.enabled"
+          :title="mode.title"
+          @click="mode.run()"
+        >
+          <AppIcon :name="mode.icon" :size="14" />
+        </button>
+      </div>
+
       <!--
         窗格膠囊：三顆版面鈕（目前的那個用 accent 標示）＋最右邊的「交換窗格」。
         交換是動作而不是狀態，所以它沒有 current 的樣式，只跟著分割的方向換圖示。
