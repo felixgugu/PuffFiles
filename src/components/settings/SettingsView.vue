@@ -349,6 +349,22 @@ async function selectSection(id: SectionId) {
                 Markdown 的 Mermaid 區塊預設會自動渲染成圖表，可逐塊切回原始碼。
               </p>
               <div class="mt-2 space-y-2">
+                <label class="flex items-center justify-between py-1">
+                  <span class="text-base text-ink">空白鍵開啟的檢視器固定顯示在右／下窗格</span>
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-[var(--color-accent)]"
+                    :checked="settings.viewerSpaceRightOrBottom"
+                    @change="
+                      settings.viewerSpaceRightOrBottom = ($event.target as HTMLInputElement)
+                        .checked
+                    "
+                  />
+                </label>
+                <p class="text-xs leading-relaxed text-ink-faint">
+                  焦點在右／下窗格（左右分割的右、上下分割的下）時就地在該窗格開啟，左／上的檔案清單
+                  不會被蓋掉；取消後回到原本的「另一窗格」。右鍵選單不受影響。
+                </p>
                 <div class="flex items-center gap-3">
                   <span class="w-16 shrink-0 text-sm text-ink-muted">最小寬度</span>
                   <input

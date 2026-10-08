@@ -53,3 +53,13 @@ export function paneSlotLabel(layout: LayoutShape, paneId: string): string {
   }
   return first ? "上" : "下";
 }
+
+/**
+ * 右／下窗格（`paneIds[1]`）；未分割時回 `null`。
+ *
+ * `paneIds` 的順序就是畫面上的位置（左右分割時 `[1]` 是右、上下分割時是下，
+ * 見 AGENTS.md §5.2）。「空白鍵開啟的檢視器固定顯示在右／下窗格」用的就是這一格。
+ */
+export function secondPaneId(layout: LayoutShape): string | null {
+  return layout.paneIds.length > 1 ? String(layout.paneIds[1]) : null;
+}

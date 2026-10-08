@@ -366,11 +366,14 @@ export function usePathMenu() {
    * `options.keepFocus` 只影響 `open-pane` 的資料夾：預設（右鍵選單）會把焦點移到
    * 被打開的窗格；檔案清單的 `Space` 預覽則帶入 `true`，把焦點留在原本的清單，
    * 才能用方向鍵＋`Space` 連續掃描。檔案的 `open-pane` 本來就保留焦點，不受此選項影響。
+   *
+   * `options.targetPaneId` 也只有 `Space` 會帶（右鍵選單一律不帶）：勾了「空白鍵開啟的
+   * 檢視器固定顯示在右／下窗格」時就是那一個窗格，取消時才是原本的「另一窗格」。
    */
   async function run(
     id: string,
     request: MenuRequest,
-    options: { keepFocus?: boolean } = {},
+    options: { keepFocus?: boolean; targetPaneId?: PaneId } = {},
   ) {
     const paneId = tabs.activePaneId;
     const { target } = request;
@@ -424,15 +427,16 @@ export function usePathMenu() {
         tabs.newTab(target.isDir ? target.path : (parentOf(target.path) ?? target.path));
         return;
       case "open-pane": {
-        const neighbor = neighborPaneId(request.paneId);
+        const targetPane = options.targetPaneId ?? neighborPaneId(request.paneId);
         const keepFocus = options.keepFocus ?? false;
-        if (target.isDir && neighbor) {
-          // 已經分割了：不新增窗格，直接把資料夾開到相鄰那一邊。
-          // 右鍵選單會把焦點一起移過去；`Space` 預覽則留在原本的清單。
-          if (!keepFocus) {
-            tabs.setActivePane(neighbor);
+        if (target.isDir && targetPane) {
+          // 已經分割了：不新增窗格，直接把資料夾開到目標那一邊。
+          // 右鍵選單會把焦點一起移過去；`Space` 預覽則留在原本的清單
+          // （目標就是焦點窗格時也沒有焦點要移）。
+          if (!keepFocus && targetPane !== request.paneId) {
+            tabs.setActivePane(targetPane);
           }
-          await explorer.navigate(neighbor, target.path);
+          await explorer.navigate(targetPane, target.path);
           return;
         }
         if (target.isDir) {
@@ -449,8 +453,8 @@ export function usePathMenu() {
         // 焦點刻意**留在檔案清單**：這樣可以連續用方向鍵換檔案、按 Space 更新檢視器。
         // 分割建立新窗格時它會先成為焦點，所以這裡立刻把焦點交還給來源窗格。
         // 來源窗格一併記進檢視器：圖片的前後切換要跟著這份清單的順序（見 §檢視器）。
-        if (neighbor) {
-          await viewer.open(neighbor, target.path, request.paneId);
+        if (targetPane) {
+          await viewer.open(targetPane, target.path, request.paneId);
           return;
         }
         const source = request.paneId;

@@ -11,6 +11,7 @@ import { useRefreshView } from "@/composables/useRefreshView";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import type { PaneId } from "@/types/fs";
+import { secondPaneId } from "@/utils/layout";
 import { samePath } from "@/utils/path";
 
 /**
@@ -316,14 +317,15 @@ export function useKeyboardShortcuts() {
   }
 
   /**
-   * Space：把焦點列的項目顯示到另一窗格，焦點留在檔案清單。
+   * Space：把焦點列的項目顯示到目標窗格，焦點留在檔案清單。
    *
-   * 資料夾＝在另一窗格開它的檔案清單；檔案＝開檢視器（沒有檢視器的類型顯示
+   * 資料夾＝在目標窗格開它的檔案清單；檔案＝開檢視器（沒有檢視器的類型顯示
    * 「這個檔案類型還沒有檢視器」的提示，仍然佔用該窗格）。全部都走右鍵選單
    * 「在新窗格開啟／在○窗格開啟」同一條 `open-pane` 路徑，差別只在這裡帶入
-   * `keepFocus` —— 焦點留在原清單，才能用方向鍵＋`Space` 連續掃描同一個資料夾。
+   * `keepFocus` 與 `targetPaneId` —— 焦點留在原清單，才能用方向鍵＋`Space` 連續
+   * 掃描同一個資料夾；目標窗格由 `spaceTargetPane()` 決定（見 §3.5 的設定）。
    *
-   * **智慧前進**：焦點項目若已經顯示在另一窗格（檔案在檢視器、或資料夾正是另一
+   * **智慧前進**：焦點項目若已經顯示在目標窗格（檔案在檢視器、或資料夾正是目標
    * 窗格目前瀏覽的位置），按 `Space` 的意圖是「看下一個」，所以前進到清單的下一列
    * （不分類型，資料夾與沒有檢視器的檔案都算），焦點與選取一起移動。已經是最後
    * 一列時停在原地，不做任何事。
@@ -334,8 +336,9 @@ export function useKeyboardShortcuts() {
       return;
     }
 
+    const targetPane = spaceTargetPane(paneId);
     let target = entry;
-    if (isDisplayedInNeighbor(paneId, entry)) {
+    if (isDisplayedIn(targetPane, entry)) {
       const list = explorer.visibleRef(paneId).value;
       const current = list.findIndex((item) => item.path === entry.path);
       const next = current + 1;
@@ -355,36 +358,51 @@ export function useKeyboardShortcuts() {
         target: { path: target.path, isDir: target.isDir },
         targets: [{ path: target.path, isDir: target.isDir }],
       },
-      { keepFocus: true },
+      { keepFocus: true, targetPaneId: targetPane ?? undefined },
     );
   }
 
   /**
-   * 焦點項目是不是已經顯示在「另一個窗格」。
+   * `Space` 要顯示到哪一個窗格。
    *
-   * 每分頁最多兩個窗格，所以相對焦點窗格的那一個就是鄰居；未分割時沒有鄰居。
-   * 兩種顯示方式都要認得：
-   * - 檔案：鄰居的檢視器正開著它（含沒有檢視器的提示狀態）。
-   * - 資料夾：鄰居正在瀏覽它，而且沒有被檢視器蓋住。
-   * 檢視器還在 loading 也算已開啟 —— 連續按 `Space` 才不會把上一鍵的結果漏掉。
+   * 勾了「空白鍵開啟的檢視器固定顯示在右／下窗格」（預設）時永遠是 `paneIds[1]`
+   * ——左右分割的右、上下分割的下；焦點本來就在那一格時，檢視器就地在該窗格開啟
+   * （`open-pane` 收到跟來源相同的目標），左／上的檔案清單永遠不會被蓋掉。
+   * 取消勾選則回到原本的「另一窗格」。未分割時回 `null`：交給 `open-pane` 建立
+   * 新窗格，而新窗格本來就落在 `paneIds[1]`。
    */
-  function isDisplayedInNeighbor(
-    paneId: PaneId,
-    entry: { path: string; isDir: boolean },
-  ): boolean {
+  function spaceTargetPane(paneId: PaneId): PaneId | null {
     const tab = tabs.activeTab;
     if (!tab || !tab.paneIds.includes(paneId)) {
+      return null;
+    }
+    if (settings.viewerSpaceRightOrBottom) {
+      return secondPaneId(tab);
+    }
+    return tab.paneIds.find((id) => id !== paneId) ?? null;
+  }
+
+  /**
+   * 焦點項目是不是已經顯示在「`Space` 的目標窗格」。
+   *
+   * 未分割（沒有目標窗格）時一律回 `false`。
+   * 兩種顯示方式都要認得：
+   * - 檔案：目標窗格的檢視器正開著它（含沒有檢視器的提示狀態）。
+   * - 資料夾：目標窗格正在瀏覽它，而且沒有被檢視器蓋住。
+   * 檢視器還在 loading 也算已開啟 —— 連續按 `Space` 才不會把上一鍵的結果漏掉。
+   */
+  function isDisplayedIn(
+    targetPane: PaneId | null,
+    entry: { path: string; isDir: boolean },
+  ): boolean {
+    if (!targetPane) {
       return false;
     }
-    const neighbor = tab.paneIds.find((id) => id !== paneId) ?? null;
-    if (!neighbor) {
-      return false;
-    }
-    const state = viewer.of(neighbor);
+    const state = viewer.of(targetPane);
     if (state) {
       return samePath(state.path, entry.path);
     }
-    return entry.isDir && samePath(explorer.meta(neighbor)?.currentPath ?? "", entry.path);
+    return entry.isDir && samePath(explorer.meta(targetPane)?.currentPath ?? "", entry.path);
   }
 
   onMounted(() => window.addEventListener("keydown", onKeydown));

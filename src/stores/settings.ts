@@ -198,6 +198,8 @@ interface StoredSettings {
   viewerPanelMinWidth: number;
   /** 檢視器浮動面板共用的底色不透明度（%）。 */
   viewerPanelOpacity: number;
+  /** 空白鍵開啟的檢視器固定顯示在右／下窗格（預設開啟，見 AGENTS.md §3.5）。 */
+  viewerSpaceRightOrBottom: boolean;
   /** 同步瀏覽：進入子資料夾／上一層時，另一個窗格跟著做相對移動。 */
   syncBrowsing: boolean;
   /** 目錄比對：用顏色標出兩個窗格之間的差異。 */
@@ -237,6 +239,7 @@ const DEFAULTS: StoredSettings = {
   viewerSearchKeepQuery: false,
   viewerPanelMinWidth: PANEL_MIN_WIDTH_DEFAULT,
   viewerPanelOpacity: PANEL_OPACITY_DEFAULT,
+  viewerSpaceRightOrBottom: true,
   syncBrowsing: false,
   compareDirectories: false,
 };
@@ -313,6 +316,10 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.viewerSearchKeepQuery === "boolean"
         ? raw.viewerSearchKeepQuery
         : DEFAULTS.viewerSearchKeepQuery,
+    viewerSpaceRightOrBottom:
+      typeof raw.viewerSpaceRightOrBottom === "boolean"
+        ? raw.viewerSpaceRightOrBottom
+        : DEFAULTS.viewerSpaceRightOrBottom,
     syncBrowsing:
       typeof raw.syncBrowsing === "boolean" ? raw.syncBrowsing : DEFAULTS.syncBrowsing,
     compareDirectories:
@@ -365,6 +372,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const viewerSearchKeepQuery = ref(stored.viewerSearchKeepQuery);
   const viewerPanelMinWidth = ref(stored.viewerPanelMinWidth);
   const viewerPanelOpacity = ref(stored.viewerPanelOpacity);
+  const viewerSpaceRightOrBottom = ref(stored.viewerSpaceRightOrBottom);
   const syncBrowsing = ref(stored.syncBrowsing);
   const compareDirectories = ref(stored.compareDirectories);
 
@@ -415,7 +423,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, syncBrowsing, compareDirectories],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -441,6 +449,7 @@ export const useSettingsStore = defineStore("settings", () => {
           viewerSearchKeepQuery: viewerSearchKeepQuery.value,
           viewerPanelMinWidth: viewerPanelMinWidth.value,
           viewerPanelOpacity: viewerPanelOpacity.value,
+          viewerSpaceRightOrBottom: viewerSpaceRightOrBottom.value,
           syncBrowsing: syncBrowsing.value,
           compareDirectories: compareDirectories.value,
         } satisfies StoredSettings);
@@ -623,6 +632,7 @@ export const useSettingsStore = defineStore("settings", () => {
     viewerSearchKeepQuery,
     viewerPanelMinWidth,
     viewerPanelOpacity,
+    viewerSpaceRightOrBottom,
     syncBrowsing,
     compareDirectories,
     toggleMarkdownToc,
