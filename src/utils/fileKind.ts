@@ -23,7 +23,7 @@ const EXTENSIONS: Record<FileKindId, readonly string[]> = {
   code: [
     "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "rs", "py", "java", "c", "cc", "cpp", "h", "hpp",
     "cs", "go", "rb", "php", "swift", "kt", "html", "htm", "css", "scss", "json", "yaml", "yml", "toml",
-    "xml", "sql", "sh", "ps1", "bat", "cmd",
+    "properties", "xml", "sql", "sh", "ps1", "bat", "cmd",
   ],
   text: ["txt", "md", "log", "ini", "cfg", "conf", "env", "gitignore"],
   document: ["doc", "docx", "odt", "rtf", "pdf", "epub", "pages"],
