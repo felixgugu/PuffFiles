@@ -113,6 +113,20 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
+  /**
+   * 撤銷 PDF 的串流 token；換檔、重新載入與關閉都要走這條。
+   *
+   * 內容本身不經過這裡（iframe 直接向自訂協定要），所以「釋放」只是讓舊 URL 立刻失效。
+   */
+  function releaseStream(state: ViewerState) {
+    const token = state.streamToken;
+    state.streamToken = null;
+    state.streamUrl = null;
+    if (token) {
+      void api.closeFileStream(token).catch(() => undefined);
+    }
+  }
+
   function finish(paneId: PaneId, chunks: string[], mime: string | null) {
     const state = views[paneId];
     if (!state || state.status !== "loading") {
@@ -165,6 +179,12 @@ export const useViewerStore = defineStore("viewer", () => {
     state.text = "";
     state.encoding = null;
     releaseBlob(state);
+    // PDF 既不是文字也不是圖片：換一組新的串流 token，交給 iframe 直接讀。
+    releaseStream(state);
+    if (state.kind === "pdf") {
+      await loadStream(paneId, current);
+      return;
+    }
 
     const chunks: string[] = [];
     let mime: string | null = null;
@@ -235,6 +255,43 @@ export const useViewerStore = defineStore("viewer", () => {
   }
 
   /**
+   * PDF：向後端要一組新的串流 token，把 URL 交給 iframe。
+   *
+   * 每一輪載入都換一組 token（舊的先撤銷），所以 iframe 的 `src` 一定會變 ——
+   * 手動重新整理與外部變更的自動重載都靠這一點，不需要額外的 cache-busting 參數。
+   */
+  async function loadStream(paneId: PaneId, current: () => boolean): Promise<void> {
+    const state = views[paneId];
+    if (!state) {
+      return;
+    }
+    try {
+      const handle = await api.openFileStream(state.path);
+      if (!current() || views[paneId] !== state) {
+        // 這一輪已經被換掉了：剛拿到的 token 直接還回去，不要留著。
+        if (handle) {
+          void api.closeFileStream(handle.token).catch(() => undefined);
+        }
+        return;
+      }
+      if (!handle) {
+        fail(paneId, "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟");
+        return;
+      }
+      state.streamToken = handle.token;
+      state.streamUrl = handle.url;
+      state.status = "ready";
+      startWatch(paneId, state.path);
+    } catch (cause) {
+      if (!current() || views[paneId] !== state) {
+        return;
+      }
+      state.status = "error";
+      state.error = normalizeBackendError(cause);
+    }
+  }
+
+  /**
    * 在指定窗格打開檔案；不支援的類型仍然佔用窗格並顯示提示，回傳前不會讀取內容。
    *
    * `sourcePaneId` 是「這份內容是從哪一個檔案清單開的」；圖片的前後切換要用它
@@ -265,6 +322,8 @@ export const useViewerStore = defineStore("viewer", () => {
       text: "",
       encoding: null,
       blobUrl: null,
+      streamToken: null,
+      streamUrl: null,
       size: 0,
       modifiedMs: null,
       scrollTop: 0,
@@ -349,6 +408,7 @@ export const useViewerStore = defineStore("viewer", () => {
     const state = views[paneId];
     if (state) {
       releaseBlob(state);
+      releaseStream(state);
       delete views[paneId];
     }
   }

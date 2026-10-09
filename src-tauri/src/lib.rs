@@ -17,6 +17,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // PDF 檢視器的來源：`stream://` 直接串流檔案位元組（支援 Range），
+        // 不走 base64／Blob，前端只要把 URL 交給 iframe。
+        .manage(commands::stream::StreamRegistry::default())
+        .register_asynchronous_uri_scheme_protocol(
+            commands::stream::SCHEME,
+            commands::stream::handle,
+        )
         .invoke_handler(tauri::generate_handler![
             commands::fs::list_dir_stream,
             commands::fs::list_subdirs,
@@ -27,6 +34,8 @@ pub fn run() {
             commands::fs::run_external,
             commands::fs::reveal_path,
             commands::viewer::read_viewer_file,
+            commands::stream::open_file_stream,
+            commands::stream::close_file_stream,
             commands::shell::clipboard_files,
             commands::shell::set_clipboard_files,
             commands::shell::clear_clipboard,

@@ -20,7 +20,8 @@
         "resizable": true,
         "decorations": false,
         "shadow": true,
-        "center": true
+        "center": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msSmartScreenProtection"
       }
     ],
     "security": {

@@ -3,7 +3,7 @@ import type { PaneId } from "@/types/fs";
 import type { PanelLayout } from "@/utils/viewerPanel";
 
 /** 檢視器支援的內容種類。 */
-export type ViewerKind = "markdown" | "html" | "image" | "text";
+export type ViewerKind = "markdown" | "html" | "image" | "text" | "pdf";
 
 /**
  * HTML 的顯示模式：`preview` 是靜態預覽（不執行 JavaScript），`source` 是原始碼。
@@ -82,6 +82,14 @@ export interface ViewerState {
   encoding: string | null;
   /** 圖片的 blob URL；關閉或重載時必須撤銷。 */
   blobUrl: string | null;
+  /**
+   * PDF 的串流 token（自訂協定 `stream`）；其他種類為 `null`。
+   *
+   * 關閉、換檔與重新載入都要撤銷舊的，URL 才不會在不需要時仍然有效。
+   */
+  streamToken: string | null;
+  /** PDF 的 iframe 來源；與 `streamToken` 同進退。 */
+  streamUrl: string | null;
   size: number;
   modifiedMs: number | null;
   /**

@@ -52,6 +52,7 @@
 | 10-08 | 檢視器換行 | 文字一律先把 `\r\n` 與孤立 `\r` 收成 `\n`（hljs 會把 `<span>` 插在 `\r`／`\n` 之間，被拆開的 CRLF 會讓畫面每行多一個空白行） |
 | 10-08 | 空白鍵的檢視器位置 | 固定右／下窗格（`viewerSpaceRightOrBottom`，預設開）；右鍵選單不受影響 |
 | 10-08 | 浮動面板 | 沒有 hover／鍵盤焦點時幾乎隱形（`--panel-idle-opacity`，預設 0.2），模糊一併關掉 |
+| 10-09 | PDF 檢視器 | **改為做**：自訂協定 `stream` 串流位元組（支援 Range）＋ WebView2 內建 PDF viewer；不用 base64／Blob（峰值由 2.3× 檔案大小降到單次 Range） |
 
 **外觀決策的理由**：`transparent: true` 會讓 WebView2 走額外的合成路徑，且大面積
 `backdrop-filter` 在捲動時每一格都要重算。改成不透明視窗 + 分層純色 + 亮邊與陰影，
@@ -78,8 +79,9 @@
   （設定可關）；按下即選取、Ctrl／Shift／空白處拖曳框選。
 - **右鍵選單**：依情境分流（空白處／單一資料夾／單一檔案／多選），只出現對當下這組對象
   成立的動作；外部工具再依 targets／副檔名／`enabled`／`single`／`autoDetect` 篩選。
-- **檢視器**：Markdown／HTML（靜態預覽）／WebView2 能畫的圖檔／純文字與程式碼；搜尋面板、
-  目錄索引、Mermaid 自動渲染、圖片前後導覽；唯讀、外部變更自動重載、不設檔案大小上限。
+- **檢視器**：Markdown／HTML（靜態預覽）／WebView2 能畫的圖檔／PDF（自訂協定 `stream`
+  串流，交給 WebView2 內建 viewer）／純文字與程式碼；搜尋面板、目錄索引、Mermaid 自動
+  渲染、圖片前後導覽；唯讀、外部變更自動重載、不設檔案大小上限。
 - **設定**：整頁模式（蓋掉路徑列與工作區、保留標題列）；分類為外觀、字型、動態、瀏覽、
   檢視器、我的資料夾、外部工具（清單 → 獨立編輯頁，草稿 + 明確儲存 + 離開守衛）、工作階段、
   關於（含快速鍵一覽）。
@@ -143,6 +145,8 @@
 目錄監控、檢視器、shell、操作紀錄、路徑、外部程式偵測）都在 `core/`，可獨立測試。
 前端所有 IPC 一律經 `services/api.ts`，沒有 Tauri 執行環境時自動降級為 Mock
 （`npm run dev` 就是靠這一層跑起來的）。
+PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.rs` 的 token 註冊表 ＋
+`core/stream.rs` 的 Range／MIME 純邏輯），frontend 只把 URL 交給 iframe。
 
 ---
 
@@ -173,6 +177,9 @@
   Shadow DOM 渲染、資源全部內嵌 `data:` URI。
 - 公開授權宣告：`highlight.js` 是 BSD-3-Clause、內嵌的 Vue 文法 CC0-1.0；日後若要公開發佈，
   需在「關於」或隨附檔案補上版權聲明。
+- PDF 檢視器：**待桌面驗證** WebView2 內建 viewer 在 `stream://` 的 iframe 下正常
+  （工具列、翻頁、縮放、文字選取）且 `Range` 確實被轉送到處理器；不通過就還原
+  `tauri.conf.json` 的 `additionalBrowserArgs`，PDF 回到交給系統預設程式。
 
 **目錄監控的後續（2026-10-03 決議：先記下來，暫不做）**
 
@@ -186,14 +193,6 @@
 
 **已評估、決定先不做（保留理由，避免重做白工）**
 
-- **PDF 檢視器（2026-10-04）**：WebView2 其實支援（本機 runtime 內含 `mspdf.dll`），
-  但 wry 預設傳 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection` ——
-  `msPdfOOUI` 正是 PDF 檢視器 UI。要開得在 `tauri.conf.json` 加 `additionalBrowserArgs`
-  覆寫，並自己補回其餘兩個（覆寫會蓋掉預設值）。成本其實很低：可完整重用檢視器管線
-  （base64 分塊串流、Blob URL、kind 分派、自動重載、右鍵與 `Space` 入口），只要多一個
-  `pdf` kind 與一個 `<iframe :src="blobUrl">`，零新增依賴、exe 不變大；唯一風險是內建 viewer
-  在 `blob:` 的 iframe 內是否正常（工具列、翻頁、文字選取、右鍵），要先 spike。
-  另一個取捨：blob 路徑的記憶體約為檔案大小的 2.3 倍。
 - **內嵌終端機（2026-10-09 評估）**：`xterm.js` ＋ 用專案現有的 `windows` crate 直接呼叫
   ConPTY（`CreatePseudoConsole`／`CreatePipe`／`STARTUPINFOEXW` ＋
   `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` ＋ Job Object），**不用 `portable-pty`**

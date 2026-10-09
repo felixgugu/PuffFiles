@@ -5,7 +5,7 @@
  * 讓同一份前端程式碼可以在瀏覽器中開發與測試。
  */
 
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { toBackendError } from "./errors";
 import {
@@ -30,6 +30,41 @@ import type { ViewerStreamEvent } from "@/types/viewer";
 
 export function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
+ * 自訂協定 `stream` 的名稱（見 `src-tauri/src/commands/stream.rs`）。
+ *
+ * URL 由 `convertFileSrc` 產生，平台差異（Windows 是 `http://stream.localhost/<token>`）
+ * 交給 Tauri 決定，前端不必自己判斷。
+ */
+const STREAM_SCHEME = "stream";
+
+export interface FileStreamHandle {
+  token: string;
+  /** 已經可以塞進 `<iframe src>` 的完整 URL。 */
+  url: string;
+}
+
+/**
+ * 開始串流一個檔案（目前只有 PDF），回傳可供 iframe 讀取的 URL。
+ *
+ * 回傳 `null` 代表這個執行環境沒有串流協定（瀏覽器預覽模式）。
+ */
+export async function openFileStream(path: string): Promise<FileStreamHandle | null> {
+  if (!isDesktopRuntime()) {
+    return null;
+  }
+  const token = await guarded(() => invoke<string>("open_file_stream", { path }));
+  return { token, url: convertFileSrc(token, STREAM_SCHEME) };
+}
+
+/** 撤銷串流 token；之後同一個 URL 一律失效。 */
+export async function closeFileStream(token: string): Promise<void> {
+  if (!isDesktopRuntime()) {
+    return;
+  }
+  return guarded(() => invoke("close_file_stream", { token }));
 }
 
 /** 串流列舉資料夾；`onEvent` 會被依序呼叫 start → batch* → done。 */

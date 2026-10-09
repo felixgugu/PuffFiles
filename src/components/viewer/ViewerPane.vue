@@ -5,6 +5,7 @@ import ErrorBanner from "@/components/common/ErrorBanner.vue";
 import HtmlView from "./HtmlView.vue";
 import ImageView from "./ImageView.vue";
 import MarkdownView from "./MarkdownView.vue";
+import PdfView from "./PdfView.vue";
 import TextView from "./TextView.vue";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
 import { useExplorerStore } from "@/stores/explorer";
@@ -279,6 +280,7 @@ function reveal() {
     <MarkdownView v-else-if="state.kind === 'markdown'" :pane-id="paneId" />
     <HtmlView v-else-if="state.kind === 'html' && state.mode === 'preview'" :pane-id="paneId" />
     <ImageView v-else-if="state.kind === 'image'" :pane-id="paneId" />
+    <PdfView v-else-if="state.kind === 'pdf'" :pane-id="paneId" />
     <TextView v-else :pane-id="paneId" />
   </div>
 </template>

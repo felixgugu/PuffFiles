@@ -198,8 +198,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   **焦點一律留在原本的檔案清單**（連續用方向鍵＋`Space` 快速換檔案預覽）；
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
-  WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、以及 `fileKind.ts` 歸類為
-  `text`／`code` 的純文字檔。**沒有檢視器的類型**（`.pdf`／`.mp4`／`.exe`…）不會讀取內容，
+  WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、`.pdf`（自訂協定串流，見下），
+  以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。**沒有檢視器的類型**（`.mp4`／`.exe`…）不會讀取內容，
   但仍會佔用窗格並顯示「這個檔案類型還沒有檢視器」——`ViewerState.kind` 為 `null`，
   `open()` 不呼叫 `load()`、標頭的重整鈕不出現；它仍是「目前顯示的目標」，供 `Space` 判斷前進。
 - **圖片導覽**：圖片檢視器左右兩側各一顆半透明圓形按鈕（`ImageView.vue`；只有 10% 的
@@ -255,9 +255,16 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   維持零依賴純函式。原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼，渲染失敗保留
   原始碼並顯示原因；搜尋會跳過圖表模式下收起的原始碼（`[data-search-skip]`）；
   `settings.mermaidEnabled` 可整份關閉自動渲染。評估與實測數字見 `docs/redesign-plan.md` §11。
-- **PDF**：不進檢視器（`.pdf` 屬 `document` 類），交給系統預設程式。內嵌 WebView2 PDF
-  viewer 的評估（含 wry 預設 `--disable-features=…,msPdfOOUI` 這個關鍵事實）見
-  `docs/redesign-plan.md` §11，決議同為先不做。
+- **PDF（2026-10-09 起）**：走自訂協定 `stream`，把檔案位元組直接餵給 WebView2 內建的
+  PDF viewer，**不經過 base64／Blob**（記憶體峰值是單次 HTTP Range，不是檔案的 2.3 倍）。
+  後端 `commands/stream.rs` 發一組不可猜的 token（`open_file_stream`），URL 只帶 token、
+  `close_file_stream` 立即撤銷；`core/stream.rs` 是 Range 解析與 MIME 的純邏輯。
+  前端 `PdfView.vue` 是**不加 sandbox** 的 `<iframe :src="streamUrl">`（PDF viewer 需要
+  自己的工具列與右鍵選單）。另外 `tauri.conf.json` 必須設 `additionalBrowserArgs` ——
+  wry 預設傳 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`，而這個設定是
+  **整串取代**，所以要自己補回 `msWebOOUI,msSmartScreenProtection`，只放開 `msPdfOOUI`。
+  只服務 `.pdf`（`ALLOWED_EXTENSIONS`）。**待桌面驗證**：內建 viewer 在 `stream://` 的
+  iframe 下是否正常、`Range` 是否確實被轉送到處理器。
 - **渲染保證**：`utils/markdown.ts` 是零依賴的純函數；每一輪區塊解析都保證往前推進
   （避免卡死），任何例外都會退回「警告＋原始文字」。**檢視器永遠不會只留一片空白**：
   內容為空但檔案有大小時，store 會直接顯示讀取錯誤。

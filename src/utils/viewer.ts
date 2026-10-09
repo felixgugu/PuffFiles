@@ -26,6 +26,11 @@ const IMAGE_EXTENSIONS = new Set<string>(VIEWER_IMAGE_EXTENSIONS);
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 /** HTML 走靜態預覽（`HtmlView`），不是純文字；`.htm` 在 `fileKind.ts` 也歸成程式碼。 */
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
+/**
+ * PDF 走自訂協定（`stream`）＋ WebView2 內建的 PDF viewer，不是純文字也不是圖片：
+ * 後端只在使用者捲動時送出被請求的那一段（HTTP Range），內容不經過 base64／Blob。
+ */
+const PDF_EXTENSIONS = new Set(["pdf"]);
 
 /**
  * 這個項目能不能用檢視器打開；不能就回 `null`。
@@ -46,6 +51,9 @@ export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): Vie
   }
   if (HTML_EXTENSIONS.has(extension)) {
     return "html";
+  }
+  if (PDF_EXTENSIONS.has(extension)) {
+    return "pdf";
   }
   const kind = fileKindOf(entry);
   return kind === "text" || kind === "code" ? "text" : null;
