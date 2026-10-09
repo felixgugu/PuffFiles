@@ -1,4 +1,5 @@
-import { nextTick, onBeforeUnmount, onMounted, type Ref } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from "vue";
+import { registerViewerScroller, reportScrollEdges } from "@/composables/useViewerNavigation";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 
@@ -22,12 +23,15 @@ export function useViewerScroll(paneId: PaneId, element: Ref<HTMLElement | null>
       return;
     }
     target.scrollTop = viewer.of(paneId)?.scrollTop ?? 0;
+    // 內容剛剛才進 DOM：順便回報端點，否則剛開的檢視器捲動鈕會兩端都停用。
+    reportScrollEdges(paneId, target);
   }
 
   function save() {
     const target = element.value;
     if (target) {
       viewer.setScrollTop(paneId, target.scrollTop);
+      reportScrollEdges(paneId, target);
     }
   }
 
@@ -36,7 +40,16 @@ export function useViewerScroll(paneId: PaneId, element: Ref<HTMLElement | null>
   });
 
   // 卸載前補記一次：捲動事件寫回的是滾動過程中的值，最後停住的位置要靠這裡。
-  onBeforeUnmount(save);
+  onBeforeUnmount(() => {
+    save();
+    registerViewerScroller(paneId, null);
+  });
+
+  // 捲動容器換了（換檔、重新掛載）就重新註冊給標頭的捲動鈕。
+  watch(element, (target) => registerViewerScroller(paneId, target), {
+    immediate: true,
+    flush: "post",
+  });
 
   // `restore` 也給出去：內容是非同步排出來的檢視器（例如 DOCX）掛載當下高度還是 0，
   // 那時設 `scrollTop` 會被夾成 0，要等內容真的進 DOM 之後再還原一次。

@@ -24,6 +24,11 @@ const props = withDefaults(
     source: unknown;
     /** 命中列是否顯示行號（純文字／程式碼）。 */
     showLine?: boolean;
+    /**
+     * 面板配色：不給就依檢視器種類決定（DOCX 的白紙＝淺色，其餘跟隨主題）；
+     * HTML 預覽由呼叫端依頁面底色覆寫。
+     */
+    light?: boolean;
   }>(),
   { showLine: false },
 );
@@ -49,14 +54,10 @@ const listEl = useTemplateRef<HTMLElement>("list");
 const listHeight = ref(0);
 
 const state = computed(() => viewer.of(props.paneId));
+const lightPanel = computed(() => props.light ?? state.value?.kind === "docx");
 const FALLBACK: PanelLayout = { x: null, y: 0, width: SEARCH_PANEL_DEFAULT_WIDTH, height: null };
 const collapsed = computed(() => state.value?.searchPanel.collapsed ?? false);
 const initialLayout = computed(() => state.value?.searchPanel.layout ?? FALLBACK);
-
-/** 未移動過時避開同一窗格已展開的目錄索引。 */
-function avoidToc() {
-  return props.host?.querySelector<HTMLElement>('[data-panel="toc"]') ?? null;
-}
 
 const counter = computed(() => {
   if (search.result.value.error) {
@@ -155,16 +156,18 @@ onMounted(() => {
 
 <template>
   <FloatingPanel
+    :pane-id="paneId"
     panel="search"
     title="搜尋"
     icon="search"
     drag-label="搜尋，可拖曳移動；方向鍵移動，Enter 收合或展開"
     resize-label="調整搜尋面板大小；方向鍵調整寬高"
     :host="host"
+    :light="lightPanel"
     :collapsed="collapsed"
     :initial-layout="initialLayout"
     :content-height="listHeight"
-    :avoid="avoidToc"
+    :avoid-id="`${paneId}:toc`"
     @persist="viewer.setPanelLayout(paneId, 'search', $event)"
     @toggle-collapse="viewer.togglePanelCollapsed(paneId, 'search')"
   >

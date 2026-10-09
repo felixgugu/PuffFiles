@@ -8,11 +8,13 @@ import { useUiStore } from "@/stores/ui";
 import { useViewerStore } from "@/stores/viewer";
 import { useImageNavigation } from "@/composables/useImageNavigation";
 import { useRefreshView } from "@/composables/useRefreshView";
+import { scrollViewer } from "@/composables/useViewerNavigation";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import type { PaneId } from "@/types/fs";
 import { secondPaneId } from "@/utils/layout";
 import { samePath } from "@/utils/path";
+import { supportsViewerBookmarks } from "@/utils/viewer";
 
 /**
  * 全域快速鍵。
@@ -98,7 +100,7 @@ export function useKeyboardShortcuts() {
       if (modifier) {
         // 只放行分頁／版面層級的操作；Ctrl+Shift+N（建立新資料夾）是清單操作，不在此列。
         const allowed =
-          ["w", "W", "\\", "|", "Tab", "l", "L", "f", "F"].includes(key) ||
+          ["w", "W", "\\", "|", "Tab", "l", "L", "f", "F", "b", "B"].includes(key) ||
           ((key === "n" || key === "N") && !shiftKey);
         if (!allowed) {
           return;
@@ -107,6 +109,15 @@ export function useKeyboardShortcuts() {
         if (key === "f" || key === "F") {
           event.preventDefault();
           viewer.toggleSearch(paneId);
+          return;
+        }
+        // Ctrl+B 在支援書籤的檢視器（DOCX、純文字／程式碼）裡是「把選取的文字加入書籤目錄」。
+        if (key === "b" || key === "B") {
+          event.preventDefault();
+          const current = viewer.of(paneId);
+          if (current && supportsViewerBookmarks(current.kind, current.size)) {
+            viewer.requestBookmark(paneId);
+          }
           return;
         }
       } else if (key === "F5") {
@@ -129,6 +140,26 @@ export function useKeyboardShortcuts() {
           event.preventDefault();
           imageNav.step(paneId, key === "ArrowLeft" ? -1 : 1);
         }
+        return;
+      } else if (
+        key === "Home" ||
+        key === "End" ||
+        key === "PageUp" ||
+        key === "PageDown"
+      ) {
+        // 標頭的捲動鈕同一組動作；`preventDefault` 是因為容器本身可能有焦點
+        //（例如跳過書籤之後），不擋下來會捲兩次。
+        event.preventDefault();
+        scrollViewer(
+          paneId,
+          key === "Home"
+            ? "top"
+            : key === "End"
+              ? "bottom"
+              : key === "PageUp"
+                ? "page-up"
+                : "page-down",
+        );
         return;
       } else if (key !== "F6" && key !== "Escape") {
         // Escape 在有浮層時往下走，讓設定頁／瀏覽紀錄先關閉。

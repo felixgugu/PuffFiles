@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from "vue";
+import BookmarkOutline from "./BookmarkOutline.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
+import { useViewerBookmarks } from "@/composables/useViewerBookmarks";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
 import { useViewerScroll } from "@/composables/useViewerScroll";
 import { useExplorerStore } from "@/stores/explorer";
+import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { collectBlobUrls, docxZoom } from "@/utils/docx";
@@ -23,6 +26,7 @@ const props = defineProps<{ paneId: PaneId }>();
 
 const viewer = useViewerStore();
 const explorer = useExplorerStore();
+const settings = useSettingsStore();
 const { openLocalTarget } = useLocalNavigation();
 
 const state = computed(() => viewer.of(props.paneId));
@@ -36,6 +40,34 @@ const scroll = useViewerScroll(props.paneId, scroller);
 const rendering = ref(false);
 /** 排完一次版就 +1：搜尋面板靠它知道「現在這份 DOM 才是新的」。 */
 const rendered = ref(0);
+
+/**
+ * 書籤目錄：把選取的文字變成可以跳回來的位置。
+ *
+ * 位置每次排版後重新對回 DOM（`revision` 就是下面的 `rendered`），
+ * 所以切換分頁重掛、F5 重新載入或外部修改後自動重載都不會走位。
+ */
+const {
+  enabled: bookmarksEnabled,
+  panelItems: bookmarkItems,
+  activeId: bookmarkActiveId,
+  canAdd: canAddBookmark,
+  jumpTo: jumpToBookmark,
+  addFromSelection,
+  rename: renameBookmark,
+  remove: removeBookmark,
+} = useViewerBookmarks({
+  paneId: props.paneId,
+  kind: () => state.value?.kind ?? null,
+  host: () => host.value,
+  viewport: () => scroller.value,
+  content: () => content.value,
+  // DOCX 的位置記在區塊裡，不需要整份文字。
+  text: () => "",
+  size: () => state.value?.size ?? 0,
+  revision: () => rendered.value,
+  path: () => state.value?.path ?? "",
+});
 
 /**
  * docx-preview 的 lazy chunk：第一次真的開 DOCX 才下載（與 Mermaid 同一手法，
@@ -201,13 +233,17 @@ watch(
 <template>
   <div ref="host" class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
     <!--
-      `data-native-menu`：這裡的文字要能選取複製，原生右鍵選單是唯一提供「複製」的地方
-      （與純文字檢視器一致）。連結另外由 `onContentClick` 攔下來。
+      `select-text`：內文要能選取複製（`body` 預設是 `user-select: none`）。
+      這裡刻意**不**掛 `data-native-menu`：檢視器內文不提供原生右鍵選單，
+      複製走 Ctrl+C（見 `main.ts` 的攔截與 `AGENTS.md` §3.5）。
+      `isolate`：內文自成一個堆疊脈絡，文件帶進來的 z-index（`docx-preview` 的
+      `section.docx > article` 就有 `z-index: 1`）不可能蓋到浮動面板上。
+      連結另外由 `onContentClick` 攔下來。
     -->
     <div
       ref="scroller"
-      data-native-menu
-      class="docx-host scroll-area min-h-0 flex-1 overflow-auto"
+      tabindex="-1"
+      class="docx-host scroll-area isolate min-h-0 flex-1 overflow-auto select-text"
       @click="onContentClick"
       @scroll.passive="scroll.save"
     >
@@ -221,6 +257,20 @@ watch(
       正在排版…
     </div>
 
+    <BookmarkOutline
+      v-if="settings.viewerBookmarksEnabled && bookmarksEnabled"
+      :key="state?.path"
+      :pane-id="paneId"
+      :host="host"
+      :items="bookmarkItems"
+      :active-id="bookmarkActiveId"
+      :can-add="canAddBookmark"
+      @jump="jumpToBookmark"
+      @rename="renameBookmark"
+      @remove="removeBookmark"
+      @add="addFromSelection"
+    />
+
     <ViewerSearchPanel
       v-if="state?.search.open"
       :key="state?.path"
@@ -228,6 +278,7 @@ watch(
       :host="host"
       :root="content"
       :source="rendered"
+      light
     />
   </div>
 </template>
@@ -255,5 +306,17 @@ watch(
   display: inline;
   max-width: 100%;
   vertical-align: middle;
+}
+
+/*
+ * 跳到書籤時的標示：**固定在白紙上的淡藍底**，不跟著主題換色。
+ *
+ * 與頁面本身（永遠白底黑字，見上）同一套立場：這一塊是文件的座標，不是介面材質。
+ * 只用 `background-color`（不動版面、不位移），樣式交給計時器移除 ——
+ * 不是 `@keyframes`：全站的「減少動態」會把動畫時間壓成 1ms，那樣跳過去等於沒有標示。
+ */
+.docx-host :deep(.docx-bookmark-flash) {
+  background-color: rgb(37 99 235 / 0.22);
+  transition: background-color 140ms ease-out;
 }
 </style>

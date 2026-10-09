@@ -342,6 +342,59 @@ export function joinSrcset(candidates: readonly SrcsetCandidate[]): string {
     .join(", ");
 }
 
+/**
+ * 這份預覽頁面是亮底還是暗底。
+ *
+ * 浮動面板（搜尋）疊在 iframe 上，配色要跟著**頁面底色**走：亮底用淺色面板，
+ * 暗底才跟隨 App 的佈景主題（見 `main.css` 的 `panel-light`）。
+ *
+ * 只看 `background-color`（不分析背景圖片）：頁面沒指定、或指定成透明時，
+ * 瀏覽器畫的其實是白紙，所以一律當成亮底。顏色函式解析不出來（例如 `oklch()`）
+ * 也當成亮底 —— 誤判只影響面板對比，不會動到文件本身，而檔案檢視器裡最常見的
+ * 就是白底文件。
+ */
+export function isLightDocument(doc: Document): boolean {
+  for (const element of [doc.documentElement, doc.body]) {
+    if (!element) {
+      continue;
+    }
+    const color = parseOpaqueColor(getComputedStyle(element).backgroundColor);
+    if (color) {
+      return relativeLuminance(color) >= LIGHT_LUMINANCE;
+    }
+  }
+  return true;
+}
+
+/** 亮／暗的分界（相對亮度，0＝黑、1＝白）。 */
+const LIGHT_LUMINANCE = 0.5;
+
+/** `rgb()`／`rgba()` 形式的顏色；透明與其他色彩空間回 null（交由呼叫端當成白底）。 */
+function parseOpaqueColor(value: string): [number, number, number] | null {
+  const match = /^rgba?\(([^)]+)\)$/i.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+  const parts = match[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+  if (parts.length < 3 || parts.slice(0, 3).some((part) => !Number.isFinite(part))) {
+    return null;
+  }
+  const alpha = parts.length >= 4 ? parts[3] : 1;
+  if (!(alpha > 0.01)) {
+    return null;
+  }
+  return [parts[0], parts[1], parts[2]];
+}
+
+/** WCAG 的相對亮度（sRGB → 線性 → 加權）。 */
+function relativeLuminance([red, green, blue]: [number, number, number]): number {
+  const channel = (value: number) => {
+    const scaled = Math.min(Math.max(value, 0), 255) / 255;
+    return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue);
+}
+
 /** blob URL 不會含引號或換行，這裡只是防禦性清掉。 */
 function escapeUrl(url: string): string {
   return url.replace(/["\\\r\n]/g, "");

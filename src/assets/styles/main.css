@@ -247,14 +247,6 @@
     user-select: text;
   }
 
-  /*
-   * 檢視器的內容區（Markdown／純文字）也要能選取複製。
-   * `data-native-menu` 同時代表「這裡保留原生右鍵選單」，與 main.ts 的攔截例外同一套標記。
-   */
-  [data-native-menu] {
-    user-select: text;
-  }
-
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 1px;
@@ -295,6 +287,34 @@
   & .file-icon {
     opacity: 0.6;
   }
+}
+
+/*
+ * 浮動面板（目錄索引／書籤目錄／搜尋）的配色**跟隨底下的內容，不是跟隨佈景主題**。
+ *
+ * DOCX 的頁面永遠是白紙（見 `DocxView.vue`），深色主題的深色面板疊上去，面板自己
+ * 的淺色文字會落在白紙上 —— 平常（idle 不透明度 0.2）幾乎完全看不見。做法與
+ * `pane-inactive` 同一套：不改個別樣式，只在這塊子樹上把權杖換成淺色那一組
+ * （值與 `@theme` 的淺色定義一致）。
+ *
+ * 這份清單是面板實際用到的權杖；面板新增樣式若用到別的權杖，要一起補進來。
+ */
+@utility panel-light {
+  --color-menu: oklch(1 0 0);
+  --color-hairline-bright: oklch(1 0 0 / 0.6);
+  --color-line: oklch(0.92 0.005 265);
+  --color-line-strong: oklch(0.86 0.006 265);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.972 0.003 265);
+  --color-surface-hover: oklch(0.955 0.004 265);
+  --color-pressed: oklch(0.935 0.005 265);
+  --color-ink: oklch(0.3 0.012 265);
+  --color-ink-muted: oklch(0.45 0.014 265);
+  --color-ink-faint: oklch(0.54 0.012 265);
+  --color-accent: oklch(0.53 0.155 252);
+  --color-accent-ink: oklch(1 0 0);
+  --color-accent-soft: oklch(0.95 0.028 252);
+  --color-danger: oklch(0.55 0.19 25);
 }
 
 /* 資料夾列表用的細捲軸 */

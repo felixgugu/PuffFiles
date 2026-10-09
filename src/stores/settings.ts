@@ -190,6 +190,8 @@ interface StoredSettings {
   lastSplit: { path: string; direction: SplitDirection };
   /** Markdown 檢視器的目錄索引開關（預設開啟）。 */
   markdownTocEnabled: boolean;
+  /** 檢視器書籤目錄的開關（DOCX 與純文字／程式碼，預設開啟；沒有書籤時顯示加入說明）。 */
+  viewerBookmarksEnabled: boolean;
   /** Markdown 檢視器的 Mermaid 圖表自動渲染（預設開啟）。 */
   mermaidEnabled: boolean;
   /** 檢視器搜尋是否把搜尋字串帶到新文件（預設不帶；面板上的「保留搜尋字串」）。 */
@@ -207,6 +209,8 @@ interface StoredSettings {
   /** 舊版鍵名，僅用於讀取時搬移（改名後第一次存檔就不再寫入）。 */
   markdownTocMinWidth?: number;
   markdownTocOpacity?: number;
+  /** 舊版鍵名：書籤目錄原本只給 DOCX，2026-10-09 擴及純文字後改名。 */
+  docxBookmarksEnabled?: boolean;
   /** 舊版欄位，僅用於讀取時搬移。 */
   lastSplitPath?: string;
 }
@@ -235,6 +239,7 @@ const DEFAULTS: StoredSettings = {
   treeCollapsed: false,
   lastSplit: { path: "", direction: "row" },
   markdownTocEnabled: true,
+  viewerBookmarksEnabled: true,
   mermaidEnabled: true,
   viewerSearchKeepQuery: false,
   viewerPanelMinWidth: PANEL_MIN_WIDTH_DEFAULT,
@@ -297,6 +302,8 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
   const fontSize = typeof raw.fontSize === "number" ? clampFontSize(raw.fontSize) : FONT_SIZE_DEFAULT;
   const aliasTemplate =
     typeof raw.aliasTemplate === "string" ? raw.aliasTemplate : DEFAULT_ALIAS_TEMPLATE;
+  // 書籤目錄開關 2026-10-09 從 `docxBookmarksEnabled` 改名：舊鍵讀得到就沿用。
+  const bookmarksEnabled = raw.viewerBookmarksEnabled ?? raw.docxBookmarksEnabled;
 
   return {
     ...DEFAULTS,
@@ -310,6 +317,8 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.markdownTocEnabled === "boolean"
         ? raw.markdownTocEnabled
         : DEFAULTS.markdownTocEnabled,
+    viewerBookmarksEnabled:
+      typeof bookmarksEnabled === "boolean" ? bookmarksEnabled : DEFAULTS.viewerBookmarksEnabled,
     mermaidEnabled:
       typeof raw.mermaidEnabled === "boolean" ? raw.mermaidEnabled : DEFAULTS.mermaidEnabled,
     viewerSearchKeepQuery:
@@ -368,6 +377,7 @@ export const useSettingsStore = defineStore("settings", () => {
     stored.lastSplit ?? { path: stored.lastSplitPath ?? "", direction: "row" },
   );
   const markdownTocEnabled = ref(stored.markdownTocEnabled);
+  const viewerBookmarksEnabled = ref(stored.viewerBookmarksEnabled);
   const mermaidEnabled = ref(stored.mermaidEnabled);
   const viewerSearchKeepQuery = ref(stored.viewerSearchKeepQuery);
   const viewerPanelMinWidth = ref(stored.viewerPanelMinWidth);
@@ -423,7 +433,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, viewerBookmarksEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -445,6 +455,7 @@ export const useSettingsStore = defineStore("settings", () => {
           treeCollapsed: treeCollapsed.value,
           lastSplit: lastSplit.value,
           markdownTocEnabled: markdownTocEnabled.value,
+          viewerBookmarksEnabled: viewerBookmarksEnabled.value,
           mermaidEnabled: mermaidEnabled.value,
           viewerSearchKeepQuery: viewerSearchKeepQuery.value,
           viewerPanelMinWidth: viewerPanelMinWidth.value,
@@ -509,6 +520,11 @@ export const useSettingsStore = defineStore("settings", () => {
   /** Markdown 檢視器的目錄索引開關；沒有標題時呼叫端會自行停用。 */
   function toggleMarkdownToc() {
     markdownTocEnabled.value = !markdownTocEnabled.value;
+  }
+
+  /** 檢視器的書籤目錄開關（加入書籤時也會自動打開）。 */
+  function setViewerBookmarks(value: boolean) {
+    viewerBookmarksEnabled.value = value;
   }
 
   /** 同步瀏覽：開啟後另一個窗格跟著做相對移動（見 §同步瀏覽）。 */
@@ -628,6 +644,7 @@ export const useSettingsStore = defineStore("settings", () => {
     setTreeWidth,
     toggleTree,
     markdownTocEnabled,
+    viewerBookmarksEnabled,
     mermaidEnabled,
     viewerSearchKeepQuery,
     viewerPanelMinWidth,
@@ -636,6 +653,7 @@ export const useSettingsStore = defineStore("settings", () => {
     syncBrowsing,
     compareDirectories,
     toggleMarkdownToc,
+    setViewerBookmarks,
     toggleSyncBrowsing,
     toggleCompareDirectories,
     setViewerSearchKeepQuery,

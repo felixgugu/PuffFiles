@@ -2,6 +2,21 @@ import type { AppErrorView } from "@/services/errors";
 import type { PaneId } from "@/types/fs";
 import type { PanelLayout } from "@/utils/viewerPanel";
 
+/**
+ * 目錄索引面板的一列（`viewer/OutlinePanel.vue` 的輸入）。
+ *
+ * Markdown 是 h1～h6，DOCX 是使用者自己加的書籤（層級固定 1）。面板只認這個形狀，
+ * 所以兩個檢視器共用同一個浮動面板（位置、大小、收合與拖曳都只有一份實作）。
+ */
+export interface OutlineItem {
+  id: string;
+  text: string;
+  /** 縮排層級（1 起算）。 */
+  level: number;
+  /** 位置對不回目前的文件（DOCX 書籤改過太多）：淡化顯示並在提示裡說明。 */
+  stale?: boolean;
+}
+
 /** 檢視器支援的內容種類。 */
 export type ViewerKind = "markdown" | "html" | "image" | "text" | "pdf" | "docx";
 
@@ -106,6 +121,14 @@ export interface ViewerState {
    * `scrollTop` 會跟著消失；記在這裡，切回分頁時才回得到原本讀到的地方。
    */
   scrollTop: number;
+  /**
+   * 內容是不是已經貼在最上面／最下面。
+   *
+   * 標頭的捲動鈕據此停用；由捲動容器自己回報（`composables/useViewerNavigation.ts`），
+   * 內容還沒量到時兩者都是 `true`（先停用，量到再亮）。
+   */
+  atTop: boolean;
+  atBottom: boolean;
   /** 搜尋面板的開關、字串與三個選項。 */
   search: ViewerSearchState;
   /** 目錄索引面板的收合與位置尺寸（只有 Markdown 會用到）。 */

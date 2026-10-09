@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch, type ComputedRef, type Ref } from "vue";
 import { useDragGesture } from "@/composables/useDragGesture";
 import { useSettingsStore } from "@/stores/settings";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@/utils/viewerPanel";
 
 interface ViewerPanelOptions {
+  /** 這個面板的身分（`<paneId>:<panel>`）：用來互相比對位置。 */
+  id: string;
   /** 定位容器（檢視器的根節點）；量測可用範圍與夾邊界都用它。 */
   host: () => HTMLElement | null;
   /** 標題列以外的內容自然高度（清單捲動高度）。 */
@@ -23,11 +25,21 @@ interface ViewerPanelOptions {
   /** 標題列的 Enter／空白＝收合或展開。 */
   onToggleCollapse: () => void;
   /**
-   * 還沒被移動過（`x === null`，貼齊右上角）時要避開的元素；
-   * 同一窗格的其他浮動面板（例如目錄索引）已經展開時往下讓開。
+   * 還沒被移動過（`x === null`，貼齊右上角）時要避開的另一個面板（身分字串）；
+   * 同一窗格的其他浮動面板（例如目錄索引）展開時往下讓開。
    */
-  avoid?: () => HTMLElement | null;
+  avoidId?: string;
 }
+
+/**
+ * 每個浮動面板**目前實際佔到的位置與高度**（相對於它的檢視器根節點）。
+ *
+ * 面板之間要互相讓開，就不能在掛載時去量對方的 DOM：那時對方可能還沒進 DOM
+ * （FloatingPanel 要等量到容器尺寸才畫），而且之後長高（例如書籤變多）也量不到。
+ * 改成由每個面板把自己的 `rect` 寫進來，需要避讓的那一個讀這裡的資料重算，
+ * 順序與時機就都不重要了。
+ */
+const panelRects = reactive<Record<string, { y: number; height: number; moved: boolean }>>({});
 
 /**
  * 檢視器浮動面板的位置、大小與拖曳手勢（目錄索引與搜尋共用）。
@@ -38,42 +50,47 @@ interface ViewerPanelOptions {
  */
 export function useViewerPanel(options: ViewerPanelOptions) {
   const settings = useSettingsStore();
-  const { host, contentHeight, collapsed, initialLayout, onPersist, onToggleCollapse, avoid } =
-    options;
+  const { id, host, contentHeight, collapsed, initialLayout, onPersist, onToggleCollapse } = options;
 
   const posX = ref<number | null>(initialLayout.x);
   const posY = ref(initialLayout.y);
   const panelWidth = ref(initialLayout.width);
   const panelHeight = ref<number | null>(initialLayout.height);
   const area = ref({ width: 0, height: 0 });
-
   /** 使用者在設定頁調的最小寬度（拖曳下限）。 */
   const minWidth = computed(() => clampPanelMinWidth(settings.viewerPanelMinWidth));
 
   /**
    * 避讓位移：只有「還沒被移動過」的面板才自動往下讓開。
-   * 由 `area` 觸發重算 —— 量到尺寸時兩個面板都已經在 DOM 裡了。
+   *
+   * 另一個面板自己移動過（`moved`）就完全不讓 —— 那時候兩個位置都是使用者決定的。
    */
   const avoidOffset = computed(() => {
-    if (posX.value !== null || !avoid || area.value.width <= 0) {
+    if (posX.value !== null || !options.avoidId) {
       return 0;
     }
-    const other = avoid();
-    const element = host();
-    if (!other || !element || other.offsetParent === null) {
+    const other = panelRects[options.avoidId];
+    if (!other || other.moved) {
       return 0;
     }
-    const otherRect = other.getBoundingClientRect();
-    const hostRect = element.getBoundingClientRect();
-    if (otherRect.height <= 0) {
+    if (other.height <= 0) {
       return 0;
     }
-    return Math.max(0, Math.round(otherRect.bottom - hostRect.top + PANEL_MARGIN));
+    // `rect` 的 y 已經是相對根節點的位移，畫面上還要各加一次 PANEL_MARGIN。
+    return Math.max(0, Math.round(other.y + other.height + PANEL_MARGIN * 2));
   });
 
   const bounds = computed(() => ({
     width: area.value.width,
     height: area.value.height,
+    /**
+     * 讓開另一個面板時，可用範圍從那個面板的下緣開始。
+     *
+     * 少了這一項，面板會被 `clampPanel` 夾回原位（`y` 有位移、長度上限卻沒扣），
+     * 結果就是蓋在另一個面板上 —— 被蓋住的那幾列會失去 hover（變成 idle 的半透明）
+     * 也點不到。
+     */
+    top: avoidOffset.value,
     contentHeight: PANEL_TITLEBAR_HEIGHT + contentHeight.value + 2,
     minWidth: minWidth.value,
   }));
@@ -87,6 +104,27 @@ export function useViewerPanel(options: ViewerPanelOptions) {
 
   /** `null`＝這個窗格太窄，不該顯示面板。 */
   const rect = computed(() => clampPanel(layout.value, bounds.value));
+
+  // 把自己的實際位置與高度公開給其他面板（避讓用）。
+  watch(
+    rect,
+    (box) => {
+      if (!box) {
+        delete panelRects[id];
+        return;
+      }
+      panelRects[id] = { y: box.y, height: box.height, moved: posX.value !== null };
+    },
+    { immediate: true, flush: "post" },
+  );
+
+  // 拖曳或縮放會改變 `posX`／尺寸：`rect` 不一定每次都變（例如只是換了 x），補一次。
+  watch([() => posX.value, rect], () => {
+    const entry = panelRects[id];
+    if (entry) {
+      entry.moved = posX.value !== null;
+    }
+  });
 
   const panelStyle = computed(() => {
     const box = rect.value;
@@ -125,7 +163,10 @@ export function useViewerPanel(options: ViewerPanelOptions) {
     { immediate: true },
   );
 
-  onBeforeUnmount(() => observer?.disconnect());
+  onBeforeUnmount(() => {
+    observer?.disconnect();
+    delete panelRects[id];
+  });
 
   function persist() {
     onPersist({

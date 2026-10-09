@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue";
-import MarkdownToc from "./MarkdownToc.vue";
+import OutlinePanel from "./OutlinePanel.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import { useMarkdownMermaid } from "@/composables/useMarkdownMermaid";
@@ -13,6 +13,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
 import { loadViewerBlobUrl } from "@/services/viewerResource";
 import type { PaneId } from "@/types/fs";
+import type { OutlineItem } from "@/types/viewer";
 import { highlightCode, languageForToken, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
 import { fileNameOf } from "@/utils/path";
 
@@ -48,6 +49,10 @@ const rendered = useMarkdownOutline(state);
 const headings = computed(() => rendered.value.headings);
 const { activeId, jumpTo } = useMarkdownScrollSpy(content, headings);
 const tocVisible = computed(() => settings.markdownTocEnabled && headings.value.length > 0);
+/** 目錄索引面板列的形狀（與 DOCX 的書籤目錄共用同一個面板元件）。 */
+const tocItems = computed<OutlineItem[]>(() =>
+  headings.value.map((heading) => ({ id: heading.id, text: heading.text, level: heading.level })),
+);
 const searchOpen = computed(() => state.value?.search.open === true);
 
 /**
@@ -227,17 +232,17 @@ function decodeFragment(value: string): string {
     <ViewerNotice v-if="skippedHighlight" text="檔案過大，已略過語法高亮" />
     <div
       ref="content"
-      data-native-menu
-      class="markdown code-highlight scroll-area min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5"
+      class="markdown code-highlight scroll-area isolate min-h-0 flex-1 overflow-auto bg-canvas px-6 py-5 select-text"
       @click="onClick"
       @scroll.passive="scroll.save"
       v-html="rendered.html"
     />
-    <MarkdownToc
+    <OutlinePanel
       v-if="tocVisible"
       :key="state?.path"
       :pane-id="paneId"
-      :headings="headings"
+      title="目錄索引"
+      :items="tocItems"
       :active-id="activeId"
       :host="host"
       @jump="jumpTo"

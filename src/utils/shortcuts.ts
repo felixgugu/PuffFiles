@@ -54,7 +54,13 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         label: "把焦點列的檔案開到檢視器窗格；已經在另一邊顯示時改開下一個（焦點留在清單）",
       },
       { keys: ["←", "→"], label: "上一張／下一張（圖片檢視器；順序跟著來源檔案清單）" },
+      { keys: ["PageUp", "PageDown"], label: "往上／往下捲一頁（標頭的捲動鈕同一組動作）" },
+      { keys: ["Home", "End"], label: "跳到最上面／最下面" },
       { keys: ["Ctrl+F"], label: "搜尋檢視器內容（文字類檢視器；再按一次關閉）" },
+      {
+        keys: ["Ctrl+B"],
+        label: "把選取的文字加入書籤目錄（DOCX、純文字與程式碼檢視器）",
+      },
       {
         keys: ["Enter", "Shift+Enter"],
         label: "下一個／上一個命中（焦點在搜尋面板時）",

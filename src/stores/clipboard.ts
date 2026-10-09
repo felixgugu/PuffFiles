@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
+import { useBookmarksStore } from "@/stores/bookmarks";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
@@ -22,6 +23,7 @@ export const useClipboardStore = defineStore("clipboard", () => {
   const tabs = useTabsStore();
   const ui = useUiStore();
   const viewer = useViewerStore();
+  const bookmarks = useBookmarksStore();
 
   /** 被剪下的項目（正規化鍵）；清單據此淡化顯示。 */
   const cutKeys = ref<string[]>([]);
@@ -307,6 +309,8 @@ export const useClipboardStore = defineStore("clipboard", () => {
       const oldKey = normalizeKey(path);
       cutKeys.value = cutKeys.value.map((key) => (key === oldKey ? normalizeKey(newPath) : key));
       await viewer.retarget(path, newPath);
+      // 書籤以路徑為鍵：不搬的話，重新命名後書籤會留在舊路徑上（等於消失）。
+      void bookmarks.retarget(path, newPath);
 
       // 只有在同一個資料夾才重讀；其他位置的窗格交給目錄監控的增量更新接手。
       if (samePath(parent, pane.currentPath)) {

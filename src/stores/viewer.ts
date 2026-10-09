@@ -58,6 +58,14 @@ function defaultPanel(width: number): ViewerPanelState {
  */
 export const useViewerStore = defineStore("viewer", () => {
   const views = reactive<Record<PaneId, ViewerState>>({});
+  /**
+   * 「把目前的選取範圍加入書籤」的請求計數（每個窗格一份）。
+   *
+   * 選取範圍只存在 DOM 裡（`DocxView`），全域快速鍵拿不到，所以由快速鍵在這裡
+   * 敲一下，`composables/useDocxBookmarks.ts` 收到再動手 —— 與 `ui.renameRequest`
+   * 同一條「跨元件請求」的路子。
+   */
+  const bookmarkRequests = reactive<Record<PaneId, number>>({});
 
   const controllers = new Map<PaneId, AbortController>();
   const watchedFiles = new Map<PaneId, string>();
@@ -70,6 +78,11 @@ export const useViewerStore = defineStore("viewer", () => {
 
   function isOpen(paneId: PaneId): boolean {
     return views[paneId] !== undefined;
+  }
+
+  /** Ctrl+B：請該窗格的 DOCX 檢視器把目前的選取範圍加入書籤。 */
+  function requestBookmark(paneId: PaneId) {
+    bookmarkRequests[paneId] = (bookmarkRequests[paneId] ?? 0) + 1;
   }
 
   function stopWatch(paneId: PaneId) {
@@ -430,6 +443,8 @@ export const useViewerStore = defineStore("viewer", () => {
       size: 0,
       modifiedMs: null,
       scrollTop: 0,
+      atTop: true,
+      atBottom: true,
       search: previousSearch ? { ...previousSearch } : { ...DEFAULT_SEARCH },
       tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
       searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
@@ -489,6 +504,16 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
+  /** 內容貼在最上面／最下面了嗎（標頭的捲動鈕據此停用）。 */
+  function setScrollEdges(paneId: PaneId, atTop: boolean, atBottom: boolean) {
+    const state = views[paneId];
+    if (!state) {
+      return;
+    }
+    state.atTop = atTop;
+    state.atBottom = atBottom;
+  }
+
   function togglePanelCollapsed(paneId: PaneId, which: "toc" | "search") {
     const state = views[paneId];
     if (state) {
@@ -542,8 +567,10 @@ export const useViewerStore = defineStore("viewer", () => {
 
   return {
     views,
+    bookmarkRequests,
     of,
     isOpen,
+    requestBookmark,
     open,
     reload,
     setMode,
@@ -552,6 +579,7 @@ export const useViewerStore = defineStore("viewer", () => {
     updateSearch,
     setPanelLayout,
     setScrollTop,
+    setScrollEdges,
     togglePanelCollapsed,
     fail,
     retarget,

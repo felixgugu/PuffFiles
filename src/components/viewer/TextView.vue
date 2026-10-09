@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, useTemplateRef } from "vue";
+import BookmarkOutline from "./BookmarkOutline.vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
+import { useViewerBookmarks } from "@/composables/useViewerBookmarks";
 import { useViewerScroll } from "@/composables/useViewerScroll";
+import { useSettingsStore } from "@/stores/settings";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import { highlightCode, languageForPath, MAX_HIGHLIGHT_BYTES } from "@/utils/codeHighlight";
@@ -16,11 +19,13 @@ import { supportsViewerSearch } from "@/utils/viewer";
  *
  * 程式碼檔（`fileKind.ts` 的「程式碼」類）會多一層語法高亮；超過
  * `MAX_HIGHLIGHT_BYTES` 就整份當純文字，避免同步高亮卡住 UI。
- * 內容區帶著 `data-native-menu`，讓原生右鍵選單與 Ctrl+C 複製文字可用。
+ * 內文可以選取（`select-text`）並用 Ctrl+C 複製；這裡**不**掛 `data-native-menu`，
+ * 檢視器內文不提供原生右鍵選單（見 `main.ts` 的攔截）。
  */
 const props = defineProps<{ paneId: PaneId }>();
 
 const viewer = useViewerStore();
+const settings = useSettingsStore();
 const state = computed(() => viewer.of(props.paneId));
 const host = useTemplateRef<HTMLElement>("host");
 const pre = useTemplateRef<HTMLElement>("pre");
@@ -77,6 +82,37 @@ const notice = computed(() => (tooLarge.value ? "檔案過大，已略過語法�
  * 自然被丟棄，搜尋要還原也只要清掉標記就好。
  */
 const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
+
+/**
+ * 書籤目錄：純文字與程式碼沒有大綱，目錄由使用者自己選取文字累積。
+ *
+ * 這一種內容的捲動容器與內容根節點是同一個 `<pre>`，文字來源就是 store 裡的
+ * `state.text`（與畫面上一模一樣，不用整份複製 DOM 文字）。
+ */
+const {
+  enabled: bookmarksEnabled,
+  panelItems: bookmarkItems,
+  activeId: bookmarkActiveId,
+  canAdd: canAddBookmark,
+  jumpTo: jumpToBookmark,
+  addFromSelection,
+  rename: renameBookmark,
+  remove: removeBookmark,
+} = useViewerBookmarks({
+  paneId: props.paneId,
+  kind: () => state.value?.kind ?? null,
+  host: () => host.value,
+  viewport: () => pre.value,
+  content: () => pre.value,
+  text: () => state.value?.text ?? "",
+  size: () => state.value?.size ?? 0,
+  revision: () => state.value?.text ?? "",
+  path: () => state.value?.path ?? "",
+});
+
+const bookmarkPanel = computed(
+  () => settings.viewerBookmarksEnabled && bookmarksEnabled.value,
+);
 </script>
 
 <template>
@@ -85,8 +121,7 @@ const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
     <pre
       v-if="highlighted === null"
       ref="pre"
-      data-native-menu
-      class="scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
+      class="scroll-area isolate min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink select-text"
       @scroll.passive="scroll.save"
       v-html="escapedText"
     />
@@ -96,10 +131,23 @@ const escapedText = computed(() => escapeHtml(state.value?.text ?? ""));
     <pre
       v-else
       ref="pre"
-      data-native-menu
-      class="code-highlight scroll-area min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink"
+      class="code-highlight scroll-area isolate min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-sm leading-6 break-words whitespace-pre-wrap text-ink select-text"
       @scroll.passive="scroll.save"
       v-html="highlighted"
+    />
+
+    <BookmarkOutline
+      v-if="bookmarkPanel"
+      :key="state?.path"
+      :pane-id="paneId"
+      :host="host"
+      :items="bookmarkItems"
+      :active-id="bookmarkActiveId"
+      :can-add="canAddBookmark"
+      @jump="jumpToBookmark"
+      @rename="renameBookmark"
+      @remove="removeBookmark"
+      @add="addFromSelection"
     />
 
     <ViewerSearchPanel

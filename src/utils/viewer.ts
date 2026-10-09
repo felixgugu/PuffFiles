@@ -1,7 +1,9 @@
 import type { FileEntry } from "@/types/fs";
+import type { BookmarkKind } from "@/types/bookmarks";
 import type { ViewerKind } from "@/types/viewer";
 import { fileKindOf } from "@/utils/fileKind";
 import { fileNameOf, samePath } from "@/utils/path";
+import { MAX_SEARCH_TEXT } from "@/utils/textSearch";
 
 /**
  * 可以交給圖片檢視器的副檔名。
@@ -84,6 +86,36 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
  */
 export function supportsViewerSearch(kind: ViewerKind | null): boolean {
   return kind === "markdown" || kind === "html" || kind === "text" || kind === "docx";
+}
+
+/**
+ * 這個檢視器的內容能不能加書籤（DOCX 與純文字／程式碼）。
+ *
+ * Markdown 已經有自動抽出的目錄索引；HTML 有預覽與原始碼兩種模式，只給原始碼加書籤
+ * 會讓預覽模式看起來壞掉，所以不開放。純文字沿用搜尋的 4 MB 上限：對位要掃整份文字，
+ * 超大檔案不適合（DOCX 自己已經有 `MAX_DOCX_BYTES`）。
+ */
+export function supportsViewerBookmarks(kind: ViewerKind | null, size: number): boolean {
+  if (kind === "docx") {
+    return true;
+  }
+  return kind === "text" && size <= MAX_SEARCH_TEXT;
+}
+
+/** 檢視器種類 → 書籤錨點種類（不支援的內容回 null）。 */
+export function bookmarkKindOf(kind: ViewerKind | null): BookmarkKind | null {
+  return kind === "docx" || kind === "text" ? kind : null;
+}
+
+/**
+ * 這個檢視器的內容能不能用程式捲動（標頭的捲動鈕）。
+ *
+ * 圖片沒有捲動容器（只有 fit／實際大小切換）、PDF 是 WebView2 內建的 viewer
+ * （在自己的一份文件裡，碰不到），兩者與「這個檔案沒有檢視器」的狀態都不顯示
+ * 那一組按鈕。HTML 兩種模式都算：預覽捲 iframe 的文件、原始碼捲純文字容器。
+ */
+export function supportsViewerScroll(kind: ViewerKind | null): boolean {
+  return kind === "markdown" || kind === "docx" || kind === "text" || kind === "html";
 }
 
 /**

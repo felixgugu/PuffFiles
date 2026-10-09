@@ -11,6 +11,7 @@ import TabToolbar from "@/components/toolbar/TabToolbar.vue";
 import WorkspaceView from "@/components/workspace/WorkspaceView.vue";
 import { useKeyboardShortcuts } from "@/composables/useKeyboardShortcuts";
 import * as api from "@/services/api";
+import { useBookmarksStore } from "@/stores/bookmarks";
 import { useSettingsStore } from "@/stores/settings";
 import { useSystemStore } from "@/stores/system";
 import { useTabsStore } from "@/stores/tabs";
@@ -19,6 +20,7 @@ import { useUiStore } from "@/stores/ui";
 const system = useSystemStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
+const bookmarks = useBookmarksStore();
 const settings = useSettingsStore();
 
 useKeyboardShortcuts();
@@ -29,6 +31,8 @@ onMounted(async () => {
     .detect7zip()
     .then((path) => (path ? settings.applyDetected7zip(path) : undefined))
     .catch(() => undefined);
+  // DOCX 書籤一次全部讀進記憶體：一份文件幾筆，之後查詢就是同步的。
+  void bookmarks.load();
   await system.load();
   tabs.bootstrap(system.startLocation);
 });

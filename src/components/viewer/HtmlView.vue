@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
+import { registerViewerScroller, reportScrollEdges } from "@/composables/useViewerNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewerStore } from "@/stores/viewer";
 import { loadViewerBlobUrl, loadViewerText } from "@/services/viewerResource";
@@ -13,6 +14,7 @@ import {
   DEFERRED_SRC_ATTRIBUTE,
   DEFERRED_SRCSET_ATTRIBUTE,
   joinSrcset,
+  isLightDocument,
   referenceKind,
   replaceMissingImage,
   rewriteCssReferences,
@@ -55,6 +57,11 @@ const preparedHtml = ref<string | null>(null);
 const skipped = ref(0);
 /** iframe 每次載入完成就 +1，讓搜尋知道「現在這份 body 才是新的」。 */
 const frameReady = ref(0);
+/**
+ * 預覽頁面是不是亮底：浮動面板的配色要跟著**頁面底色**走（`main.css` 的
+ * `panel-light`），否則深色主題的深色面板疊在白底頁面上會看不見。
+ */
+const pageIsLight = ref(true);
 
 const searchOpen = computed(
   () => state.value?.search.open === true && supportsViewerSearch(state.value?.kind ?? null),
@@ -419,6 +426,7 @@ function saveScroll() {
   const scroller = frameScroller();
   if (scroller) {
     viewer.setScrollTop(props.paneId, scroller.scrollTop);
+    reportScrollEdges(props.paneId, scroller);
   }
 }
 
@@ -426,6 +434,7 @@ function restoreScroll() {
   const scroller = frameScroller();
   if (scroller) {
     scroller.scrollTop = viewer.of(props.paneId)?.scrollTop ?? 0;
+    reportScrollEdges(props.paneId, scroller);
   }
 }
 
@@ -477,10 +486,14 @@ function onFrameLoad() {
   if (!doc) {
     return;
   }
+  // 外部樣式在 `prepare()` 就換成 blob URL 內嵌了，載入完成時量到的底色就是定案。
+  pageIsLight.value = isLightDocument(doc);
   doc.addEventListener("keydown", forwardKeydown);
   doc.addEventListener("click", onFrameClick);
   doc.addEventListener("contextmenu", blockContextMenu);
   doc.addEventListener("scroll", saveScroll, { passive: true });
+  // 標頭的捲動鈕捲的是這份文件（iframe 自己的捲動容器）。
+  registerViewerScroller(props.paneId, frameScroller());
   frameReady.value += 1;
   restoreScroll();
   // 資源改寫完（圖片、外部 CSS）再通知一次：畫面高度穩定後命中位置才準。
@@ -501,6 +514,7 @@ watch(
 onBeforeUnmount(() => {
   generation++;
   saveScroll();
+  registerViewerScroller(props.paneId, null);
   releaseBlobs();
 });
 </script>
@@ -533,6 +547,7 @@ onBeforeUnmount(() => {
       :host="host"
       :root="frameBody"
       :source="frameReady"
+      :light="pageIsLight"
     />
   </div>
 </template>

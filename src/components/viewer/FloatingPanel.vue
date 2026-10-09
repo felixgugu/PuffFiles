@@ -12,6 +12,8 @@ import type { PanelLayout } from "@/utils/viewerPanel";
  * 內容由預設插槽決定；位置、尺寸與收合狀態由呼叫端接上設定。
  */
 const props = defineProps<{
+  /** 所在的窗格；與 `panel` 組成面板的身分（互相避讓時要比對）。 */
+  paneId: string;
   /** 面板識別碼（`toc`／`search`），同時給測試與「面板互相避讓」查詢用。 */
   panel: string;
   title: string;
@@ -27,8 +29,13 @@ const props = defineProps<{
   initialLayout: PanelLayout;
   /** 內容自然高度（呼叫端量自己的捲動區）。 */
   contentHeight: number;
-  /** 未移動過時要避開的元素（同一窗格的其他浮動面板）。 */
-  avoid?: () => HTMLElement | null;
+  /** 未移動過時要避開的另一個浮動面板身分（`<paneId>:<panel>`）。 */
+  avoidId?: string;
+  /**
+   * 面板配色跟隨**底下的內容**而不是佈景主題：`true` 時改用淺色權杖
+   * （DOCX 的頁面固定白紙，深色主題的深色面板疊上去字會看不見）。
+   */
+  light?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -40,13 +47,14 @@ const settings = useSettingsStore();
 
 const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, onResizePointerDown, onResizeKeydown } =
   useViewerPanel({
+    id: `${props.paneId}:${props.panel}`,
     host: () => props.host,
     contentHeight: computed(() => props.contentHeight),
     collapsed: computed(() => props.collapsed),
     initialLayout: props.initialLayout,
     onPersist: (layout) => emit("persist", layout),
     onToggleCollapse: () => emit("toggleCollapse"),
-    avoid: () => props.avoid?.() ?? null,
+    avoidId: props.avoidId,
   });
 </script>
 
@@ -55,7 +63,7 @@ const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, 
     v-if="rect"
     :data-panel="panel"
     class="viewer-panel absolute z-30 flex flex-col overflow-hidden rounded-xl text-base"
-    :class="{ 'is-active': moving || resizing }"
+    :class="{ 'is-active': moving || resizing, 'panel-light': light }"
     :style="{ ...panelStyle, '--panel-opacity': `${settings.viewerPanelOpacity}%` }"
   >
     <div
@@ -68,6 +76,8 @@ const { rect, panelStyle, moving, resizing, onTitlePointerDown, onTitleKeydown, 
     >
       <AppIcon :name="icon" :size="14" class="text-ink-muted" />
       <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{{ title }}</span>
+      <!-- 面板自己的動作（例如書籤的「加入書籤」）；沒有就不佔位。 -->
+      <slot name="actions" />
       <button
         type="button"
         class="flex size-6 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"

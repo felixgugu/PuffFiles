@@ -24,12 +24,14 @@ PuffFiles/
 │  ├─ main.ts                  # 建立 App、掛載 Pinia、載入全域樣式
 │  ├─ App.vue                  # 只負責掛上 AppShell
 │  ├─ assets/styles/main.css   # Tailwind 4 進入點：@theme 設計權杖、.dark 覆寫、@utility
-│  ├─ types/                   # fs.ts（與 Rust model.rs 對應）、menu.ts（選單列）、tools.ts（外部工具）
+│  ├─ types/                   # fs.ts（與 Rust model.rs 對應）、menu.ts（選單列）、tools.ts（外部工具）、
+│  │                           # bookmarks.ts（檢視器書籤與兩種錨點）
 │  ├─ services/                # 唯一 IPC 邊界
 │  │  ├─ api.ts                # invoke/Channel 封裝；無 Tauri 時自動降級 Mock
 │  │  ├─ mock.ts               # 瀏覽器開發用的假檔案系統（事件順序同 Rust 端）
 │  │  ├─ errors.ts             # BackendError 與 normalizeBackendError
 │  │  ├─ storage.ts            # localStorage 的唯一存取點（readJson / writeJson）
+│  │  ├─ bookmarks.ts          # 檢視器書籤的 IndexedDB 存取（唯一存取點，含記憶體退路）
 │  │  ├─ clipboard.ts          # 文字剪貼簿（含 WebView 相容降級）
 │  │  └─ window.ts             # 無邊框視窗控制
 │  ├─ stores/                  # Pinia 4 setup stores（狀態唯一真實來源）
@@ -42,12 +44,15 @@ PuffFiles/
 │  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
 │  │  ├─ system.ts             # 磁碟機、快速存取位置（只用於啟動時的起始路徑）
 │  │  ├─ viewer.ts             # 檢視器：內容讀取、圖片 blob URL、外部變更自動重載
+│  │  ├─ bookmarks.ts          # 檢視器書籤（路徑 → 書籤清單；啟動時整批讀進記憶體）
 │  │  └─ ui.ts                 # 通知、確認／輸入對話框、焦點請求、浮層開關
 │  ├─ composables/
 │  │  ├─ useKeyboardShortcuts.ts # 全域快速鍵（分頁、分割、剪貼簿、檔案操作）
 │  │  ├─ usePathMenu.ts        # 右鍵選單的內容與動作（依選取情境分流、外部工具篩選）
 │  │  ├─ useSyncedNavigation.ts # 同步瀏覽：把相對移動鏡射到另一個窗格
 │  │  ├─ useImageNavigation.ts # 圖片檢視器的上一張／下一張（依來源檔案清單的順序）
+│  │  ├─ useScrollSpy.ts       # 目錄索引的捲動同步與跳轉（元素或 Range，三個檢視器共用）
+│  │  ├─ useViewerBookmarks.ts # 檢視器書籤：錨點重算、加入／跳轉／重新命名／刪除
 │  │  ├─ useDragGesture.ts     # 通用拖曳手勢（含速度取樣，交給彈簧接手）
 │  │  ├─ useSpringValue.ts     # 以自製彈簧驅動的數值
 │  │  └─ useRefreshView.ts     # 重新整理（清單＋資料夾樹）
@@ -58,11 +63,14 @@ PuffFiles/
 │  │  ├─ tree/                 # 資料夾樹面板：FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
 │  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
 │  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
-│  │  ├─ viewer/               # ViewerPane、MarkdownView、HtmlView、ImageView、PdfView、DocxView、TextView
+│  │  ├─ viewer/               # ViewerPane、MarkdownView、DocxView、TextView、BookmarkOutline（書籤目錄）、
+│  │  │                        # OutlinePanel（目錄索引）、HtmlView、ImageView、PdfView、
+│  │  │                        # FloatingPanel、ViewerSearchPanel
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer / docx / compare …）
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer /
+│                              # docx / bookmarkAnchor / docxBookmark / textBookmark / compare …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
@@ -219,6 +227,48 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   模式共用同一條；顏色是 `main.css` 的 `--color-syntax-*` 權杖（淺／深色各一組）。
   超過 `MAX_HIGHLIGHT_BYTES`（1 MB）就整份當純文字並顯示提示 —— highlight.js 是同步 API，
   丟大檔進去會凍住 UI。
+- **目錄索引（Markdown）與書籤目錄（DOCX、純文字／程式碼）共用同一個面板**：右上角那一塊
+  浮動面板（`viewer/OutlinePanel.vue`，標題列由 `FloatingPanel` 提供）三種檢視器都用，
+  差別只在列出來的是什麼 —— Markdown 是解析出來的 h1～h6，DOCX 與純文字是使用者自己加的
+  書籤（見下一條）。**捲動同步與跳轉也只有一份實作**（`composables/useScrollSpy.ts`）：
+  呼叫端各自提供「項目 id → 目前位置的目標」（Markdown 是標題元素快取、書籤是錨點比對的
+  結果；目標是元素或 `Range` 都可以，兩者都量得出 `getBoundingClientRect()`），
+  掃描線、rAF 節流、捲到底算最後一節、跳轉留白 8px 都共用。開關各一份
+  （`settings.markdownTocEnabled`／`settings.viewerBookmarksEnabled`，都預設開啟）；
+  面板的收合與位置尺寸都住在 `ViewerState.tocPanel` —— 一個窗格同時間只會是其中一種檢視器，
+  三種內容共用同一個欄位。
+- **面板配色跟隨底下的內容，不是跟隨佈景主題**（`main.css` 的 `@utility panel-light`）：
+  DOCX 的頁面固定白紙、不隨主題反轉，那裡的浮動面板（書籤目錄與搜尋）固定用淺色權杖 ——
+  深色主題的深色面板疊在白紙上，面板自己的淺色文字會落在白紙上，平常（idle 不透明度 0.2）
+  幾乎完全看不見。HTML 靜態預覽的 iframe 是頁面自己的顏色，所以面板配色由 `utils/html.ts`
+  的 `isLightDocument()` 依 iframe 內頁面的實際底色決定（`transparent` 或解析不出來的顏色
+  當成白底）。其餘檢視器的內容跟著主題，面板也跟主題。
+- **兩個浮動面板不會互相遮擋**（2026-10-09 修正）：目錄索引與搜尋都預設貼右上角，而搜尋
+  面板要讓開目錄索引（往下排）。讓開的位移**不能只在掛載時量一次** —— 那樣「開著搜尋 →
+  書籤變多 → 目錄面板長高」之後兩個面板就會重疊，被蓋住的書籤列失去 hover（變成 idle 的
+  半透明）也點不到。做法：`useViewerPanel` 讓每個面板把自己的 `rect` 寫進模組層級的
+  `panelRects`（鍵是 `<paneId>:<panel>`），要避讓的那一個讀它重算（`avoidId`），
+  並用 `PanelBounds.top` 把可用範圍從對方下緣開始 —— 少了 `top`，`clampPanel` 會把面板
+  夾回原位，等於沒讓開。**自訂過位置的面板不參與避讓**（那時候位置是使用者決定的）。
+- **檢視器內文自成堆疊脈絡**（`isolate`）：文件帶進來的 z-index（`docx-preview` 的
+  `section.docx > article` 就有 `z-index: 1`）永遠蓋不到浮動面板上。
+- **檢視器標頭的動作分成四顆膠囊**（2026-10-09）：左邊是檔案圖示與名稱（副資訊是大小與
+  編碼），右邊依性質分組 —— **捲動**（跳到最上面／往上捲一頁／往下捲一頁／跳到最下面）、
+  **檢視器功能**（搜尋、目錄索引／書籤目錄、HTML 預覽／原始碼）、**檔案動作**（用預設程式
+  開啟、在檔案總管中顯示、重新整理）、**窗格**（放到最大、關閉）。樣式與路徑列的兩顆膠囊
+  同一組：`rounded-lg bg-surface-muted p-0.5`、24px 按鈕、14px 圖示（標頭按鈕因此從 28px
+  改為 24px）。
+  **捲動鈕只出現在有內容捲動容器的檢視器**（Markdown／DOCX／純文字與程式碼／HTML 兩種
+  模式都有；圖片與 PDF 沒有、不顯示）。捲動容器由內容那一側註冊
+  （`composables/useViewerNavigation.ts` 的模組層級 `Map<PaneId, Element>`：`useViewerScroll`
+  管 Markdown／DOCX／純文字，`HtmlView` 註冊 iframe 的 `scrollingElement`），標頭只問
+  「這個窗格捲的是哪一個元素」；逐頁位移＝可視高度的 0.9，行為照減少動態設定（smooth／auto）。
+  **兩端的鈕會停用**：容器在捲動與還原時回報 `atTop`／`atBottom`（`ViewerState`），
+  寫的是布林值，所以捲動過程中只有跨越端點才重繪標頭。快速鍵同一組動作：
+  `Home`／`End`／`PageUp`／`PageDown`（檢視器分支，一律 `preventDefault`）。
+  **窗格太窄時依序收起**（`utils/viewerHeader.ts` 的純函數估算：按鈕與間距都是固定 px，
+  所以不必量 DOM）：先捲動、再檔案動作，搜尋／目錄／關閉永遠保留；以檢視器膠囊 3 顆為例，
+  ≥431px 全開、<431px 收起捲動、<321px 再收起檔案動作。
 - **目錄索引（Markdown）**：檢視器標頭的目錄鈕切換右上角的浮動面板（預設開啟）。
   `utils/markdown.ts` 替每個 h1～h6 產生文件內唯一的 id 並回傳 `headings`；面板依層級
   縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到
@@ -297,6 +347,51 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   PDF 另外需要 `tauri.conf.json` 的 `additionalBrowserArgs`：wry 預設傳
   `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`，而這個設定是**整串取代**，
   所以要自己補回 `msWebOOUI,msSmartScreenProtection`，只放開 `msPdfOOUI`。
+- **書籤目錄（DOCX 與純文字／程式碼，2026-10-09）**：這兩種內容都沒有大綱（`docx-preview`
+  不產生目錄，連文件裡的書籤連結都沒有 id；純文字更沒有結構），所以目錄由使用者自己累積：
+  在內容裡**選取文字 → 面板標題列的「加入書籤」或 `Ctrl+B` → 那一段進入書籤目錄**，
+  之後點一列就跳回那一行。入口只有這兩個（加入鈕在沒選取時停用並用提示說明原因，
+  `Ctrl+B` 沒選取時只發通知）。Markdown 不提供（已經有自動抽取的目錄索引）；HTML 也不提供
+  ——它有預覽與原始碼兩種模式，只給原始碼加書籤會讓預覽模式看起來壞掉。**純文字沿用搜尋的
+  4 MB 上限**（對位要掃整份文字），超過就整組停用並在開關的提示裡說明。
+  **位置怎麼記**（`utils/bookmarkAnchor.ts` 是共用部分，`utils/docxBookmark.ts` 與
+  `utils/textBookmark.ts` 各自處理一種內容，都與 store／Vue 無關）：錨點是判別聯合
+  （`BookmarkAnchor` 的 `kind`）——
+  DOCX 記「第幾個內容區塊 ＋ 區塊開頭的文字（指紋）＋ 選取在區塊裡的位移與長度 ＋ 選取的
+  文字」，區塊＝內文 `article` 底下的 `<p>` 與 `<table>`（docx-preview 把標題、清單、公式
+  都排成 `<p>`，頁首頁尾會逐頁重複所以不收）；純文字記「整份可見文字的位移 ＋ 第幾行 ＋
+  那一行的內容（指紋）」。
+  **重新渲染後 DOM 全部重來**，所以每次渲染完重新對位置。DOCX：原本的索引＋指紋 →
+  指紋一樣且最靠近原索引 → 開頭 20 字一樣（段落被改寫）→ 選取的文字還在某處。純文字：
+  原本那一行的指紋 → 指紋相同且最靠近原行號的行 → 開頭相同的行 → 選取的文字還在某處
+  （解析只在 `ViewerState.text` 上做字串運算，只有最後建立 `Range` 才碰 DOM）。**都對不上
+  就在面板上淡化並標明「找不到位置」**，不會硬跳到一個猜出來的位置（前面幾條會精準選取原本
+  那段文字，退到最後一條時只跳到區塊／整行）。錨點種類與目前的檢視器不符（例如檔案從 .txt
+  變成 .docx）時一律視為失效 —— 兩種座標系不能互相比對。
+  跳轉＝捲到目標（留白 8px）＋**重新選取原本的文字**；DOCX 另外讓所在區塊淡藍底標示 1.4 秒
+  （`background-color` 由計時器移除，不是 `@keyframes` —— 全站的「減少動態」會把動畫壓成
+  1ms，那樣等於沒有標示），純文字就用選取範圍當標示（不動 `v-html` 管的 DOM）。
+  **資料存哪裡**：IndexedDB（`services/bookmarks.ts`，資料庫 `pufffile`／store
+  `docx-bookmarks`，主鍵是 `paths.ts` 的 `normalizeKey()`），**不是 localStorage** ——
+  書籤會隨看過的文件一直長，跟 `pufffile:settings`／`pufffile:session` 搶同一個 5 MB 配額，
+  塞爆時 `writeJson` 只能無聲放棄（就是無聲的資料遺失）。啟動時一次讀進記憶體
+  （`stores/bookmarks.ts`，一份文件幾筆而已），之後查詢與更新都是同步的；寫入前**一定複製成
+  純資料**再 `put` —— IndexedDB 用結構化複製，而 Pinia 的響應式代理複製不了
+  （DataCloneError 會變成「第一筆寫得進去、之後每一筆都默默失敗」）。IndexedDB 不可用時
+  退回記憶體，並在寫入失敗時發一次通知（不靜默吞掉）。
+  檔案**重新命名**時書籤跟著搬到新路徑（`clipboard.renameEntry` 與 `viewer.retarget` 一起
+  呼叫 `bookmarks.retarget`）。刪除書籤**不跳確認對話框**，改用通知上的「復原」（單筆書籤
+  刪錯的代價很小，5 秒內都能挽回）；重新命名只有列上的鉛筆一途（**雙擊列不會進入編輯**，
+  雙擊只是「再跳一次」，沿用既有的輸入對話框）。
+  面板列的順序＝文件位置順序（不是加入順序），捲動內文時同步高亮目前章節。
+
+**檢視器內文沒有原生右鍵選單（2026-10-09）**：`DocxView`、`MarkdownView` 與 `TextView`
+（含 HTML 的原始碼模式）都**不再**掛 `data-native-menu` —— 那是「保留 WebView2 原生
+右鍵選單」的標記（`main.ts` 的攔截例外 + `main.css` 的 `user-select: text`），也是過去
+唯一提供「複製」的地方。現在內文改用 Tailwind 的 `select-text` 保住選取能力，右鍵與
+其他區域一致：沒有任何選單；複製走 `Ctrl+C`（`useKeyboardShortcuts` 在檢視器裡不攔
+`Ctrl+C`，事件落到瀏覽器預設行為）。`main.ts` 的例外只剩 `input, textarea,
+[contenteditable]`。PDF 不受影響（它自己的選單在 WebView2 的 iframe 裡）。
 - **渲染保證**：`utils/markdown.ts` 是零依賴的純函數；每一輪區塊解析都保證往前推進
   （避免卡死），任何例外都會退回「警告＋原始文字」。**檢視器永遠不會只留一片空白**：
   內容為空但檔案有大小時，store 會直接顯示讀取錯誤。
@@ -320,8 +415,13 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   重新整理（F5／自動重載）後的重新掛載也沿用同一個位置。圖片檢視器不記。
 - **快速鍵**：焦點在檢視器窗格時，清單類快速鍵一律不攔截（文字要能選取複製），
   只保留 Esc（關閉，搜尋面板開著時先關面板）、F5（重新載入）、Ctrl+F（搜尋面板開關）、
-  F6 與分頁／版面層級的操作；圖片檢視器另外把 ←／→ 當成上一張／下一張（`Alt` 按住時
-  不生效，維持原本什麼都不做）。
+  Ctrl+B（支援書籤的檢視器把選取的文字加入書籤目錄）與 F6、分頁／版面層級的操作；
+  圖片檢視器另外把 ←／→ 當成上一張／下一張（`Alt` 按住時不生效，維持原本什麼都不做）。
+  捲動另外綁了 `Home`／`End`（最上面／最下面）與 `PageUp`／`PageDown`（逐頁），
+  與標頭的捲動膠囊同一組動作（一律 `preventDefault`，因為容器本身可能有焦點會再捲一次）。
+  `Ctrl+B` 只敲一下 `viewer.requestBookmark(paneId)`：選取範圍只存在 DOM 裡，全域快速鍵
+  拿不到，所以由檢視器這一側（`useViewerBookmarks`）接手，與 F2 的 `ui.renameRequest`
+  同一條「跨元件請求」的路子。
   在檔案清單按 `Space`＝把焦點列的項目顯示到目標窗格（走右鍵 `open-pane` 同一條路徑，
   但帶 `keepFocus` 與 `targetPaneId`）：資料夾在新窗格開成一般清單、檔案開檢視器（沒有
   檢視器的類型顯示「這個檔案類型還沒有檢視器」的提示，仍佔用該窗格），**焦點一律留在
@@ -338,7 +438,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   最後一列時停在原地、不做任何事。
 - **外觀**：檢視器窗格不套用未使用窗格的淡化（`pane-inactive`）—— 淡化是給沒有焦點的
   檔案清單用的，檢視器是「旁邊的顯示區」，任何時候都維持正常對比。
-- 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。
+- 檢視器是唯讀的：不寫操作紀錄、不編輯、不儲存。唯一的例外是**書籤目錄** ——
+  那是使用者自己標記的位置（存在 IndexedDB，見上面那條），不是修改檔案內容。
 
 ### 3.6 重新命名（就地編輯，僅檔案清單）
 
@@ -448,7 +549,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
 | 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
 | 檢視器（Viewer） | 窗格內容模式：顯示 Markdown、圖檔或純文字，可關閉回到檔案清單 | `viewer/ViewerPane.vue` |
-| 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：標題列「目錄索引」＋h1～h6 清單，可拖曳／縮放／收合 | `viewer/MarkdownToc.vue` |
+| 檢視器標頭（Viewer Header） | 檢視器窗格最上方那一條：檔案圖示與名稱、右側四顆動作膠囊（**捲動**／**檢視器功能**／**檔案動作**／**窗格**），窗格太窄時依序收起捲動與檔案動作 | `viewer/ViewerPane.vue`、`utils/viewerHeader.ts` |
+| 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：標題列「目錄索引」＋h1～h6 清單，可拖曳／縮放／收合 | `viewer/OutlinePanel.vue`（由 `MarkdownView` 使用） |
+| 書籤目錄（Bookmarks） | DOCX 與純文字／程式碼檢視器右上角的浮動面板：標題列「書籤目錄」＋加入鈕，清單是使用者加入的書籤，可改名／刪除；**與目錄索引共用同一個面板元件**，差別只在列的內容與標題 | `viewer/BookmarkOutline.vue` |
 | 搜尋（Find in Viewer） | 文字類檢視器右上角的浮動面板：搜尋框＋大小寫／全字／Regex 選項＋命中清單，可拖曳／縮放／收合 | `viewer/ViewerSearchPanel.vue` |
 | 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |
 | 設定頁（Settings） | 整頁浮層：蓋住路徑列與工作區、保留標題列 | `settings/SettingsView.vue` |
@@ -456,6 +559,11 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - 「工具列」這個詞不再單獨使用：上方那條叫**路徑列**，左側樹面板那排按鈕叫**樹工具列**。
 - **檢視器**是窗格內容模式的名稱（動詞用法沿用「開啟」）；不要寫成「預覽窗格」「預覽器」。
   開啟到窗格時的說法與資料夾共用：單一窗格是「在新窗格開啟」，分割時是「在左／右／上／下窗格開啟」。
+- **檢視器窗格最上方那一條叫檢視器標頭**（或簡稱標頭），**不要叫「標題列」** ——
+  `標題列` 專指最上方的 Window Chrome（見上表）。裡面的四顆膠囊連同前綴一起講：
+  「檢視器標頭的捲動膠囊／檢視器功能膠囊／檔案動作膠囊／窗格膠囊」。
+- **捲動的動作用「跳到最上面／最下面」與「往上／往下捲一頁」**，不要寫成「上一頁／下一頁」
+  —— 那在既有詞彙裡是瀏覽紀錄（`Alt+←/→`）。
 - **資料夾樹面板的可見性只有一個來源**：`settings.treeCollapsed`（使用者按樹工具列的收合側欄或
   F6）。不做任何依寬度／高度的自動退場 —— 分割比例與視窗尺寸都不會讓它自己消失。
 

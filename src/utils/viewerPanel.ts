@@ -40,6 +40,11 @@ export interface PanelLayout {
 export interface PanelBounds {
   width: number;
   height: number;
+  /**
+   * 可用範圍的上緣（px）。讓開另一個面板時就是那個面板的下緣；
+   * 面板不會被夾到這個高度以上，長度上限也只看「這裡到根節點底部」。
+   */
+  top: number;
   /** 內容的自然高度（標題列以外的部分）。 */
   contentHeight: number;
   /** 使用者設定的面板最小寬度（拖曳下限，也是自動隱藏的基準）。 */
@@ -76,20 +81,24 @@ export function clampPanel(layout: PanelLayout, bounds: PanelBounds): PanelRect 
     return null;
   }
 
+  const top = Math.min(Math.max(0, Math.round(bounds.top)), Math.max(0, bounds.height - PANEL_MARGIN));
+  // 可用高度＝上緣到根節點底部；讓開另一個面板時剩下的就是這些。
+  const available = Math.max(0, bounds.height - top);
+
   const minWidth = clampPanelMinWidth(bounds.minWidth);
   const maxWidth = Math.max(minWidth, bounds.width - PANEL_MARGIN * 2);
   const width = Math.min(Math.max(Math.round(layout.width), minWidth), maxWidth);
 
-  const maxHeight = Math.max(PANEL_MIN_HEIGHT, bounds.height - PANEL_MARGIN * 2);
+  const maxHeight = Math.max(PANEL_MIN_HEIGHT, available - PANEL_MARGIN * 2);
   const floor = layout.height === null ? PANEL_TITLEBAR_HEIGHT + PANEL_ROW_HEIGHT : PANEL_MIN_HEIGHT;
   const natural =
-    layout.height ?? Math.min(Math.max(bounds.contentHeight, floor), bounds.height * 0.5);
+    layout.height ?? Math.min(Math.max(bounds.contentHeight, floor), available * 0.5);
   const height = Math.min(Math.max(Math.round(natural), floor), maxHeight);
 
   const maxX = Math.max(0, bounds.width - width - PANEL_MARGIN * 2);
-  const maxY = Math.max(0, bounds.height - height - PANEL_MARGIN * 2);
+  const maxY = Math.max(top, bounds.height - height - PANEL_MARGIN * 2);
   const x = layout.x === null ? maxX : Math.min(Math.max(0, Math.round(layout.x)), maxX);
-  const y = Math.min(Math.max(0, Math.round(layout.y)), maxY);
+  const y = Math.min(Math.max(top, Math.round(layout.y)), maxY);
 
   return { x, y, width, height };
 }

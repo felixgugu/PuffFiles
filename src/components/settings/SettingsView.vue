@@ -343,12 +343,15 @@ async function selectSection(id: SectionId) {
             <section class="py-6 first:pt-0 last:pb-0">
               <h3 class="text-base font-semibold text-ink">檢視器</h3>
               <p class="mt-1 text-sm leading-relaxed text-ink-muted">
-                檢視器右上角的浮動面板（Markdown 的「目錄索引」與各文字檢視器的「搜尋」）。
-                最小寬度是拖曳下限，窗格比「最小寬度 + 兩側留白」還窄時面板會自動隱藏；
+                檢視器右上角的浮動面板（Markdown 的「目錄索引」、DOCX 的「書籤目錄」與各文字
+                檢視器的「搜尋」）。最小寬度是拖曳下限，窗格比「最小寬度 + 兩側留白」還窄時面板會自動隱藏；
                 不透明度越低，面板底下的內文越明顯。兩個面板共用這兩項設定。
                 滑鼠沒移上去時面板只留淡淡的輪廓（不模糊、幾乎不擋住內文），移上去或鍵盤焦點
                 進入才回到這裡設定的樣子。
                 Markdown 的 Mermaid 區塊預設會自動渲染成圖表，可逐塊切回原始碼。
+                DOCX 與純文字檔沒有內建目錄，可以在內容裡選取文字後加入「書籤目錄」（Ctrl+B），
+                目錄會記住那一段的位置，之後點一下就跳回去。DOCX 的頁面固定白紙、不隨主題
+                反轉，那裡的浮動面板也固定用淺色，免得深色主題下面板的字看不見。
               </p>
               <div class="mt-2 space-y-2">
                 <label class="flex items-center justify-between py-1">
@@ -412,6 +415,17 @@ async function selectSection(id: SectionId) {
                     class="size-4 accent-[var(--color-accent)]"
                     :checked="settings.mermaidEnabled"
                     @change="settings.mermaidEnabled = ($event.target as HTMLInputElement).checked"
+                  />
+                </label>
+                <label class="flex items-center justify-between py-1">
+                  <span class="text-base text-ink">顯示書籤目錄（DOCX、純文字與程式碼）</span>
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-[var(--color-accent)]"
+                    :checked="settings.viewerBookmarksEnabled"
+                    @change="
+                      settings.setViewerBookmarks(($event.target as HTMLInputElement).checked)
+                    "
                   />
                 </label>
               </div>
