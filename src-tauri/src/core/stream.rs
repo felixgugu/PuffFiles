@@ -84,8 +84,14 @@ pub fn parse_range(header: Option<&str>, total: u64) -> RangeOutcome {
     RangeOutcome::Partial(ByteRange { start, end })
 }
 
-/// 依副檔名給 `Content-Type`。目前只有 PDF 會走這條協定。
+/// 依副檔名給 `Content-Type`。
+///
+/// 圖片沿用檢視器的 MIME 對照表（`core::viewer::image_mime`，單一來源），其餘只有 PDF
+/// 會走這條協定 —— `Content-Type` 錯了瀏覽器就不會把內容當圖片解碼。
 pub fn mime_for(path: &Path) -> &'static str {
+    if let Some(mime) = crate::core::viewer::image_mime(path) {
+        return mime;
+    }
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -94,6 +100,18 @@ pub fn mime_for(path: &Path) -> &'static str {
         Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
+}
+
+/// 這條協定願意服務的檔案：WebView 畫得出來的圖檔與 PDF。
+///
+/// 範圍刻意與前端 `viewerKindOf` 支援的種類一致 —— 檢視器不會去要別的東西，這裡跟著
+/// 收窄，協定就不會變成「任意檔案讀取」的入口。
+pub fn is_streamable(path: &Path) -> bool {
+    crate::core::viewer::image_mime(path).is_some()
+        || path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("pdf"))
 }
 
 #[cfg(test)]
@@ -155,7 +173,21 @@ mod tests {
     fn maps_mime_by_extension() {
         assert_eq!(mime_for(Path::new("C:\\a\\報告.PDF")), "application/pdf");
         assert_eq!(mime_for(Path::new("a.pdf")), "application/pdf");
+        assert_eq!(mime_for(Path::new("a.PNG")), "image/png");
+        assert_eq!(mime_for(Path::new("a.jpg")), "image/jpeg");
+        assert_eq!(mime_for(Path::new("a.svg")), "image/svg+xml");
         assert_eq!(mime_for(Path::new("a.txt")), "application/octet-stream");
         assert_eq!(mime_for(Path::new("a")), "application/octet-stream");
+    }
+
+    #[test]
+    fn only_images_and_pdf_are_streamable() {
+        for allowed in ["a.png", "a.JPG", "a.webp", "a.avif", "a.svg", "a.pdf"] {
+            assert!(is_streamable(Path::new(allowed)), "{allowed} 應該可以串流");
+        }
+        // 檢視器不支援的圖片格式與其他檔案都不該開放。
+        for denied in ["a.txt", "a.md", "a.exe", "a.psd", "a.heic", "a", "a.pdf.exe"] {
+            assert!(!is_streamable(Path::new(denied)), "{denied} 不該可以串流");
+        }
     }
 }

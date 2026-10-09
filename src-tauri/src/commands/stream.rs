@@ -23,9 +23,6 @@ use tauri::{Manager, Runtime, State, UriSchemeContext, UriSchemeResponder};
 /// 其他平台是 `stream://localhost/<token>`（前端用 `convertFileSrc` 產生，不必自己判斷）。
 pub const SCHEME: &str = "stream";
 
-/// 可以走這條協定的副檔名。v1 只有 PDF —— 要放寬時連 `mime_for` 一起補。
-const ALLOWED_EXTENSIONS: [&str; 1] = ["pdf"];
-
 /// 目前開啟中的串流：token → 檔案路徑。每個窗格同時只有一個 token，這張表不會長大。
 #[derive(Default)]
 pub struct StreamRegistry {
@@ -72,9 +69,20 @@ fn new_token() -> String {
     token
 }
 
+/// `open_file_stream` 的回應：token 加上檔案大小（檢視器標頭要顯示，不必再問一次後端）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamHandle {
+    pub token: String,
+    pub size: u64,
+}
+
 /// 開始提供某個檔案的內容，回傳要放進 URL 的 token。
 #[tauri::command]
-pub fn open_file_stream(path: String, registry: State<'_, StreamRegistry>) -> AppResult<String> {
+pub fn open_file_stream(
+    path: String,
+    registry: State<'_, StreamRegistry>,
+) -> AppResult<StreamHandle> {
     let resolved = crate::core::normalize(Path::new(&path))?;
     let meta = std::fs::metadata(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
     if meta.is_dir() {
@@ -83,20 +91,24 @@ pub fn open_file_stream(path: String, registry: State<'_, StreamRegistry>) -> Ap
         });
     }
 
-    let extension = resolved
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
-    if !ALLOWED_EXTENSIONS.contains(&extension.as_str()) {
+    if !stream::is_streamable(&resolved) {
         return Err(AppError::Unsupported {
-            feature: format!("串流 .{extension}（目前只支援 PDF）"),
+            feature: format!(
+                "串流「{}」（目前只支援圖片與 PDF）",
+                resolved
+                    .file_name()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| resolved.to_string_lossy().into_owned())
+            ),
         });
     }
 
     let token = new_token();
     registry.files().insert(token.clone(), resolved);
-    Ok(token)
+    Ok(StreamHandle {
+        token,
+        size: meta.len(),
+    })
 }
 
 /// 撤銷 token；之後同一個 URL 一律回 404。
@@ -227,12 +239,16 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     /// 一份 1000 bytes、內容可預測的測試檔。
-    fn sample() -> (PathBuf, Vec<u8>) {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_millis();
-        let root = std::env::temp_dir().join(format!("pufffile-stream-{stamp}"));
+    ///
+    /// 目錄名帶測試名稱與序號：測試是平行跑的，只靠毫秒時間戳會讓兩個測試共用同一個
+    /// 目錄，先跑完的那個把檔案刪掉、另一個就找不到檔案。
+    fn sample(name: &str) -> (PathBuf, Vec<u8>) {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+        let root = std::env::temp_dir().join(format!(
+            "pufffile-stream-{name}-{}",
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&root).expect("create scratch");
 
         let bytes: Vec<u8> = (0..1000u32).map(|index| (index % 251) as u8).collect();
@@ -243,7 +259,7 @@ mod tests {
 
     #[test]
     fn serves_a_partial_range_with_206() {
-        let (path, bytes) = sample();
+        let (path, bytes) = sample("partial");
         let response = respond_for_file(&path, Some("bytes=0-99"), false);
 
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
@@ -257,7 +273,7 @@ mod tests {
 
     #[test]
     fn serves_the_whole_file_without_a_range_header() {
-        let (path, bytes) = sample();
+        let (path, bytes) = sample("whole");
         let response = respond_for_file(&path, None, false);
 
         assert_eq!(response.status(), StatusCode::OK);
@@ -269,7 +285,7 @@ mod tests {
 
     #[test]
     fn answers_head_without_a_body() {
-        let (path, _) = sample();
+        let (path, _) = sample("head");
         let response = respond_for_file(&path, None, true);
 
         assert_eq!(response.status(), StatusCode::OK);
@@ -281,7 +297,7 @@ mod tests {
 
     #[test]
     fn rejects_unsatisfiable_and_missing_files() {
-        let (path, _) = sample();
+        let (path, _) = sample("unsatisfiable");
         let response = respond_for_file(&path, Some("bytes=5000-"), false);
         assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
         assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes */1000");

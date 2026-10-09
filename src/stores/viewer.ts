@@ -134,6 +134,9 @@ export const useViewerStore = defineStore("viewer", () => {
     }
 
     if (state.kind === "image") {
+      // 只有瀏覽器預覽模式會走到這裡：桌面版的圖片走 `stream` 自訂協定，
+      // 內容不經過 base64 與 Blob（見 `loadStream`）。這裡保留假資料的退路，
+      // `npm run dev` 才看得到圖。
       try {
         const bytes = base64ToBytes(chunks);
         state.blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime ?? "application/octet-stream" }));
@@ -179,11 +182,18 @@ export const useViewerStore = defineStore("viewer", () => {
     state.text = "";
     state.encoding = null;
     releaseBlob(state);
-    // PDF 既不是文字也不是圖片：換一組新的串流 token，交給 iframe 直接讀。
+    // 二進位內容（圖片／PDF）走自訂協定：不經過 base64 與 Blob，瀏覽器還能邊讀邊解碼。
     releaseStream(state);
-    if (state.kind === "pdf") {
-      await loadStream(paneId, current);
-      return;
+    if (state.kind === "image" || state.kind === "pdf") {
+      const handled = await loadStream(paneId, current);
+      if (handled) {
+        return;
+      }
+      // 這個環境沒有串流協定：圖片退回下面的 base64 假資料；PDF 沒有假資料。
+      if (state.kind === "pdf") {
+        fail(paneId, "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟");
+        return;
+      }
     }
 
     const chunks: string[] = [];
@@ -255,40 +265,54 @@ export const useViewerStore = defineStore("viewer", () => {
   }
 
   /**
-   * PDF：向後端要一組新的串流 token，把 URL 交給 iframe。
+   * 圖片與 PDF：向後端要一組新的串流 token，把 URL 交給 `<img>`／`<iframe>` 直接讀。
    *
-   * 每一輪載入都換一組 token（舊的先撤銷），所以 iframe 的 `src` 一定會變 ——
-   * 手動重新整理與外部變更的自動重載都靠這一點，不需要額外的 cache-busting 參數。
+   * 這條路把「整份讀進 Rust → base64 → 逐批 IPC → JS 解碼 → Blob」整段換成瀏覽器自己
+   * 向自訂協定取資料，所以瀏覽器可以邊讀邊解碼（漸進顯示），記憶體也不必同時容納
+   * base64 字串、二進位字串與 Blob。
+   *
+   * 每一輪載入都換一組 token（舊的先撤銷），所以來源 URL 一定會變 —— 手動重新整理與
+   * 外部變更的自動重載都靠這一點，不需要額外的 cache-busting 參數。
+   *
+   * 回傳「這一輪是否已經處理完」。回 `false` 只有一種情況：這個執行環境沒有串流協定
+   * （瀏覽器預覽模式），呼叫端要自己決定退路。
    */
-  async function loadStream(paneId: PaneId, current: () => boolean): Promise<void> {
+  async function loadStream(paneId: PaneId, current: () => boolean): Promise<boolean> {
     const state = views[paneId];
     if (!state) {
-      return;
+      return true;
     }
+
+    let handle: api.FileStreamHandle | null = null;
     try {
-      const handle = await api.openFileStream(state.path);
-      if (!current() || views[paneId] !== state) {
-        // 這一輪已經被換掉了：剛拿到的 token 直接還回去，不要留著。
-        if (handle) {
-          void api.closeFileStream(handle.token).catch(() => undefined);
-        }
-        return;
-      }
-      if (!handle) {
-        fail(paneId, "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟");
-        return;
-      }
-      state.streamToken = handle.token;
-      state.streamUrl = handle.url;
-      state.status = "ready";
-      startWatch(paneId, state.path);
+      handle = await api.openFileStream(state.path);
     } catch (cause) {
-      if (!current() || views[paneId] !== state) {
-        return;
+      if (current() && views[paneId] === state) {
+        state.status = "error";
+        state.error = normalizeBackendError(cause);
       }
-      state.status = "error";
-      state.error = normalizeBackendError(cause);
+      return true;
     }
+
+    if (!current() || views[paneId] !== state) {
+      // 這一輪已經被換掉了：剛拿到的 token 直接還回去，不要留著。
+      if (handle) {
+        void api.closeFileStream(handle.token).catch(() => undefined);
+      }
+      return true;
+    }
+
+    if (!handle) {
+      return false;
+    }
+
+    state.streamToken = handle.token;
+    state.streamUrl = handle.url;
+    // 走協定就沒有 `Start` 事件可以拿檔案大小，直接在這裡補上（標頭要顯示）。
+    state.size = handle.size;
+    state.status = "ready";
+    startWatch(paneId, state.path);
+    return true;
   }
 
   /**

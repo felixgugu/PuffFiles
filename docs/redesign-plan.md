@@ -52,7 +52,7 @@
 | 10-08 | 檢視器換行 | 文字一律先把 `\r\n` 與孤立 `\r` 收成 `\n`（hljs 會把 `<span>` 插在 `\r`／`\n` 之間，被拆開的 CRLF 會讓畫面每行多一個空白行） |
 | 10-08 | 空白鍵的檢視器位置 | 固定右／下窗格（`viewerSpaceRightOrBottom`，預設開）；右鍵選單不受影響 |
 | 10-08 | 浮動面板 | 沒有 hover／鍵盤焦點時幾乎隱形（`--panel-idle-opacity`，預設 0.2），模糊一併關掉 |
-| 10-09 | PDF 檢視器 | **改為做**：自訂協定 `stream` 串流位元組（支援 Range）＋ WebView2 內建 PDF viewer；不用 base64／Blob（峰值由 2.3× 檔案大小降到單次 Range） |
+| 10-09 | 圖片與 PDF 的內容來源 | 一律走自訂協定 `stream`：`<img>`／WebView2 內建 PDF viewer 直接讀（支援 Range），不再用 base64／Blob。圖片因此拿掉整份 base64 編碼、逐批 IPC 與 JS 解碼（見 §7 量測） |
 
 **外觀決策的理由**：`transparent: true` 會讓 WebView2 走額外的合成路徑，且大面積
 `backdrop-filter` 在捲動時每一格都要重算。改成不透明視窗 + 分層純色 + 亮邊與陰影，
@@ -177,9 +177,8 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
   Shadow DOM 渲染、資源全部內嵌 `data:` URI。
 - 公開授權宣告：`highlight.js` 是 BSD-3-Clause、內嵌的 Vue 文法 CC0-1.0；日後若要公開發佈，
   需在「關於」或隨附檔案補上版權聲明。
-- PDF 檢視器：**待桌面驗證** WebView2 內建 viewer 在 `stream://` 的 iframe 下正常
-  （工具列、翻頁、縮放、文字選取）且 `Range` 確實被轉送到處理器；不通過就還原
-  `tauri.conf.json` 的 `additionalBrowserArgs`，PDF 回到交給系統預設程式。
+- PDF 大檔（> 50 MB）捲動時的記憶體峰值還沒實測；`Range` 是否確實被轉送到處理器也只
+  能用 DevTools 看一次狀態碼確認。
 
 **目錄監控的後續（2026-10-03 決議：先記下來，暫不做）**
 
@@ -214,6 +213,10 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
 
 **量測記錄（日後重評時不必重測）**
 
+- **圖片走 base64 的成本（2026-10-09 實測，40 MB 的圖）**：Rust 手寫的 `encode_base64`
+  要 **477 ms（debug）／42 ms（release）**，而且它是先把整份編完才開始送；JS 端的
+  `join`＋`atob`＋逐位元組迴圈合計約 80 ms（每 MB 約 2 ms，不是瓶頸）。所以改用
+  `stream` 協定省下的是 Rust 端編碼、逐批 IPC 與 JS 端那些暫存字串。
 - **語法高亮**：`highlight.js` 的 `lib/common` ＋ 38 種精選語言＝541.6 KB min／gzip 188 KB／
   brotli 169 KB（全量 193 種＝1.2 MB min／gzip 404 KB，是其 9 倍，故不採用）；portable exe
   由 4.99 MB 增至約 5.07 MB。

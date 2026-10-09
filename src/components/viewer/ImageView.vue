@@ -20,6 +20,14 @@ const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
 const imageNav = useImageNavigation();
 
+/**
+ * 圖片的來源。
+ *
+ * 桌面版走 `stream` 自訂協定（`state.streamUrl`）：內容不必經過 base64 與 Blob，
+ * 瀏覽器可以邊讀邊解碼。只有瀏覽器預覽模式沒有那條協定，退回假資料的 blob URL。
+ */
+const source = computed(() => state.value?.streamUrl ?? state.value?.blobUrl ?? null);
+
 const canPrev = computed(() => imageNav.canStep(props.paneId, -1));
 const canNext = computed(() => imageNav.canStep(props.paneId, 1));
 /** 清單裡只有這一張圖（兩邊都切不動）時整組按鈕收起來，畫面留給圖片。 */
@@ -53,7 +61,7 @@ function reset() {
 
 // 換一張圖（或重新載入）就回到 fit。
 watch(
-  () => state.value?.blobUrl,
+  () => source.value,
   () => {
     scale.value = 1;
     offset.value = { x: 0, y: 0 };
@@ -161,9 +169,9 @@ function clamp(value: number, min: number, max: number): number {
   >
     <div class="pointer-events-none flex h-full w-full items-center justify-center p-4">
       <img
-        v-if="state?.blobUrl"
+        v-if="state && source"
         ref="image"
-        :src="state.blobUrl"
+        :src="source"
         :alt="state.name"
         draggable="false"
         class="max-h-full max-w-full select-none"

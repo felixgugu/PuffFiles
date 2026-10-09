@@ -44,6 +44,8 @@ export interface FileStreamHandle {
   token: string;
   /** 已經可以塞進 `<iframe src>` 的完整 URL。 */
   url: string;
+  /** 檔案大小（bytes）；檢視器標頭直接顯示，不必再問一次後端。 */
+  size: number;
 }
 
 /**
@@ -55,8 +57,10 @@ export async function openFileStream(path: string): Promise<FileStreamHandle | n
   if (!isDesktopRuntime()) {
     return null;
   }
-  const token = await guarded(() => invoke<string>("open_file_stream", { path }));
-  return { token, url: convertFileSrc(token, STREAM_SCHEME) };
+  const handle = await guarded(() =>
+    invoke<{ token: string; size: number }>("open_file_stream", { path }),
+  );
+  return { ...handle, url: convertFileSrc(handle.token, STREAM_SCHEME) };
 }
 
 /** 撤銷串流 token；之後同一個 URL 一律失效。 */
