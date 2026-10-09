@@ -1,8 +1,9 @@
 //! 檔案串流協定：把磁碟上的檔案直接餵給 WebView，支援 HTTP Range。
 //!
-//! 這是 PDF 檢視器的來源。相對「整份讀成 base64 → Blob URL」那條路，這裡只在使用者
-//! 真的需要某一段時讀那一段（Chromium 的 PDF viewer 會自己發 Range 請求），所以峰值
-//! 記憶體是「單次區段」而不是「檔案的 2.3 倍」。
+//! 這是 PDF 檢視器（iframe 直接讀）與 DOCX 檢視器（`fetch` 取整份位元組）的來源。
+//! 相對「整份讀成 base64 → Blob URL」那條路，這裡只在使用者真的需要某一段時讀那一段
+//! （Chromium 的 PDF viewer 會自己發 Range 請求），所以峰值記憶體是「單次區段」而不是
+//! 「檔案的 2.3 倍」。
 //!
 //! 存取權不是路徑而是**不可猜的 token**：`open_file_stream` 產生一組、前端放進 iframe
 //! 的 URL，`close_file_stream` 立刻撤銷。URL 本身不含路徑，也不會在關閉後繼續有效。
@@ -94,7 +95,7 @@ pub fn open_file_stream(
     if !stream::is_streamable(&resolved) {
         return Err(AppError::Unsupported {
             feature: format!(
-                "串流「{}」（目前只支援圖片與 PDF）",
+                "串流「{}」（目前只支援圖片、PDF 與 DOCX）",
                 resolved
                     .file_name()
                     .map(|value| value.to_string_lossy().into_owned())

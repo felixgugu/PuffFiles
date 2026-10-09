@@ -3,7 +3,7 @@ import type { PaneId } from "@/types/fs";
 import type { PanelLayout } from "@/utils/viewerPanel";
 
 /** 檢視器支援的內容種類。 */
-export type ViewerKind = "markdown" | "html" | "image" | "text" | "pdf";
+export type ViewerKind = "markdown" | "html" | "image" | "text" | "pdf" | "docx";
 
 /**
  * HTML 的顯示模式：`preview` 是靜態預覽（不執行 JavaScript），`source` 是原始碼。
@@ -90,6 +90,13 @@ export interface ViewerState {
   streamToken: string | null;
   /** PDF 的 iframe 來源；與 `streamToken` 同進退。 */
   streamUrl: string | null;
+  /**
+   * DOCX 的原始位元組（就是那個 ZIP 檔本身）；其他種類為 `null`。
+   *
+   * 分頁切換時窗格整塊卸載重掛，`DocxView` 要拿同一份位元組重新排版，所以它住在
+   * store 而不是元件裡。docx-preview 只能吃整份資料（內部是 JSZip），沒有串流版本。
+   */
+  bytes: Uint8Array | null;
   size: number;
   modifiedMs: number | null;
   /**

@@ -53,6 +53,7 @@
 | 10-08 | 空白鍵的檢視器位置 | 固定右／下窗格（`viewerSpaceRightOrBottom`，預設開）；右鍵選單不受影響 |
 | 10-08 | 浮動面板 | 沒有 hover／鍵盤焦點時幾乎隱形（`--panel-idle-opacity`，預設 0.2），模糊一併關掉 |
 | 10-09 | 圖片與 PDF 的內容來源 | 一律走自訂協定 `stream`：`<img>`／WebView2 內建 PDF viewer 直接讀（支援 Range），不再用 base64／Blob。圖片因此拿掉整份 base64 編碼、逐批 IPC 與 JS 解碼（見 §7 量測） |
+| 10-09 | DOCX 檢視器 | 用 `docx-preview` 0.4.1（lazy chunk）把 `.docx／.docm` 排成 DOM，位元組同樣走 `stream` 協定由 `fetch` 取回；**頁面固定白紙**、窗格較窄時自動等比縮小；`renderAltChunks: false`（不執行文件裡的程式碼）；**上限 50 MB**（整份解壓與排版都在主執行緒） |
 
 **外觀決策的理由**：`transparent: true` 會讓 WebView2 走額外的合成路徑，且大面積
 `backdrop-filter` 在捲動時每一格都要重算。改成不透明視窗 + 分層純色 + 亮邊與陰影，
@@ -80,8 +81,9 @@
 - **右鍵選單**：依情境分流（空白處／單一資料夾／單一檔案／多選），只出現對當下這組對象
   成立的動作；外部工具再依 targets／副檔名／`enabled`／`single`／`autoDetect` 篩選。
 - **檢視器**：Markdown／HTML（靜態預覽）／WebView2 能畫的圖檔／PDF（自訂協定 `stream`
-  串流，交給 WebView2 內建 viewer）／純文字與程式碼；搜尋面板、目錄索引、Mermaid 自動
-  渲染、圖片前後導覽；唯讀、外部變更自動重載、不設檔案大小上限。
+  串流，交給 WebView2 內建 viewer）／DOCX（`docx-preview` 排版，位元組同樣走 `stream`）／
+  純文字與程式碼；搜尋面板、目錄索引、Mermaid 自動渲染、圖片前後導覽；唯讀、外部變更
+  自動重載。圖片、PDF 與文字不設大小上限（可串流或逐批讀取）；DOCX 得整份解壓，上限 50 MB。
 - **設定**：整頁模式（蓋掉路徑列與工作區、保留標題列）；分類為外觀、字型、動態、瀏覽、
   檢視器、我的資料夾、外部工具（清單 → 獨立編輯頁，草稿 + 明確儲存 + 離開守衛）、工作階段、
   關於（含快速鍵一覽）。
@@ -161,6 +163,9 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
    `preventDefault`、不 `stopPropagation`）關掉 WebView2 的原生選單，自繪選單不受影響；
    `input`／`textarea`／`contenteditable` 例外，保留系統的剪下／複製／貼上選單。
    （Tauri 2.11 尚未暴露 `AreDefaultContextMenusEnabled`，故採前端攔截。）
+7. **DOCX 的 zip 炸彈**：`docx-preview` 會把整份文件解壓進記憶體，而 50 MB 的上限只看
+   **壓縮後**的大小 —— 極小的檔案理論上可以解壓成遠大於上限的內容。只會開使用者自己挑的
+   檔案，先不處理；真要防得自己列出 ZIP 目錄的未壓縮大小（JSZip 沒有公開這個介面）。
 
 ---
 
@@ -199,8 +204,8 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
   且載入失敗是 panic）。形式是窗格內容模式（與檢視器同層），cmd／pwsh 每次開啟時選、
   記住上次，cwd ＝ 該窗格目前路徑。決議：**先不做**。
 - **Markdown 標題錨點**：`#anchor` 連結只呈現文字，不產生錨點。
-- 影音、Office，以及不支援的圖片格式（heic／tif／psd）一律交給系統預設程式。
-  Markdown 也不執行原始 HTML。
+- 影音、舊版與其他文書／試算表格式（`.doc`／`.odt`／`.rtf`／`.xls`／`.ppt`…），以及
+  不支援的圖片格式（heic／tif／psd）一律交給系統預設程式。Markdown 也不執行原始 HTML。
 
 **Mermaid 圖表尺寸（2026-10-09 修正）**
 
@@ -213,6 +218,9 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
 
 **量測記錄（日後重評時不必重測）**
 
+- **DOCX（2026-10-09）**：`docx-preview` 0.4.1 ＋它的相依 `jszip` 合起來是**一個** lazy
+  chunk（`dist/assets/docx-preview-*.js`，171.4 KB／gzip 49.1 KB），只有真的開 DOCX
+  才會下載與解析。
 - **圖片走 base64 的成本（2026-10-09 實測，40 MB 的圖）**：Rust 手寫的 `encode_base64`
   要 **477 ms（debug）／42 ms（release）**，而且它是先把整份編完才開始送；JS 端的
   `join`＋`atob`＋逐位元組迴圈合計約 80 ms（每 MB 約 2 ms，不是瓶頸）。所以改用

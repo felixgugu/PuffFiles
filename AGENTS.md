@@ -58,11 +58,11 @@ PuffFiles/
 │  │  ├─ tree/                 # 資料夾樹面板：FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
 │  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
 │  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
-│  │  ├─ viewer/               # ViewerPane、MarkdownView、ImageView、TextView
+│  │  ├─ viewer/               # ViewerPane、MarkdownView、HtmlView、ImageView、PdfView、DocxView、TextView
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer / compare …）
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer / docx / compare …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
@@ -199,9 +199,11 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
   WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、`.pdf`（與圖檔同樣走自訂協定，見下），
-  以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。**沒有檢視器的類型**（`.mp4`／`.exe`…）不會讀取內容，
+  `.docx／.docm`（`docx-preview`，見下），以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
+  **沒有檢視器的類型**（`.mp4`／`.exe`／舊版 `.doc`…）不會讀取內容，
   但仍會佔用窗格並顯示「這個檔案類型還沒有檢視器」——`ViewerState.kind` 為 `null`，
   `open()` 不呼叫 `load()`、標頭的重整鈕不出現；它仍是「目前顯示的目標」，供 `Space` 判斷前進。
+  `.doc／.rtf／.odt` 這種「看起來像 Word 但不是 DOCX」的格式會多一行說明，講清楚要走預設程式。
 - **圖片導覽**：圖片檢視器左右兩側各一顆半透明圓形按鈕（`ImageView.vue`；只有 10% 的
   極淡圓底提示、無邊框無陰影，游標移上去才轉深。對比由實色的箭頭負責，所以不隨
   `prefers-reduced-transparency` 改成不透明）。順序＝**開啟這張圖片的來源
@@ -234,7 +236,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **搜尋（所有文字類檢視器）**：檢視器標頭的搜尋鈕或 `Ctrl+F` 開關右上角的浮動面板，
   面板本身是每個窗格各自的狀態（預設關閉）。搜尋的是**畫面上看得到的文字**：
   Markdown 渲染後的內容、純文字與程式碼（含 HTML 原始碼模式）、HTML 靜態預覽 iframe
-  內的頁面文字。大小寫、完整字詞、Regex 三個選項預設全關，輸入即時搜尋（去抖 150ms）；
+  內的頁面文字、DOCX 排版後的內容（`supportsViewerSearch` 決定標頭要不要出現搜尋鈕）。
+  大小寫、完整字詞、Regex 三個選項預設全關，輸入即時搜尋（去抖 150ms）；
   命中清單顯示「目前索引／總數」與命中所在的行（純文字／程式碼，含行號）或區塊
   （渲染後的內容），`Enter`／`Shift+Enter` 上下一個、點列直接跳，內文同步標示全部命中
   與目前命中。內容超過 4 MB 停用搜尋、命中超過 2000 筆只列前段，兩者都會在面板上說明。
@@ -254,15 +257,38 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `composables/useMarkdownMermaid.ts`：在內容進 DOM 之後後處理，`utils/markdown.ts`
   維持零依賴純函式。原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼，渲染失敗保留
   原始碼並顯示原因；搜尋會跳過圖表模式下收起的原始碼（`[data-search-skip]`）；
-  `settings.mermaidEnabled` 可整份關閉自動渲染。評估與實測數字見 `docs/redesign-plan.md` §11。
-- **圖檔與 PDF 走自訂協定 `stream`（2026-10-09）**：兩者都把檔案位元組直接餵給 WebView，
+  `settings.mermaidEnabled` 可整份關閉自動渲染。實測數字見 `docs/redesign-plan.md` §7。
+- **DOCX（`docx-preview`）**：`.docx／.docm` 由 `docx-preview` 0.4.1（lazy 載入）就地排成
+  一頁頁的 DOM（`DocxView.vue`），位元組由 store 從 `stream` 自訂協定 `fetch` 整份抓回來
+  放在 `ViewerState.bytes` —— JSZip 只能吃整份資料，這條沒有 Range。
+  **頁面固定白紙**（與 WebView2 的 PDF viewer 一致，不隨深色主題反轉）；窗格比頁面窄時
+  自動等比縮小（`utils/docx.ts` 的 `docxZoom()`，`zoom` 套在 `.docx-wrapper`，下限 0.25），
+  比頁面寬就維持 100%。內建的灰底與 30px 內距、以及 Tailwind preflight 把 `img` 變成 block
+  （會把行內圖片推到下一行）都在 `DocxView.vue` 的 scoped `:deep()` 覆寫掉 ——
+  `docx-preview` 產生的節點不是 Vue 模板的一員，樣式只能這樣打；容器裡也不能有 Vue 管的
+  節點（`renderAsync` 是清空容器再寫入）。
+  **文件裡的程式碼一律不執行**：`renderAltChunks: false`（altChunk 是用 `innerHTML` 插入的
+  原始 HTML，`<img onerror=…>` 那類屬性會真的執行），與 Markdown escape 原始 HTML、
+  HTML 預覽不給 `allow-scripts` 同一套立場。`ignoreLastRenderedPageBreak: false` 讓 Word
+  寫的軟分頁生效，否則沒有手動分頁的文件會變成一頁到底（不會裁切，頁面會長高）。
+  **連結由 `onContentClick` 自己攔**：`http(s)／mailto` 交給系統預設程式，相對路徑用
+  `resolveLocalPath` 接成絕對路徑後在同一個窗格導覽（`openLocalTarget`）；文件內書籤不支援
+  （`docx-preview` 沒有替書籤產生 id）。
+  **blob 生命週期由我們接手**：`docx-preview` 產生圖片與嵌入字型的 object URL 卻從不撤銷，
+  所以每次重排前先掃出舊的（`collectBlobUrls()`）、成功後撤銷，卸載時再掃一次 ——
+  連續 `Space` 預覽才不會一份一份堆積記憶體。
+  **上限 50 MB**（`stores/viewer.ts` 的 `MAX_DOCX_BYTES`）：超過只顯示提示不排版 ——
+  解壓與排版都在主執行緒上，擋不住會凍住整個介面（與 1 MB 不高亮、4 MB 停用搜尋同一套慣例）。
+  解析失敗（加密、損壞、不是 ZIP）顯示「這份文件無法解析」；瀏覽器預覽模式沒有 `stream`
+  協定，比照 PDF 顯示提示。
+- **圖檔、PDF 與 DOCX 走自訂協定 `stream`（2026-10-09）**：位元組直接餵給 WebView，
   **不經過 base64／Blob** —— 圖片是 `<img :src="streamUrl">`（`ImageView.vue` 的 `source`
   取 `streamUrl ?? blobUrl`），PDF 交給 WebView2 內建的 viewer（`PdfView.vue`，
-  **不加 sandbox** 才有自己的工具列與右鍵選單）。
+  **不加 sandbox** 才有自己的工具列與右鍵選單），DOCX 由 `fetch` 取回整份位元組。
   後端 `commands/stream.rs`：`open_file_stream(path)` 回 `{ token, size }`（128-bit 不可猜
   亂數，用 std 的 `RandomState` 取 OS 亂數種子）、`close_file_stream(token)` 立即撤銷，
   URL 只帶 token、不含路徑；`core/stream.rs` 是 Range 解析、MIME 與白名單
-  （`is_streamable`：圖片 ＋ PDF）的純邏輯，兩者都可獨立測試。
+  （`is_streamable`：圖片、PDF 與 DOCX）的純邏輯，兩者都可獨立測試。
   **動機是速度**：圖片原本走「整份讀進 Rust → base64 → 逐批 IPC → JS `atob`＋逐位元組
   迴圈 → Blob」，實測 40 MB 的圖光是 Rust 端編碼就要 477 ms（debug）／42 ms（release）。
   改走協定後由瀏覽器自己取資料、邊讀邊解碼，也少掉 base64 造成的字串記憶體。
@@ -277,9 +303,12 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **讀取**：`services/api.ts` 的 `readViewerFile` → 後端 `read_viewer_file`
   （`core/viewer.rs`）。文字回編碼後的字串片段（UTF-8 → Big5／GBK → lossy），
   圖片回 base64 片段（每塊 3 的倍數，可直接串接）；**不設大小上限**。
+  桌面版的圖片、PDF 與 DOCX 已經不走這條（見上一段的 `stream` 協定），這裡只剩文字類
+  與瀏覽器預覽模式的圖片假資料。
   **文字一律先正規化換行**（`\r\n` 與單獨的 `\r` 都收成 `\n`，`viewer.rs` 的
   `normalize_newlines()`）：高亮結果會經過 `v-html` 交給 HTML 剖析，而 hljs 會把
-  `<span>` 插在 `\r`／`\n` 之間，被拆開的 `\r\n` 會讓畫面每行多一個空白行（見 §11）。
+  `<span>` 插在 `\r`／`\n` 之間，被拆開的 `\r\n` 會讓畫面每行多一個空白行
+  （見 `docs/redesign-plan.md` §2 的「檢視器換行」）。
 - **關閉時機**：Esc、標頭關閉鈕、窗格被銷毀、以及任何「使用者主動換位置」的導覽
   （`explorer.navigate／goBack／goForward／goUp`）。清單類的重新整理（剪貼簿完成後的
   `refreshPanes`）刻意不關閉檢視器。

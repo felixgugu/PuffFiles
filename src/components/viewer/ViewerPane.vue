@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import ErrorBanner from "@/components/common/ErrorBanner.vue";
+import DocxView from "./DocxView.vue";
 import HtmlView from "./HtmlView.vue";
 import ImageView from "./ImageView.vue";
 import MarkdownView from "./MarkdownView.vue";
@@ -96,6 +97,19 @@ const canMaximize = computed(() => (tabs.activeTab?.paneIds.length ?? 0) > 1);
 const maximized = computed(() => tabs.activeTab?.maximizedPaneId === props.paneId);
 
 const extension = computed(() => extensionOf(state.value?.path ?? ""));
+
+/**
+ * 「看起來像 Word，但不是 DOCX」的格式最容易讓人以為是壞了。
+ *
+ * `.docx`／`.docm` 有內建檢視器；`.doc` 是 OLE 二進位、`.rtf`／`.odt` 也不是 ZIP，
+ * 解析不了就只能交給系統預設程式 —— 這裡把話說清楚，不要只留一句「還沒有檢視器」。
+ */
+const LEGACY_DOCUMENT_EXTENSIONS = new Set(["doc", "rtf", "odt"]);
+const noViewerHint = computed(() =>
+  LEGACY_DOCUMENT_EXTENSIONS.has((extension.value ?? "").toLowerCase())
+    ? "這是舊版或其他文書格式（只有 Word 的 .docx／.docm 有內建檢視器），請用預設程式開啟"
+    : "",
+);
 
 /** 只有 HTML 有兩種顯示模式；切換鈕也只對它出現。 */
 const isHtml = computed(() => state.value?.kind === "html");
@@ -275,12 +289,14 @@ function reveal() {
     >
       <AppIcon name="info" :size="22" class="text-ink-faint" />
       <p class="text-sm text-ink-muted">這個檔案類型還沒有檢視器</p>
+      <p v-if="noViewerHint" class="text-xs text-ink-faint">{{ noViewerHint }}</p>
     </div>
 
     <MarkdownView v-else-if="state.kind === 'markdown'" :pane-id="paneId" />
     <HtmlView v-else-if="state.kind === 'html' && state.mode === 'preview'" :pane-id="paneId" />
     <ImageView v-else-if="state.kind === 'image'" :pane-id="paneId" />
     <PdfView v-else-if="state.kind === 'pdf'" :pane-id="paneId" />
+    <DocxView v-else-if="state.kind === 'docx'" :pane-id="paneId" />
     <TextView v-else :pane-id="paneId" />
   </div>
 </template>

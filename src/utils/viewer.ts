@@ -31,6 +31,14 @@ const HTML_EXTENSIONS = new Set(["html", "htm"]);
  * 後端只在使用者捲動時送出被請求的那一段（HTTP Range），內容不經過 base64／Blob。
  */
 const PDF_EXTENSIONS = new Set(["pdf"]);
+/**
+ * DOCX 走 `docx-preview`：位元組經由 `stream` 自訂協定取回後在 DOM 裡排版。
+ *
+ * 只認 OOXML 的 Word 檔（`.docx`）與啟用巨集的版本（`.docm`，封裝完全相同，巨集
+ * 不會被執行也不影響排版）；舊版 `.doc` 是 OLE 二進位、`.rtf`／`.odt` 也不是 ZIP，
+ * 一律留給系統預設程式。
+ */
+const DOCX_EXTENSIONS = new Set(["docx", "docm"]);
 
 /**
  * 這個項目能不能用檢視器打開；不能就回 `null`。
@@ -55,6 +63,9 @@ export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): Vie
   if (PDF_EXTENSIONS.has(extension)) {
     return "pdf";
   }
+  if (DOCX_EXTENSIONS.has(extension)) {
+    return "docx";
+  }
   const kind = fileKindOf(entry);
   return kind === "text" || kind === "code" ? "text" : null;
 }
@@ -72,7 +83,7 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
  * 圖片與「沒有檢視器的類型」都不顯示搜尋鈕。
  */
 export function supportsViewerSearch(kind: ViewerKind | null): boolean {
-  return kind === "markdown" || kind === "html" || kind === "text";
+  return kind === "markdown" || kind === "html" || kind === "text" || kind === "docx";
 }
 
 /**

@@ -5,6 +5,7 @@ import { normalizeBackendError } from "@/services/errors";
 import { useSettingsStore } from "@/stores/settings";
 import type { PaneId } from "@/types/fs";
 import type { ViewerMode, ViewerPanelState, ViewerSearchState, ViewerState } from "@/types/viewer";
+import { formatBytes } from "@/utils/format";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
 import { supportsViewerSearch, viewerKindOfPath } from "@/utils/viewer";
 import {
@@ -26,6 +27,14 @@ const WATCH_PREFIX = "viewer:";
  */
 const STREAM_QUIET_MS = 120;
 const STREAM_SETTLE_MAX_MS = 3000;
+/**
+ * DOCX 的大小上限。
+ *
+ * docx-preview 內部是 JSZip，只能吃整份資料 —— 不像圖片與 PDF 可以只讀需要的那一段，
+ * 所以大檔會在主執行緒上解壓、排版。這個門檻與既有的「1 MB 不做語法高亮」、
+ * 「4 MB 停用搜尋」同一套慣例：寧可說清楚不處理，也不要讓整個介面停住。
+ */
+const MAX_DOCX_BYTES = 50 * 1024 * 1024;
 
 /** 搜尋面板的初始狀態：預設關閉、三個選項全關（與其他工具的搜尋一致）。 */
 const DEFAULT_SEARCH: ViewerSearchState = {
@@ -148,6 +157,15 @@ export const useViewerStore = defineStore("viewer", () => {
       state.text = chunks.join("");
     }
 
+    ready(paneId);
+  }
+
+  /** 內容已經可以顯示：轉成就緒並開始監控檔案（外部變更就自動重載）。 */
+  function ready(paneId: PaneId) {
+    const state = views[paneId];
+    if (!state || state.status !== "loading") {
+      return;
+    }
     state.status = "ready";
     startWatch(paneId, state.path);
   }
@@ -157,6 +175,8 @@ export const useViewerStore = defineStore("viewer", () => {
     if (!state) {
       return;
     }
+    // 讀進來但用不到的位元組不留著：解析失敗的檔案常常就是大檔。
+    state.bytes = null;
     state.status = "error";
     state.error = normalizeBackendError(new Error(message));
   }
@@ -181,17 +201,28 @@ export const useViewerStore = defineStore("viewer", () => {
     state.error = null;
     state.text = "";
     state.encoding = null;
+    state.bytes = null;
     releaseBlob(state);
-    // 二進位內容（圖片／PDF）走自訂協定：不經過 base64 與 Blob，瀏覽器還能邊讀邊解碼。
+    // 二進位內容（圖片／PDF／DOCX）走自訂協定：不經過 base64 與 Blob。
     releaseStream(state);
-    if (state.kind === "image" || state.kind === "pdf") {
+    if (state.kind === "image" || state.kind === "pdf" || state.kind === "docx") {
       const handled = await loadStream(paneId, current);
       if (handled) {
+        if (state.kind === "docx") {
+          await loadDocxBytes(paneId, current, controller.signal);
+        } else {
+          ready(paneId);
+        }
         return;
       }
-      // 這個環境沒有串流協定：圖片退回下面的 base64 假資料；PDF 沒有假資料。
-      if (state.kind === "pdf") {
-        fail(paneId, "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟");
+      // 這個環境沒有串流協定：圖片退回下面的 base64 假資料；PDF 與 DOCX 沒有假資料。
+      if (state.kind !== "image") {
+        fail(
+          paneId,
+          state.kind === "pdf"
+            ? "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟"
+            : "這個預覽模式沒有 DOCX 檢視器，請用預設程式開啟",
+        );
         return;
       }
     }
@@ -265,7 +296,8 @@ export const useViewerStore = defineStore("viewer", () => {
   }
 
   /**
-   * 圖片與 PDF：向後端要一組新的串流 token，把 URL 交給 `<img>`／`<iframe>` 直接讀。
+   * 圖片與 PDF：向後端要一組新的串流 token，把 URL 交給 `<img>`／`<iframe>` 直接讀；
+   * DOCX 也要同一組 token，只是讀的人是 `fetch`（見 `loadDocxBytes`）。
    *
    * 這條路把「整份讀進 Rust → base64 → 逐批 IPC → JS 解碼 → Blob」整段換成瀏覽器自己
    * 向自訂協定取資料，所以瀏覽器可以邊讀邊解碼（漸進顯示），記憶體也不必同時容納
@@ -275,7 +307,8 @@ export const useViewerStore = defineStore("viewer", () => {
    * 外部變更的自動重載都靠這一點，不需要額外的 cache-busting 參數。
    *
    * 回傳「這一輪是否已經處理完」。回 `false` 只有一種情況：這個執行環境沒有串流協定
-   * （瀏覽器預覽模式），呼叫端要自己決定退路。
+   * （瀏覽器預覽模式），呼叫端要自己決定退路。內容就緒與監控由呼叫端負責 ——
+   * DOCX 還要把位元組抓回來才算讀完。
    */
   async function loadStream(paneId: PaneId, current: () => boolean): Promise<boolean> {
     const state = views[paneId];
@@ -310,9 +343,54 @@ export const useViewerStore = defineStore("viewer", () => {
     state.streamUrl = handle.url;
     // 走協定就沒有 `Start` 事件可以拿檔案大小，直接在這裡補上（標頭要顯示）。
     state.size = handle.size;
-    state.status = "ready";
-    startWatch(paneId, state.path);
     return true;
+  }
+
+  /**
+   * DOCX：把整份位元組從自訂協定抓回來。
+   *
+   * docx-preview 內部是 JSZip，只能吃整份資料，所以這裡用 `fetch` 讀完整個 token URL，
+   * 而不是像圖片與 PDF 那樣把 URL 交給別的元素。協定回應已經帶 `Access-Control-Allow-Origin`，
+   * 這條請求也不帶自訂標頭，不會觸發預檢。
+   *
+   * 位元組留在 `ViewerState.bytes`：分頁切換會把窗格整塊卸載重掛，重掛時要靠同一份
+   * 資料重新排版。
+   */
+  async function loadDocxBytes(paneId: PaneId, current: () => boolean, signal: AbortSignal) {
+    const state = views[paneId];
+    if (!state?.streamUrl) {
+      return;
+    }
+    if (state.size > MAX_DOCX_BYTES) {
+      releaseStream(state);
+      fail(
+        paneId,
+        `檔案太大（${formatBytes(state.size)}）；DOCX 檢視器只處理 ${formatBytes(MAX_DOCX_BYTES)} 以下的文件，請用預設程式開啟`,
+      );
+      return;
+    }
+
+    let bytes: Uint8Array<ArrayBuffer> | null = null;
+    try {
+      const response = await fetch(state.streamUrl, { signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      bytes = new Uint8Array(await response.arrayBuffer());
+    } catch {
+      // 主動中止（換檔、關閉）不算錯誤：`current()` 會是 false。
+      if (current() && views[paneId] === state) {
+        releaseStream(state);
+        fail(paneId, "讀不到檔案內容，請按重試或關閉檢視器");
+      }
+      return;
+    }
+
+    if (!current() || views[paneId] !== state) {
+      return;
+    }
+    state.bytes = bytes;
+    ready(paneId);
   }
 
   /**
@@ -348,6 +426,7 @@ export const useViewerStore = defineStore("viewer", () => {
       blobUrl: null,
       streamToken: null,
       streamUrl: null,
+      bytes: null,
       size: 0,
       modifiedMs: null,
       scrollTop: 0,
@@ -474,6 +553,7 @@ export const useViewerStore = defineStore("viewer", () => {
     setPanelLayout,
     setScrollTop,
     togglePanelCollapsed,
+    fail,
     retarget,
     close,
     destroy,

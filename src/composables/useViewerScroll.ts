@@ -38,5 +38,7 @@ export function useViewerScroll(paneId: PaneId, element: Ref<HTMLElement | null>
   // 卸載前補記一次：捲動事件寫回的是滾動過程中的值，最後停住的位置要靠這裡。
   onBeforeUnmount(save);
 
-  return { save };
+  // `restore` 也給出去：內容是非同步排出來的檢視器（例如 DOCX）掛載當下高度還是 0，
+  // 那時設 `scrollTop` 會被夾成 0，要等內容真的進 DOM 之後再還原一次。
+  return { save, restore };
 }
