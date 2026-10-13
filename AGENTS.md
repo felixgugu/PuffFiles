@@ -305,7 +305,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   經 IPC 讀取的 blob URL。標頭的切換鈕在「預覽／原始碼」之間切換（`ViewerState.mode`），
   預設是預覽；有 `<script>` 或略過的資源時在內容上方顯示提示條。
 - **Mermaid**：` ```mermaid ` 區塊**預設自動渲染成內嵌 SVG**（官方 mermaid 12、lazy 載入），
-  每個區塊標題列可「圖表／原始碼」各自切換、複製原始碼、另存 PNG。實作在
+  每個區塊標題列可「圖表／原始碼」各自切換、複製原始碼、另存 PNG（**存檔後自動在檔案
+  總管選取剛存的那個檔** —— 走檢視器標頭同一條 `reveal_path`；使用者取消或瀏覽器預覽
+  模式沒有路徑就跳過，開啟失敗另外通知、不會蓋掉「已儲存」）。實作在
   `composables/useMarkdownMermaid.ts`：在內容進 DOM 之後後處理，`utils/markdown.ts`
   維持零依賴純函式。原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼，渲染失敗保留
   原始碼並顯示原因；搜尋會跳過圖表模式下收起的原始碼（`[data-search-skip]`）；

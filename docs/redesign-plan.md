@@ -349,6 +349,9 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
   淡化 30%、開關用 `aria-pressed` 配 `--color-accent-soft`）。控制項變多後
   `.md-mermaid-bar` 與 `.md-mermaid-actions` 都加了 `flex-wrap` —— 不然最小窗格（約 230px）
   會被外殼的 `overflow: hidden` 切掉右邊幾顆按鈕。
+- **平移開關的圖示用新加的 `hand`（抓握手勢），不是 `move`**：`move` 是「方框＋往外的
+  箭頭」，在這一列裡看起來像「開啟／另存」，會跟檢視器的「在檔案總管中顯示」
+  （`folderOpen`）撞在一起；手勢圖示也剛好對應平移模式下的 `cursor: grab`。
 - **平移為什麼要「開關」**：Markdown 內文刻意開了 `select-text`（`body` 預設
   `user-select: none`），左鍵拖曳本來是選取文字。所以改成整份文件共用一個模式開關：
   開啟後才接手左鍵拖曳（`preventDefault` 抑制選取，游標 `grab`／`grabbing`），關閉時完全
@@ -371,6 +374,17 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
 - **裁切不受影響**：`fitDiagramToContent()` 之後才套倍率，viewBox 不動（縮放只是等比放大，
   不可能引入新裁切）。量測工具加了「最大那張圖跑完整個階梯」的檢查，40 級全部
   `width/height == round(viewBox × 倍率)` 且邊界外 0 墨跡。
+
+**Mermaid 另存圖片（2026-10-13）：存完自動開檔案總管並選取**
+
+- 存檔完最常見的下一步就是「去資料夾看／搬走那個檔」，所以另存成功後直接
+  `revealPath()`（`tauri_plugin_opener::reveal_item_in_dir`，與檢視器標頭的「在檔案總管
+  中顯示」同一條），不再讓使用者自己找存到哪。
+- `saveBinaryFile()` 因此從「回傳 boolean」改成 `SaveOutcome { saved, path }`：取消存檔是
+  `saved: false`；瀏覽器預覽模式沒有原生對話框（改觸發下載）是 `saved: true, path: null`
+  —— 檔案存下來了但沒有路徑，也就沒有地方可以選取（不用假路徑假裝有）。
+- 開啟檔案總管失敗（權限、被政策關掉…）**不影響「已儲存」的結果**：另外通知，不改寫
+  成功訊息。取消存檔則完全不通知、不開資料夾。
 
 **量測記錄（日後重評時不必重測）**
 

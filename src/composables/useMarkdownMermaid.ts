@@ -1,5 +1,6 @@
-import { saveBinaryFile } from "@/services/api";
+import { revealPath, saveBinaryFile } from "@/services/api";
 import { copyText } from "@/services/clipboard";
+import { normalizeBackendError } from "@/services/errors";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import { ICON_PATHS, type IconName } from "@/components/common/icons";
@@ -402,7 +403,7 @@ export function useMarkdownMermaid(options: {
     const actions = document.createElement("div");
     actions.className = "md-mermaid-actions";
 
-    const pan = toolButton("pan", "move", "拖曳平移：開啟後可以用滑鼠抓住圖表移動，Ctrl+滾輪縮放");
+    const pan = toolButton("pan", "hand", "拖曳平移：開啟後可以用滑鼠抓住圖表移動，Ctrl+滾輪縮放");
     pan.setAttribute("aria-pressed", "false");
     const zoomOut = toolButton("zoom-out", "minus", "縮小圖表");
     const zoomIn = toolButton("zoom-in", "plus", "放大圖表");
@@ -671,13 +672,32 @@ export function useMarkdownMermaid(options: {
     try {
       const bytes = await rasterize(svg);
       const name = `${safeStem(options.path())}-mermaid-${index + 1}.png`;
-      const saved = await saveBinaryFile(name, bytes, "png");
-      if (saved) {
-        ui.showNotice("圖表已儲存");
+      const outcome = await saveBinaryFile(name, bytes, "png");
+      if (!outcome.saved) {
+        return;
       }
+      ui.showNotice("圖表已儲存");
+      await revealSaved(outcome.path);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       ui.showNotice(`另存圖片失敗：${message}`);
+    }
+  }
+
+  /**
+   * 存檔後打開檔案總管並選取剛存的那個檔（與檢視器標頭的「在檔案總管中顯示」同一條）。
+   *
+   * 瀏覽器預覽模式沒有路徑（也沒有檔案總管）就跳過。開啟失敗不該蓋掉「已儲存」這個
+   * 結果 —— 檔案已經在磁碟上了 —— 所以自己 catch 起來另外通知。
+   */
+  async function revealSaved(path: string | null) {
+    if (!path) {
+      return;
+    }
+    try {
+      await revealPath(path);
+    } catch (error) {
+      ui.showNotice(normalizeBackendError(error).message);
     }
   }
 

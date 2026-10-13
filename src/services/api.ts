@@ -348,18 +348,30 @@ export async function chooseFolder(defaultPath?: string): Promise<string | null>
   }
 }
 
+/** 另存二進位檔的結果。 */
+export interface SaveOutcome {
+  /** 使用者真的存了檔；在原生對話框取消時是 `false`。 */
+  saved: boolean;
+  /**
+   * 存檔的完整路徑。瀏覽器預覽模式沒有原生對話框（改成直接下載）時是 `null`：
+   * 檔案確實存下來了，但沒有「存到哪個路徑」這個資訊，也就沒有地方可以在檔案總管選取。
+   */
+  path: string | null;
+}
+
 /**
  * 把二進位資料存成使用者選定的檔案（Mermaid 圖表「另存圖片」用）。
- * 回傳 false 代表使用者在原生對話框取消。
+ *
+ * 回傳路徑是為了讓呼叫端能在存檔後打開檔案總管並選取剛存的那個檔（`revealPath`）。
  */
 export async function saveBinaryFile(
   defaultName: string,
   bytes: Uint8Array<ArrayBuffer>,
   extension: string,
-): Promise<boolean> {
+): Promise<SaveOutcome> {
   if (!isDesktopRuntime()) {
     mockDownload(defaultName, bytes, extension);
-    return true;
+    return { saved: true, path: null };
   }
   try {
     const selected = await saveDialog({
@@ -368,10 +380,10 @@ export async function saveBinaryFile(
       filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
     });
     if (typeof selected !== "string") {
-      return false;
+      return { saved: false, path: null };
     }
     await invoke("save_binary_file", { path: selected, base64: bytesToBase64(bytes) });
-    return true;
+    return { saved: true, path: selected };
   } catch (error) {
     throw toBackendError(error);
   }
