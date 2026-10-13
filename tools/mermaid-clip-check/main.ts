@@ -8,7 +8,13 @@
  */
 import "@/assets/styles/main.css";
 import mermaid from "mermaid";
-import { diagramContentBounds, fitDiagramToContent, mermaidConfig } from "@/utils/mermaid";
+import {
+  applyDiagramZoom,
+  diagramContentBounds,
+  fitDiagramToContent,
+  mermaidConfig,
+  ZOOM_STEPS,
+} from "@/utils/mermaid";
 
 /** 檢視器用的是同一份設定（`utils/mermaid.ts`），所以這裡量到的就是實際出貨的圖。 */
 mermaid.initialize(mermaidConfig(false));
@@ -280,6 +286,7 @@ async function run() {
   let index = 0;
   let before = 0;
   let after = 0;
+  let biggest: { item: Case; nodes: number } | null = null;
   for (const item of cases) {
     index += 1;
     const id = `clip-check-${index}`;
@@ -299,6 +306,9 @@ async function run() {
         : 0;
       // 修正：實際出貨的 `fitDiagramToContent()`。
       const nodes = element.querySelectorAll("*").length;
+      if (!biggest || nodes > biggest.nodes) {
+        biggest = { item, nodes };
+      }
       const started = performance.now();
       fitDiagramToContent(element);
       const elapsed = Math.round((performance.now() - started) * 10) / 10;
@@ -323,6 +333,47 @@ async function run() {
   lines.unshift(
     `總共 ${cases.length} 張；修正前有 ${before} 張內容落在 viewBox 外，修正後仍有墨跡溢出的 ${after} 張`,
   );
+
+  // 縮放階梯：用最大的那張圖跑完整個階梯，確認每一級都只是等比放大（不引入新裁切）。
+  if (biggest) {
+    const { item, nodes } = biggest;
+    const id = "clip-check-zoom";
+    try {
+      const { svg } = await mermaid.render(id, item.source);
+      view.innerHTML = svg;
+      const element = view.querySelector<SVGSVGElement>("svg");
+      if (element) {
+        fitDiagramToContent(element);
+        const box = element.viewBox.baseVal;
+        let worst = 0;
+        let mismatch = 0;
+        for (const zoom of ZOOM_STEPS) {
+          applyDiagramZoom(element, zoom);
+          const width = Number(element.getAttribute("width"));
+          const height = Number(element.getAttribute("height"));
+          const ink = await inkOverflow(element, true);
+          const residual = Math.max(ink.bottom, ink.right, ink.top, ink.left);
+          worst = Math.max(worst, residual);
+          const ok =
+            width === Math.round(box.width * zoom) && height === Math.round(box.height * zoom);
+          if (!ok || residual > 0.5) {
+            mismatch += 1;
+            lines.push(
+              `失敗 縮放 ${Math.round(zoom * 100)}% → ${width}x${height}（viewBox ${Math.round(box.width)}x${Math.round(box.height)}）:: 邊界外墨跡 ${round(residual)}`,
+            );
+          }
+        }
+        lines.push(
+          `縮放階梯：${item.name}（元素 ${nodes}）${ZOOM_STEPS.length} 級（${Math.round((ZOOM_STEPS[0] ?? 0) * 100)}%～${Math.round((ZOOM_STEPS[ZOOM_STEPS.length - 1] ?? 0) * 100)}%），尺寸不符或邊界外有墨跡的 ${mismatch} 級，最大邊界外墨跡 ${round(worst)}`,
+        );
+      }
+    } catch (error) {
+      lines.push(`縮放階梯失敗 :: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      document.getElementById(`d${id}`)?.remove();
+    }
+  }
+
   report.textContent = lines.join("\n");
 }
 

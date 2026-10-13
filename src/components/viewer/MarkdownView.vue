@@ -433,8 +433,9 @@ function decodeFragment(value: string): string {
 .markdown :deep(.md-mermaid-bar) {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  /* 控制項變多之後窄窗格會擠不下：允許換行，才不會被外殼的 overflow: hidden 切掉。 */
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
   padding: 0.3rem 0.5rem 0.3rem 0.7rem;
   border-bottom: 1px solid var(--color-line);
   color: var(--color-ink-muted);
@@ -448,6 +449,10 @@ function decodeFragment(value: string): string {
 
 .markdown :deep(.md-mermaid-actions) {
   display: flex;
+  flex-wrap: wrap;
+  /* 換到第二行時整組仍然靠右（`margin-left: auto` 讓它在自己的行上也貼齊右緣）。 */
+  justify-content: flex-end;
+  margin-left: auto;
   gap: 0.25rem;
 }
 
@@ -468,9 +473,54 @@ function decodeFragment(value: string): string {
   background: var(--color-pressed);
 }
 
+/* 圖示型的工具鈕（縮放、平移開關）：24px 命中區＋14px 圖示，與檢視器標頭同一套。 */
+.markdown :deep(.md-mermaid-tool) {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* 倍率讀數：本身就是「回到原始大小」的按鈕。等寬數字，跳級時不會左右晃動。 */
+.markdown :deep(.md-mermaid-zoom-value) {
+  min-width: 3.1rem;
+  padding: 0.15rem 0.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 開關類（拖曳平移）：開啟時用強調色，與檢視器標頭的切換鈕一致。 */
+.markdown :deep(.md-mermaid-action[aria-pressed="true"]) {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.markdown :deep(.md-mermaid-action:disabled) {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* 上面的 :hover 沒有區分 enabled，停用時要自己把底色收掉。 */
+.markdown :deep(.md-mermaid-action:disabled:hover) {
+  background: transparent;
+  color: var(--color-ink-muted);
+}
+
 .markdown :deep(.md-mermaid-view) {
   overflow: auto;
   padding: 0.9rem;
+}
+
+/* 平移模式：抓住圖表移動（捲動容器）。開啟時連文字選取一起關掉，拖曳才是平移而不是選字。 */
+.markdown :deep(.md-mermaid-view.is-pan) {
+  cursor: grab;
+  user-select: none;
+}
+
+.markdown :deep(.md-mermaid-view.is-panning) {
+  cursor: grabbing;
 }
 
 /*

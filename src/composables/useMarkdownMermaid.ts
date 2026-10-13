@@ -2,7 +2,13 @@ import { saveBinaryFile } from "@/services/api";
 import { copyText } from "@/services/clipboard";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
-import { fitDiagramToContent, mermaidConfig } from "@/utils/mermaid";
+import { ICON_PATHS, type IconName } from "@/components/common/icons";
+import {
+  applyDiagramZoom,
+  fitDiagramToContent,
+  mermaidConfig,
+  nextDiagramZoom,
+} from "@/utils/mermaid";
 import { fileNameOf } from "@/utils/path";
 
 /**
@@ -25,6 +31,63 @@ export const MAX_MERMAID_DIAGRAMS = 50;
 const EXPORT_SCALE = 2;
 /** 匯出 PNG 的長邊上限（px）；canvas 過大會直接失敗。 */
 const MAX_EXPORT_PX = 8192;
+/** `Ctrl+滾輪`要累積多少像素才跳一級（10%）縮放（一個滑鼠段落的 `deltaY` 約 100）。 */
+const WHEEL_STEP_PX = 100;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** 圖表列用的內嵌圖示；屬性與 `AppIcon.vue` 一致（同一組 24×24 path）。 */
+function iconElement(name: IconName, size = 14): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.7");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of ICON_PATHS[name]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/** 滾輪位移換算成像素：`deltaMode` 是行或頁時要自己乘開才跟滑鼠段落同一個尺度。 */
+function wheelPixels(event: WheelEvent): number {
+  if (event.deltaMode === 1) {
+    return event.deltaY * 16;
+  }
+  if (event.deltaMode === 2) {
+    return event.deltaY * 100;
+  }
+  return event.deltaY;
+}
+
+/**
+ * 這個軸向上真正捲得動的元素（自己捲不動就往上找最近一個捲得動的祖先）。
+ *
+ * 圖表區的高度等於圖高，所以它只會水平捲動；縱向要交給外層的檢視器容器。上層的
+ * `.md-mermaid` 是 `overflow: hidden`（只是裁圓角），使用者捲不動，要跳過。
+ */
+function scrollerFor(from: HTMLElement, axis: "x" | "y"): HTMLElement | null {
+  for (let node: HTMLElement | null = from; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") {
+      continue;
+    }
+    const over =
+      axis === "x" ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
+    if (over > 1) {
+      return node;
+    }
+  }
+  return null;
+}
 
 type MermaidApi = (typeof import("mermaid"))["default"];
 
@@ -72,6 +135,15 @@ export function useMarkdownMermaid(options: {
 
   /** 目前顯示原始碼的區塊（鍵＝序號＋原始碼雜湊）；換檔清空。 */
   const showingSource = new Set<string>();
+  /**
+   * 每個圖表自己的縮放倍率與內層捲動位置（鍵同上）；換檔清空。
+   *
+   * 記著捲動位置是為了重新渲染（切換主題、來回切「顯示原始碼」）之後回到同一個角落，
+   * 不然放大到某處再切主題就會被彈回左上角。
+   */
+  const diagramView = new Map<string, { zoom: number; left: number; top: number }>();
+  /** 拖曳平移模式：整份文件共用一個開關，換檔重設為關閉。 */
+  let panMode = false;
   let currentPath: string | null = null;
   let pass = 0;
 
@@ -94,6 +166,204 @@ export function useMarkdownMermaid(options: {
     }
   }
 
+  /** 這個圖表目前的倍率（沒設定＝自然尺寸 100%）。 */
+  function zoomOf(wrapper: HTMLElement): number {
+    return diagramView.get(wrapper.dataset.mermaidKey ?? "")?.zoom ?? 1;
+  }
+
+  /** 記住這個圖表的倍率與內層捲動位置（重新渲染時要還原）；沒給倍率就沿用記著的。 */
+  function rememberView(view: HTMLElement, zoom?: number) {
+    const key = view.closest<HTMLElement>(".md-mermaid")?.dataset.mermaidKey;
+    if (!key) {
+      return;
+    }
+    const saved = diagramView.get(key) ?? { zoom: 1, left: 0, top: 0 };
+    const next = { zoom: zoom ?? saved.zoom, left: view.scrollLeft, top: view.scrollTop };
+    diagramView.set(key, next);
+  }
+
+  /** 讀數與兩端按鈕的啟用狀態跟著倍率走。 */
+  function paintZoom(wrapper: HTMLElement, zoom: number) {
+    const value = query<HTMLElement>(wrapper, '[data-mermaid-action="zoom-reset"]');
+    if (value) {
+      value.textContent = `${Math.round(zoom * 100)}%`;
+    }
+    const out = query<HTMLButtonElement>(wrapper, '[data-mermaid-action="zoom-out"]');
+    const into = query<HTMLButtonElement>(wrapper, '[data-mermaid-action="zoom-in"]');
+    if (out) {
+      out.disabled = nextDiagramZoom(zoom, -1) === zoom;
+    }
+    if (into) {
+      into.disabled = nextDiagramZoom(zoom, 1) === zoom;
+    }
+  }
+
+  /**
+   * 套用倍率：改 SVG 大小，再把捲動位置補償到「錨點不跑掉」，最後記住狀態。
+   *
+   * 錨點是畫面上的一點（按鈕＝可視範圍中心、`Ctrl+滾輪`＝游標）：先算出它在圖表裡的
+   * 相對位置，縮放後把捲動位置往同一點推回去。全程用畫面矩形推算，所以不用管容器的
+   * 內距與捲軸寬度。
+   */
+  function setZoom(
+    wrapper: HTMLElement,
+    view: HTMLElement,
+    zoom: number,
+    anchor?: { x: number; y: number },
+  ) {
+    const svg = query<SVGSVGElement>(wrapper, ".md-mermaid-view svg");
+    const before = svg?.getBoundingClientRect();
+    if (!svg || !before || before.width <= 0 || before.height <= 0) {
+      return;
+    }
+    const frame = view.getBoundingClientRect();
+    const point =
+      anchor ?? { x: frame.left + view.clientWidth / 2, y: frame.top + view.clientHeight / 2 };
+    const ratioX = (point.x - before.left) / before.width;
+    const ratioY = (point.y - before.top) / before.height;
+
+    applyDiagramZoom(svg, zoom);
+
+    // 水平是圖表區自己捲、垂直是外層容器捲（見 `scrollerFor`），兩邊都要補償。
+    const after = svg.getBoundingClientRect();
+    const scrollX = scrollerFor(view, "x");
+    const scrollY = scrollerFor(view, "y");
+    if (scrollX) {
+      scrollX.scrollLeft += after.left + after.width * ratioX - point.x;
+    }
+    if (scrollY) {
+      scrollY.scrollTop += after.top + after.height * ratioY - point.y;
+    }
+
+    rememberView(view, zoom);
+    paintZoom(wrapper, zoom);
+  }
+
+  /** 往階梯的上一級／下一級；兩端時原封不動。 */
+  function stepZoom(
+    wrapper: HTMLElement,
+    view: HTMLElement,
+    direction: 1 | -1,
+    anchor?: { x: number; y: number },
+  ) {
+    const current = zoomOf(wrapper);
+    const next = nextDiagramZoom(current, direction);
+    if (next !== current) {
+      setZoom(wrapper, view, next, anchor);
+    }
+  }
+
+  /**
+   * 圖表顯示出來之後才能量尺寸（`fitDiagramToContent()` 需要 layout），這裡是唯一的
+   * 入口：先依內容修好 viewBox，再套回這個圖表的倍率與捲動位置。
+   */
+  function fitAndZoom(wrapper: HTMLElement) {
+    const view = query<HTMLElement>(wrapper, ".md-mermaid-view");
+    const svg = query<SVGSVGElement>(wrapper, ".md-mermaid-view svg");
+    if (!view || !svg) {
+      return;
+    }
+    fitDiagramToContent(svg);
+    const saved = diagramView.get(wrapper.dataset.mermaidKey ?? "");
+    if (saved) {
+      applyDiagramZoom(svg, saved.zoom);
+      view.scrollLeft = saved.left;
+      view.scrollTop = saved.top;
+    }
+    paintZoom(wrapper, saved?.zoom ?? 1);
+  }
+
+  /** 把平移模式的狀態畫到某一張圖上（新外殼建立、以及切換開關時都要跑）。 */
+  function syncPan(wrapper: HTMLElement) {
+    const view = query<HTMLElement>(wrapper, ".md-mermaid-view");
+    const button = query<HTMLElement>(wrapper, '[data-mermaid-action="pan"]');
+    if (view) {
+      view.classList.toggle("is-pan", panMode);
+    }
+    if (button) {
+      button.setAttribute("aria-pressed", String(panMode));
+    }
+  }
+
+  /**
+   * 拖曳平移與 `Ctrl+滾輪` 縮放。
+   *
+   * 只有開啟平移模式時才接手：關閉時左鍵拖曳照舊選取圖表裡的文字、`Ctrl+滾輪` 完全
+   * 不攔截。`preventDefault()` 只下在 `pointerdown`（抑制文字選取與原生拖曳），
+   * **不 `stopPropagation()`** —— 窗格焦點是靠 `BrowserPane` 的 pointerdown 冒泡決定的。
+   * 觸控交給原生捲動（有慣性，比自己做的好），所以不接管 `pointerType === "touch"`。
+   */
+  function attachPan(view: HTMLElement) {
+    let pointerId: number | null = null;
+    let origin = { x: 0, y: 0, left: 0, top: 0 };
+    let scrollX: HTMLElement | null = null;
+    let scrollY: HTMLElement | null = null;
+
+    view.addEventListener("pointerdown", (event) => {
+      if (!panMode || event.button !== 0 || event.pointerType === "touch") {
+        return;
+      }
+      pointerId = event.pointerId;
+      scrollX = scrollerFor(view, "x");
+      scrollY = scrollerFor(view, "y");
+      origin = {
+        x: event.clientX,
+        y: event.clientY,
+        left: scrollX?.scrollLeft ?? 0,
+        top: scrollY?.scrollTop ?? 0,
+      };
+      view.classList.add("is-panning");
+      view.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    view.addEventListener("pointermove", (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      if (scrollX) {
+        scrollX.scrollLeft = origin.left - (event.clientX - origin.x);
+      }
+      if (scrollY) {
+        scrollY.scrollTop = origin.top - (event.clientY - origin.y);
+      }
+    });
+
+    const end = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      pointerId = null;
+      view.classList.remove("is-panning");
+      rememberView(view);
+    };
+    view.addEventListener("pointerup", end);
+    view.addEventListener("pointercancel", end);
+
+    let wheelPixelsPending = 0;
+    view.addEventListener(
+      "wheel",
+      (event) => {
+        if (!panMode || !event.ctrlKey) {
+          return;
+        }
+        event.preventDefault();
+        wheelPixelsPending += wheelPixels(event);
+        if (Math.abs(wheelPixelsPending) < WHEEL_STEP_PX) {
+          return;
+        }
+        // 一次事件只跳一級（滑鼠段落＝一級）；剩下的位移不累積，免得觸控板一甩跑好幾級。
+        const direction: 1 | -1 = wheelPixelsPending < 0 ? 1 : -1;
+        wheelPixelsPending = 0;
+        const wrapper = view.closest<HTMLElement>(".md-mermaid");
+        if (wrapper) {
+          stepZoom(wrapper, view, direction, { x: event.clientX, y: event.clientY });
+        }
+      },
+      { passive: false },
+    );
+  }
+
   function actionButton(action: string, label: string, title: string): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
@@ -101,6 +371,17 @@ export function useMarkdownMermaid(options: {
     button.dataset.mermaidAction = action;
     button.textContent = label;
     button.title = title;
+    return button;
+  }
+
+  /** 圖示型的工具鈕（縮放、平移開關）：樣式與檢視器標頭的圖示鈕同一套。 */
+  function toolButton(action: string, icon: IconName, title: string): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "md-mermaid-action md-mermaid-tool";
+    button.dataset.mermaidAction = action;
+    button.title = title;
+    button.append(iconElement(icon));
     return button;
   }
 
@@ -121,11 +402,27 @@ export function useMarkdownMermaid(options: {
     const actions = document.createElement("div");
     actions.className = "md-mermaid-actions";
 
+    const pan = toolButton("pan", "move", "拖曳平移：開啟後可以用滑鼠抓住圖表移動，Ctrl+滾輪縮放");
+    pan.setAttribute("aria-pressed", "false");
+    const zoomOut = toolButton("zoom-out", "minus", "縮小圖表");
+    const zoomIn = toolButton("zoom-in", "plus", "放大圖表");
+    const zoomValue = actionButton("zoom-reset", "100%", "回到原始大小（100%）");
+    zoomValue.classList.add("md-mermaid-zoom-value");
     const toggle = actionButton("toggle", "顯示原始碼", "在圖表與原始碼之間切換");
     const save = actionButton("save", "另存圖片", "把圖表另存為 PNG");
-    toggle.hidden = true;
-    save.hidden = true;
-    actions.append(toggle, actionButton("copy", "複製", "複製 Mermaid 原始碼"), save);
+    // 跟圖表本體有關的動作都要等真的渲染出來（`enableDiagram`）才出現。
+    for (const button of [pan, zoomOut, zoomValue, zoomIn, toggle, save]) {
+      button.hidden = true;
+    }
+    actions.append(
+      pan,
+      zoomOut,
+      zoomValue,
+      zoomIn,
+      toggle,
+      actionButton("copy", "複製", "複製 Mermaid 原始碼"),
+      save,
+    );
     bar.append(title, actions);
 
     const view = document.createElement("div");
@@ -133,6 +430,7 @@ export function useMarkdownMermaid(options: {
     view.hidden = true;
     // 圖表是「畫面上的一張圖」，裡面的 SVG 文字不進檢視器搜尋（也不去改 SVG DOM）。
     view.dataset.searchSkip = "";
+    attachPan(view);
 
     pre.classList.add("md-mermaid-source");
     pre.hidden = false;
@@ -170,18 +468,23 @@ export function useMarkdownMermaid(options: {
     if (save) {
       save.hidden = sourceMode;
     }
+    // 縮放與平移只對圖表本體有意義，看原始碼時整組收起來。
+    for (const action of ["pan", "zoom-out", "zoom-reset", "zoom-in"]) {
+      const button = query<HTMLElement>(wrapper, `[data-mermaid-action="${action}"]`);
+      if (button) {
+        button.hidden = sourceMode;
+      }
+    }
   }
 
   function enableDiagram(wrapper: HTMLElement) {
     wrapper.classList.add("has-diagram");
-    const toggle = query<HTMLElement>(wrapper, '[data-mermaid-action="toggle"]');
-    const save = query<HTMLElement>(wrapper, '[data-mermaid-action="save"]');
-    if (toggle) {
-      toggle.hidden = false;
+    for (const button of Array.from(
+      wrapper.querySelectorAll<HTMLElement>("[data-mermaid-action]"),
+    )) {
+      button.hidden = false;
     }
-    if (save) {
-      save.hidden = false;
-    }
+    syncPan(wrapper);
     applyMode(wrapper, showingSource.has(wrapper.dataset.mermaidKey ?? ""));
   }
 
@@ -209,9 +512,17 @@ export function useMarkdownMermaid(options: {
     }
 
     const path = options.path();
-    if (path !== currentPath) {
+    /*
+     * 只有「換到另一份真的路徑」才清空狀態。重新載入（F5）或換檔的過程中，
+     * 檢視器狀態會短暫消失、`path` 變成空字串 —— 那時候清空會把同一份文件的倍率、
+     * 捲動位置與平移模式全部丟掉（換檔時本來就會換一個 composable 實例，
+     * 所以不需要靠空字串來重置）。
+     */
+    if (path && path !== currentPath) {
       currentPath = path;
       showingSource.clear();
+      diagramView.clear();
+      panMode = false;
     }
 
     const myPass = ++pass;
@@ -279,18 +590,15 @@ export function useMarkdownMermaid(options: {
           return;
         }
         view.innerHTML = svg;
-        const svgElement = view.querySelector<SVGSVGElement>("svg");
         view.classList.remove("md-mermaid-message");
         enableDiagram(wrapper);
         /*
          * 尺寸量測放在「圖表已經可見」之後：外殼建立時圖表區是隱藏的（一開始顯示原始碼），
          * `getScreenCTM()` 對 `display: none` 的內容回 null，量不到東西就會退回 mermaid
          * 原本的 viewBox。這裡沒有畫面閃爍的問題 —— 顯示、量測、改尺寸都在同一個任務裡
-         * 完成，瀏覽器還沒機會繪製。
+         * 完成，瀏覽器還沒機會繪製。倍率一定疊在修好的 viewBox 之後（交給 fitAndZoom）。
          */
-        if (svgElement) {
-          fitDiagramToContent(svgElement);
-        }
+        fitAndZoom(wrapper);
       } catch (error) {
         if (myPass !== pass) {
           return;
@@ -384,16 +692,38 @@ export function useMarkdownMermaid(options: {
         applyMode(wrapper, next);
         // 從原始碼切回圖表時補量一次尺寸：顯示原始碼的那一輪圖表區是隱藏的，量不到內容。
         if (!next) {
-          const svg = query<SVGSVGElement>(wrapper, ".md-mermaid-view svg");
-          if (svg) {
-            fitDiagramToContent(svg);
-          }
+          fitAndZoom(wrapper);
         }
         const key = wrapper.dataset.mermaidKey ?? "";
         if (next) {
           showingSource.add(key);
         } else {
           showingSource.delete(key);
+        }
+        return;
+      }
+      case "zoom-in":
+      case "zoom-out": {
+        const view = query<HTMLElement>(wrapper, ".md-mermaid-view");
+        if (view) {
+          stepZoom(wrapper, view, button.dataset.mermaidAction === "zoom-in" ? 1 : -1);
+        }
+        return;
+      }
+      case "zoom-reset": {
+        const view = query<HTMLElement>(wrapper, ".md-mermaid-view");
+        if (view && zoomOf(wrapper) !== 1) {
+          setZoom(wrapper, view, 1);
+        }
+        return;
+      }
+      case "pan": {
+        panMode = !panMode;
+        const root = options.root();
+        if (root) {
+          for (const block of Array.from(root.querySelectorAll<HTMLElement>(".md-mermaid"))) {
+            syncPan(block);
+          }
         }
         return;
       }

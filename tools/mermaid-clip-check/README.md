@@ -27,6 +27,19 @@ node tools/mermaid-clip-check/run.mjs "http://localhost:1420/tools/mermaid-clip-
 要親眼看某一張圖：加 `?case=<圖表名稱前綴>&pane=<窗格寬度>` 就只渲染那一張，
 第二個參數給 png 路徑即可截圖（`run.mjs [url] [screenshot.png]`）。
 
+## 縮放與拖曳平移的互動驗收
+
+```powershell
+node tools/mermaid-clip-check/pan-check.mjs [screenshot.png]
+```
+
+用 CDP 打開 dev 版的應用程式，自己開 `readme.md`（假檔案系統裡那張流程圖）、按 `Space`
+進檢視器，然後依序驗：控制項順序與顯示規則、每次點擊跳一級、兩端停用、`width/height`
+與 viewBox 的倍率關係、拖曳平移（水平捲圖表區、垂直捲窗格、不選取文字）、
+`Ctrl+滾輪` 的游標錨點、切換原始碼與切換主題後倍率／捲動位置的還原。
+
+dev server 不在 1420 時用環境變數指定：`$env:PUFF_DEV_URL="http://localhost:1432/"`。
+
 ## 圖表來源
 
 - `docs/mermaid_test/*.md`：專案自己的測試文件（基本／進階圖表）。

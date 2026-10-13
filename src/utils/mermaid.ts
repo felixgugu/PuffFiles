@@ -76,6 +76,57 @@ export interface DiagramBounds {
 }
 
 /**
+ * 縮放階梯（倍率）：每一級 10%，10%～400%。
+ *
+ * 倍率一律落在階梯上 —— 讀數永遠是整數百分比，不會出現「137%」這種數字；兩端就是
+ * 縮放的上下限。用整數百分比算出來（不是 0.1 一直加），才不會累積浮點誤差。
+ */
+const ZOOM_MIN_PERCENT = 10;
+const ZOOM_MAX_PERCENT = 400;
+const ZOOM_STEP_PERCENT = 10;
+
+export const ZOOM_STEPS: readonly number[] = Array.from(
+  { length: (ZOOM_MAX_PERCENT - ZOOM_MIN_PERCENT) / ZOOM_STEP_PERCENT + 1 },
+  (_, index) => (ZOOM_MIN_PERCENT + index * ZOOM_STEP_PERCENT) / 100,
+);
+
+/**
+ * 階梯上的下一級；已經在最兩端時回同一個倍率，呼叫端據此停用按鈕。
+ *
+ * 目前的倍率不在階梯上（例如外部把 viewBox 換掉）時，往指定方向找最接近的一級。
+ */
+export function nextDiagramZoom(zoom: number, direction: 1 | -1): number {
+  const index = ZOOM_STEPS.findIndex((step) => Math.abs(step - zoom) < 1e-6);
+  if (index >= 0) {
+    return ZOOM_STEPS[Math.min(Math.max(index + direction, 0), ZOOM_STEPS.length - 1)] ?? zoom;
+  }
+  const candidates = ZOOM_STEPS.filter((step) => (direction > 0 ? step > zoom : step < zoom));
+  if (candidates.length === 0) {
+    return zoom;
+  }
+  return direction > 0 ? Math.min(...candidates) : Math.max(...candidates);
+}
+
+/**
+ * 依倍率縮放圖表：只改 `width`／`height`（＝ viewBox × 倍率），**viewBox 不動**。
+ *
+ * 用屬性而不是 CSS transform：向量內容在任何倍率都按該尺寸重新繪製（不會糊），
+ * 捲動容器算出來的 `scrollWidth`／`scrollHeight` 也就是畫面上的大小 —— 容器捲軸、
+ * 「另存圖片」的自然尺寸與既有的「比窗格寬就給捲軸」設計全都不用改。
+ *
+ * 一定要在 `fitDiagramToContent()` 之後呼叫：那個函式會先確保 viewBox 蓋住真正的
+ * 內容，這裡再依它換算顯示大小。
+ */
+export function applyDiagramZoom(svg: SVGSVGElement, zoom: number): void {
+  const box = svg.viewBox.baseVal;
+  if (!box || box.width <= 0 || box.height <= 0) {
+    return;
+  }
+  svg.setAttribute("width", String(Math.round(box.width * zoom)));
+  svg.setAttribute("height", String(Math.round(box.height * zoom)));
+}
+
+/**
  * 圖表內容實際佔用的範圍（viewBox 座標）；量不到時回 `null`。
  *
  * 量不到的情況有兩種：SVG 不在畫面上（`display: none` 的子樹拿不到

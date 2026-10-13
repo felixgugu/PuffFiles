@@ -73,7 +73,7 @@ PuffFiles/
 │                              # spring / viewer / docx / bookmarkAnchor / docxBookmark /
 │                              # textBookmark / compare …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
-├─ tools/mermaid-clip-check/   # Mermaid 圖表裁切／尺寸的量測工具（見 docs/redesign-plan.md §7）
+├─ tools/mermaid-clip-check/   # Mermaid 圖表裁切／縮放與平移的驗證工具（見 docs/redesign-plan.md §7）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
    ├─ tauri.conf.json          # 視窗、bundle、圖示設定
@@ -314,6 +314,13 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `fitDiagramToContent()` 在圖表可見之後量一次真正的內容範圍，把 viewBox 往外擴到蓋住
   它 —— 只放大、不縮小、**不歸零**；mermaid 自己算尺寸的型別會把標籤畫在框外，落在
   viewBox 外的內容會被 SVG 的 `overflow: hidden` 裁掉）。`另存圖片` 用同一個 viewBox。
+  **縮放與平移**也在同一組工具裡：圖表列右側 `[拖曳平移開關][−][倍率][+]`，
+  `applyDiagramZoom()` 只改 `width`／`height`（＝ viewBox × 倍率，一次一級 10%、範圍 10%～400%，
+  viewBox 不動，所以向量永遠銳利、捲軸範圍就等於畫面大小）；倍率每個圖表各自記住
+  （切原始碼來回、切換主題重新渲染都保留，換檔或重新載入回到 100%）。「拖曳平移」
+  是**整份文件共用一個開關**（換檔關閉）：開啟後左鍵拖曳＝平移、`Ctrl+滾輪`＝以游標
+  為錨點縮放，關閉時左鍵拖曳照舊選取圖表文字；一般滾輪永遠是捲動。水平捲圖表區
+  （`overflow: auto`）、垂直捲外層檢視器容器（圖表區高度＝圖高，本來就不會垂直捲）。
   實測數字與量測工具見 `docs/redesign-plan.md` §7。
 - **DOCX（`docx-preview`）**：`.docx／.docm` 由 `docx-preview` 0.4.1（lazy 載入）就地排成
   一頁頁的 DOM（`DocxView.vue`），位元組由 store 從 `stream` 自訂協定 `fetch` 整份抓回來
