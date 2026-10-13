@@ -69,9 +69,11 @@ PuffFiles/
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
-│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / spring / viewer /
-│                              # docx / bookmarkAnchor / docxBookmark / textBookmark / compare …）
+│  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / mermaid /
+│                              # spring / viewer / docx / bookmarkAnchor / docxBookmark /
+│                              # textBookmark / compare …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
+├─ tools/mermaid-clip-check/   # Mermaid 圖表裁切／尺寸的量測工具（見 docs/redesign-plan.md §7）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
 └─ src-tauri/                  # 後端（Rust 2024）
    ├─ tauri.conf.json          # 視窗、bundle、圖示設定
@@ -307,7 +309,12 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `composables/useMarkdownMermaid.ts`：在內容進 DOM 之後後處理，`utils/markdown.ts`
   維持零依賴純函式。原始碼 > 200 KB 或整份圖表 > 50 個只顯示原始碼，渲染失敗保留
   原始碼並顯示原因；搜尋會跳過圖表模式下收起的原始碼（`[data-search-skip]`）；
-  `settings.mermaidEnabled` 可整份關閉自動渲染。實測數字見 `docs/redesign-plan.md` §7。
+  `settings.mermaidEnabled` 可整份關閉自動渲染。
+  **尺寸是「自然尺寸＋內容為準」**（`utils/mermaid.ts`：`mermaidConfig()` 放設定、
+  `fitDiagramToContent()` 在圖表可見之後量一次真正的內容範圍，把 viewBox 往外擴到蓋住
+  它 —— 只放大、不縮小、**不歸零**；mermaid 自己算尺寸的型別會把標籤畫在框外，落在
+  viewBox 外的內容會被 SVG 的 `overflow: hidden` 裁掉）。`另存圖片` 用同一個 viewBox。
+  實測數字與量測工具見 `docs/redesign-plan.md` §7。
 - **DOCX（`docx-preview`）**：`.docx／.docm` 由 `docx-preview` 0.4.1（lazy 載入）就地排成
   一頁頁的 DOM（`DocxView.vue`），位元組由 store 從 `stream` 自訂協定 `fetch` 整份抓回來
   放在 `ViewerState.bytes` —— JSZip 只能吃整份資料，這條沒有 Range。

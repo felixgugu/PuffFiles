@@ -474,11 +474,10 @@ function decodeFragment(value: string): string {
 }
 
 /*
- * 圖表一律以 mermaid 算出的自然尺寸呈現（`useMarkdownMermaid` 把 SVG 的 `width`／
- * `height` 寫成 viewBox 的內在尺寸、並移除 inline `max-width`）：**不隨窗格縮放**，
- * 靠左對齊與內文排版維持一致，比容器寬時交由上面的 `overflow: auto` 產生水平捲軸。
- * SVG 的 viewBox 保持 mermaid 原樣（不可歸零成 `0 0 w h`，那會把視窗往右下推而裁掉
- * 圖表的右緣與下緣）。
+ * 圖表一律以自然尺寸呈現（`useMarkdownMermaid` 交給 `utils/mermaid.ts` 的
+ * `fitDiagramToContent()` 把 `width`／`height` 寫成 viewBox 的內在尺寸、移除 inline
+ * `max-width`，並把 viewBox 往外擴到蓋住真正畫出來的內容）：**不隨窗格縮放**，靠左對齊
+ * 與內文排版維持一致，比容器寬時交由上面的 `overflow: auto` 產生水平捲軸。
  */
 .markdown :deep(.md-mermaid-view svg) {
   display: block;

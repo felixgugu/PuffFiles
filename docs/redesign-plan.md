@@ -310,6 +310,34 @@ PDF 另外有一條不經 IPC 的路：`stream` 自訂協定（`commands/stream.
 - `flowchart.diagramPadding` 因此改用 mermaid 的預設值 `8`；留白交給
   `.md-mermaid-view` 自己的內距，不需要在圖裡再留一次。
 
+**Mermaid 圖表尺寸（2026-10-13 補強）：保留 mermaid 的 viewBox 還不夠**
+
+- 上一條只保證「不歸零」，但 mermaid 的 viewBox **也不保證蓋住真正畫出來的內容**：
+  自己算尺寸的圖表型別（gantt／pie／xychart／quadrantChart／radar／packet／treeView）
+  把標籤擺在作者算出來的位置，常常貼在框邊或直接落在框外，而 `getBBox()` 只看幾何、
+  不算 stroke 與 marker。落在 viewBox 外的部分就是被 `overflow: hidden` 裁掉的內容。
+- 現在 `utils/mermaid.ts` 的 `fitDiagramToContent()` 在圖表進 DOM、**而且已經可見之後**
+  （外殼建立時圖表區是隱藏的，`getScreenCTM()` 對 `display: none` 的內容回 null）量一次
+  內容真正的範圍，把 viewBox 往外擴到蓋住它 —— **只放大、不縮小、也不歸零**，所以原本
+  就正常的圖完全不受影響。`另存圖片` 走的是同一個 viewBox，匯出的 PNG 也一起修好。
+- **gantt 的「今天」標記線刻意排除**：今天不在圖表的日期範圍裡時，mermaid 會把那條線
+  畫在離圖表很遠的地方（實測 2000px 以上）。官方 viewer 也是把它裁掉；算進內容只會讓
+  圖表平白多出一大片空白。
+
+**量測記錄（2026-10-13，92 張圖表、25 種圖表型別）**
+
+- 修正前有 **11 張**的內容落在 viewBox 外，修正後 **0 張**還有邊界外的墨跡；其餘 81 張
+  的 viewBox 一字未變。實測溢出的量：radar（8 軸長標籤）左右各 29／17px、
+  quadrantChart 右 7px（下緣只剩 3.4px）、pie 的標題上緣 2px、treeView 左 9.5px、
+  gantt 的 today 線右 33px（刻意排除）。
+- **流程圖本來就是安全的**：`個資刪除_系統設計文件_V1.0_閱讀版.md` 裡三張
+  `flowchart TB`（最大 1058×2992）四邊各有 8px 餘裕、邊界外沒有任何墨跡。
+- 量測成本：316～383 個繪圖節點的文件，`fitDiagramToContent()` **< 1ms**（一次渲染一次，
+  不是每一幀）。
+- 工具：`tools/mermaid-clip-check/`（`npm run dev` 之後 `node tools/mermaid-clip-check/run.mjs`），
+  它直接 import `utils/mermaid.ts`，驗的就是實際出貨的邏輯；真應用程式端的時機驗證是用
+  CDP 打開 dev 版量 `viewBox` 前後值（例如 pie 從 `0 0 592 450` 變成 `0 -1.68 592 451.7`）。
+
 **量測記錄（日後重評時不必重測）**
 
 - **DOCX（2026-10-09）**：`docx-preview` 0.4.1 ＋它的相依 `jszip` 合起來是**一個** lazy

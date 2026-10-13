@@ -2,6 +2,7 @@ import { saveBinaryFile } from "@/services/api";
 import { copyText } from "@/services/clipboard";
 import { useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
+import { fitDiagramToContent, mermaidConfig } from "@/utils/mermaid";
 import { fileNameOf } from "@/utils/path";
 
 /**
@@ -59,36 +60,6 @@ function naturalSize(svg: SVGSVGElement): { width: number; height: number } {
     width: Math.max(1, Math.round(box.width > 0 ? box.width : rect.width)),
     height: Math.max(1, Math.round(box.height > 0 ? box.height : rect.height)),
   };
-}
-
-/**
- * 讓圖表以 mermaid 算出的自然尺寸呈現，而不是被拉成窗格寬。
- *
- * mermaid 預設輸出 `width="100%"` 加上 inline `max-width`（＝自然寬度）：窗格比圖窄時
- * 整張圖會被等比縮小，愈縮愈長也愈難讀。這裡把 `width`／`height` 寫成 viewBox 的內在
- * 尺寸、拿掉 inline `max-width`，超出的部分交給 `.md-mermaid-view` 的自動捲軸處理。
- * 因為寫死的是自然尺寸，比窗格小的圖也不會被放大。
- *
- * **viewBox 一律保持 mermaid 原樣，不可以歸零。** mermaid 的 viewBox 是
- * `(bbox.x - padding) (bbox.y - padding) (bbox.width + 2p) (bbox.height + 2p)` ——
- * 內容在四個方向各留 `padding`。改寫成 `0 0 w h` 尺寸雖然不變，卻等於把可見視窗往
- * 右下推 `(p - bbox.x, p - bbox.y)`，右下留白從 `p` 變成 `2p - bbox.x`；內容 inset
- * 一旦大於 `2p` 就會切掉右緣與下緣（SVG 根元素預設 `overflow: hidden`，所以症狀是
- * 裁切而不是溢出）。各圖表型別的 padding 與內容偏移都不一樣，只有保留原點才對每一種
- * 都安全。
- */
-function applyNaturalSize(svg: SVGSVGElement) {
-  const box = svg.viewBox.baseVal;
-  if (!box || box.width <= 0 || box.height <= 0) {
-    return;
-  }
-
-  svg.setAttribute("width", String(Math.round(box.width)));
-  svg.setAttribute("height", String(Math.round(box.height)));
-  // inline `max-width` 會蓋掉 CSS 的尺寸規則，一定要移除。
-  svg.style.removeProperty("max-width");
-  svg.style.removeProperty("width");
-  svg.style.removeProperty("height");
 }
 
 export function useMarkdownMermaid(options: {
@@ -286,28 +257,8 @@ export function useMarkdownMermaid(options: {
           if (myPass !== pass) {
             return;
           }
-          api.initialize({
-            startOnLoad: false,
-            securityLevel: "strict",
-            htmlLabels: false,
-            suppressErrorRendering: true,
-            theme: settings.isDark ? "dark" : "default",
-            look: 'classic',
-            fontFamily: 'var(--font-sans, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)',
-            fontSize: 12,
-            flowchart: {
-              htmlLabels: false,
-              wrappingWidth: 250,
-              // mermaid 預設值。留白交給 `.md-mermaid-view` 自己的內距，不需要在圖裡再留一次。
-              diagramPadding: 8,
-              nodeSpacing: 24,
-              rankSpacing: 24,
-            },
-            sequence: {
-              diagramMarginX: 24,
-              diagramMarginY: 24,
-            },
-          });
+          // 設定集中在 `utils/mermaid.ts`，量測工具用的是同一份（見該檔的說明）。
+          api.initialize(mermaidConfig(settings.isDark));
         } catch {
           if (myPass !== pass) {
             return;
@@ -329,11 +280,17 @@ export function useMarkdownMermaid(options: {
         }
         view.innerHTML = svg;
         const svgElement = view.querySelector<SVGSVGElement>("svg");
-        if (svgElement) {
-          applyNaturalSize(svgElement);
-        }
         view.classList.remove("md-mermaid-message");
         enableDiagram(wrapper);
+        /*
+         * 尺寸量測放在「圖表已經可見」之後：外殼建立時圖表區是隱藏的（一開始顯示原始碼），
+         * `getScreenCTM()` 對 `display: none` 的內容回 null，量不到東西就會退回 mermaid
+         * 原本的 viewBox。這裡沒有畫面閃爍的問題 —— 顯示、量測、改尺寸都在同一個任務裡
+         * 完成，瀏覽器還沒機會繪製。
+         */
+        if (svgElement) {
+          fitDiagramToContent(svgElement);
+        }
       } catch (error) {
         if (myPass !== pass) {
           return;
@@ -425,6 +382,13 @@ export function useMarkdownMermaid(options: {
       case "toggle": {
         const next = !wrapper.classList.contains("is-source");
         applyMode(wrapper, next);
+        // 從原始碼切回圖表時補量一次尺寸：顯示原始碼的那一輪圖表區是隱藏的，量不到內容。
+        if (!next) {
+          const svg = query<SVGSVGElement>(wrapper, ".md-mermaid-view svg");
+          if (svg) {
+            fitDiagramToContent(svg);
+          }
+        }
         const key = wrapper.dataset.mermaidKey ?? "";
         if (next) {
           showingSource.add(key);

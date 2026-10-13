@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mermaid clip check</title>
+    <style>
+      /*
+       * 從 MarkdownView.vue 的 Mermaid 區塊原樣複製（scoped `:deep()` 在純 CSS 裡退化成
+       * 一般後代選擇器）。這裡刻意不省略任何一條：尺寸問題幾乎都藏在容器或 svg 的樣式裡。
+       */
+      .markdown {
+        color: var(--color-ink);
+        font-size: 0.95rem;
+        line-height: 1.75;
+        overflow-wrap: anywhere;
+      }
+
+      .markdown .md-mermaid {
+        margin: 0.9em 0;
+        overflow: hidden;
+        border: 1px solid var(--color-line);
+        border-radius: 8px;
+        background: var(--color-surface-muted);
+      }
+
+      .markdown .md-mermaid-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.3rem 0.5rem 0.3rem 0.7rem;
+        border-bottom: 1px solid var(--color-line);
+        color: var(--color-ink-muted);
+        font-size: 0.78rem;
+      }
+
+      .markdown .md-mermaid-view {
+        overflow: auto;
+        padding: 0.9rem;
+      }
+
+      .markdown .md-mermaid-view svg {
+        display: block;
+        margin: 0;
+        font-size: 12px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pane" class="markdown" style="width: 640px">
+      <div class="md-mermaid">
+        <div class="md-mermaid-view" id="view"></div>
+      </div>
+    </div>
+    <pre id="report">running…</pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
