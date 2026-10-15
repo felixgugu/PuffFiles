@@ -54,6 +54,7 @@
 | 10-08 | 浮動面板 | 沒有 hover／鍵盤焦點時幾乎隱形（`--panel-idle-opacity`，預設 0.2），模糊一併關掉 |
 | 10-09 | 圖片與 PDF 的內容來源 | 一律走自訂協定 `stream`：`<img>`／WebView2 內建 PDF viewer 直接讀（支援 Range），不再用 base64／Blob。圖片因此拿掉整份 base64 編碼、逐批 IPC 與 JS 解碼（見 §7 量測） |
 | 10-09 | DOCX 檢視器 | 用 `docx-preview` 0.4.1（lazy chunk）把 `.docx／.docm` 排成 DOM，位元組同樣走 `stream` 協定由 `fetch` 取回；**頁面固定白紙**、窗格較窄時自動等比縮小；`renderAltChunks: false`（不執行文件裡的程式碼）；**上限 50 MB**（整份解壓與排版都在主執行緒） |
+| 10-15 | 檢視器複製 | 標頭的檢視器膠囊加一顆「複製」：整份內容寫進剪貼簿、不跳確認框。Markdown／純文字（含 HTML 原始碼模式）複製 `ViewerState.text`（＝檔案內容本身），HTML 預覽與 DOCX 複製**排版後的可見文字**（走訪與搜尋共用 `utils/visibleText.ts`，兩者逐字相同）；DOM 來源由內容元件註冊取值函數（`useViewerCopy.ts`）。超過 **50 MB** 停用並說明；不加快速鍵（`Ctrl+C` 維持複製選取的文字） |
 
 **外觀決策的理由**：`transparent: true` 會讓 WebView2 走額外的合成路徑，且大面積
 `backdrop-filter` 在捲動時每一格都要重算。改成不透明視窗 + 分層純色 + 亮邊與陰影，

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import ViewerNotice from "./ViewerNotice.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
+import { registerViewerTextProvider, visibleTextProvider } from "@/composables/useViewerCopy";
 import { registerViewerScroller, reportScrollEdges } from "@/composables/useViewerNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useViewerStore } from "@/stores/viewer";
@@ -74,6 +75,14 @@ const frameBody = computed(() => {
   }
   return frame.value?.contentDocument?.body ?? null;
 });
+
+/**
+ * 工具列的「複製可見文字」複製的就是這份 body 的文字（與搜尋同一條走訪）。
+ *
+ * 這個元件只在預覽模式掛載；切到原始碼模式會卸載，註冊也一起取消 ——
+ * 那時候的內容是原始碼，由 `ViewerState.text` 提供。
+ */
+registerViewerTextProvider(props.paneId, visibleTextProvider(() => frameBody.value));
 
 /** 這個世代建立的所有 blob URL；換檔案、關閉或卸載時一次撤銷。 */
 const blobUrls = new Set<string>();
@@ -514,6 +523,7 @@ watch(
 onBeforeUnmount(() => {
   generation++;
   saveScroll();
+  registerViewerTextProvider(props.paneId, null);
   registerViewerScroller(props.paneId, null);
   releaseBlobs();
 });

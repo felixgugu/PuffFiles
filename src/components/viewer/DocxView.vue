@@ -4,6 +4,7 @@ import BookmarkOutline from "./BookmarkOutline.vue";
 import ViewerSearchPanel from "./ViewerSearchPanel.vue";
 import { useViewerBookmarks } from "@/composables/useViewerBookmarks";
 import { useLocalNavigation } from "@/composables/useLocalNavigation";
+import { registerViewerTextProvider, visibleTextProvider } from "@/composables/useViewerCopy";
 import { useViewerScroll } from "@/composables/useViewerScroll";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
@@ -40,6 +41,17 @@ const scroll = useViewerScroll(props.paneId, scroller);
 const rendering = ref(false);
 /** 排完一次版就 +1：搜尋面板靠它知道「現在這份 DOM 才是新的」。 */
 const rendered = ref(0);
+
+/**
+ * 工具列的「複製可見文字」讀的就是這裡排版出來的 DOM（與搜尋同一條走訪）。
+ *
+ * 重排中（換檔、F5 之後不久）回 `null`：容器在 `renderAsync` 期間是正在被清空
+ * 又寫入的狀態，那時候複製到的會是半份文件。
+ */
+const contentText = visibleTextProvider(() => content.value);
+registerViewerTextProvider(props.paneId, () =>
+  rendering.value || rendered.value === 0 ? null : contentText(),
+);
 
 /**
  * 書籤目錄：把選取的文字變成可以跳回來的位置。
@@ -216,6 +228,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   // 讓還在路上的一輪作廢，不要寫進已經拆掉的容器。
   generation += 1;
+  registerViewerTextProvider(props.paneId, null);
   observer?.disconnect();
   const target = content.value;
   if (target) {

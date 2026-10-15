@@ -256,8 +256,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `section.docx > article` 就有 `z-index: 1`）永遠蓋不到浮動面板上。
 - **檢視器標頭的動作分成四顆膠囊**（2026-10-09）：左邊是檔案圖示與名稱（副資訊是大小與
   編碼），右邊依性質分組 —— **捲動**（跳到最上面／往上捲一頁／往下捲一頁／跳到最下面）、
-  **檢視器功能**（搜尋、目錄索引／書籤目錄、HTML 預覽／原始碼）、**檔案動作**（用預設程式
-  開啟、在檔案總管中顯示、重新整理）、**窗格**（放到最大、關閉）。樣式與路徑列的兩顆膠囊
+  **檢視器功能**（搜尋、目錄索引／書籤目錄、HTML 預覽／原始碼、複製）、**檔案動作**（用預設
+  程式開啟、在檔案總管中顯示、重新整理）、**窗格**（放到最大、關閉）。樣式與路徑列的兩顆膠囊
   同一組：`rounded-lg bg-surface-muted p-0.5`、24px 按鈕、14px 圖示（標頭按鈕因此從 28px
   改為 24px）。
   **捲動鈕只出現在有內容捲動容器的檢視器**（Markdown／DOCX／純文字與程式碼／HTML 兩種
@@ -270,7 +270,21 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `Home`／`End`／`PageUp`／`PageDown`（檢視器分支，一律 `preventDefault`）。
   **窗格太窄時依序收起**（`utils/viewerHeader.ts` 的純函數估算：按鈕與間距都是固定 px，
   所以不必量 DOM）：先捲動、再檔案動作，搜尋／目錄／關閉永遠保留；以檢視器膠囊 3 顆為例，
-  ≥431px 全開、<431px 收起捲動、<321px 再收起檔案動作。
+  ≥433px 全開、<433px 收起捲動、<323px 再收起檔案動作（加一顆複製鈕的檢視器各再加 26px：
+  ≥457px／<457px／<347px）。
+- **複製（文字類檢視器，2026-10-15）**：檢視器膠囊的最後一顆（搜尋／目錄／模式之後）把
+  整份內容寫進系統剪貼簿，不跳確認框。內容跟著種類與模式走（`utils/viewer.ts` 的
+  `viewerCopyLabel()`）：Markdown 與純文字（含 HTML 原始碼模式）複製 **`ViewerState.text`**
+  —— 也就是檔案內容本身，所以 Markdown 拿到的是原始碼；HTML 靜態預覽與 DOCX 只有畫面，
+  複製的是排版後的**可見文字**，由內容元件註冊取值函數
+  （`composables/useViewerCopy.ts` 的模組層級 `Map<PaneId, () => string | null>`，與捲動
+  容器同一套路），走訪與搜尋**共用同一份**（`utils/visibleText.ts`：跳過 script／style／
+  head、區塊之間補換行），所以「搜尋看得到的」與「複製到的」逐字相同（DOCX 的頁首／頁尾
+  文字也算）。DOM 還沒就緒（iframe 未載入、DOCX 還在重排）回 `null`，提示稍後再試；
+  內容為空、剪貼簿失敗各有提示。按鈕與搜尋同範圍（`supportsViewerCopy`：Markdown／HTML／
+  純文字與程式碼／DOCX；圖片、PDF 與「沒有檢視器的類型」沒有），載入中／讀取失敗、
+  或檔案超過 50 MB（`MAX_COPY_BYTES`）時維持可見但反灰並在標題說明原因。沒有快速鍵：
+  `Ctrl+C` 維持「複製選取的文字」。
 - **目錄索引（Markdown）**：檢視器標頭的目錄鈕切換右上角的浮動面板（預設開啟）。
   `utils/markdown.ts` 替每個 h1～h6 產生文件內唯一的 id 並回傳 `headings`；面板依層級
   縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到

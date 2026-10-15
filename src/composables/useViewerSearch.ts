@@ -8,32 +8,14 @@ import {
   type SearchOptions,
   type SearchResult,
 } from "@/utils/textSearch";
+import { collectTextNodes, type TextSlice } from "@/utils/visibleText";
 
-/** 這些節點裡的文字不算內容（iframe 的樣式與標題、被移除的腳本等）。 */
-const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "HEAD", "TITLE", "NOSCRIPT", "LINK"]);
-/**
- * 區塊元素：換一個區塊就在搜尋文字裡補一個換行。
- *
- * 渲染後的 HTML（Markdown／HTML 預覽）節點之間沒有空白，整份文件的文字會黏成
- * 一大串 —— 命中片段會跨過好幾個段落、行號也沒有意義。補上換行之後，片段
- * 只會取到附近的內容，`lineText` 也剛好等於「命中所在的那個區塊」。
- * 換行不屬於任何文字節點，所以位移對照表仍然精確。
- */
-const BLOCK_SELECTOR =
-  "p,h1,h2,h3,h4,h5,h6,li,ul,ol,div,pre,blockquote,table,tr,td,th,figure,figcaption,section,article,header,footer,dt,dd";
 /** 邊打邊搜的去抖時間。 */
 const QUERY_DEBOUNCE_MS = 150;
 /** 注入 iframe 的命中樣式 id。 */
 const FRAME_STYLE_ID = "pufffile-search-style";
 
 const EMPTY_RESULT: SearchResult = { hits: [], truncated: false, tooLarge: false, error: null };
-
-/** 一段文字節點在整份搜尋文字裡的範圍。 */
-interface TextSlice {
-  node: Text;
-  start: number;
-  end: number;
-}
 
 interface ViewerSearchOptions {
   paneId: PaneId;
@@ -52,6 +34,9 @@ interface ViewerSearchOptions {
  * UTF-16 code unit，跟 `utils/textSearch.ts` 的座標系一致，所以命中可以直接
  * 對應回 DOM。標記會改動內文 DOM，因此每次重畫都先還原、重新走訪再上標；
  * `v-html` 重新渲染（換檔、重新載入）時舊標記自然消失，這裡再看 `source` 重跑。
+ *
+ * 走訪本身在 `utils/visibleText.ts`：工具列的「複製」要把同一份可見文字寫進
+ * 剪貼簿，兩邊共用才不會出現「搜尋找得到、複製卻沒有」的落差。
  */
 export function useViewerSearch(options: ViewerSearchOptions) {
   const viewer = useViewerStore();
@@ -73,36 +58,6 @@ export function useViewerSearch(options: ViewerSearchOptions) {
   /** 目前畫面上的命中元素（一筆命中跨節點時取第一段）。 */
   let elements: (HTMLElement | null)[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
-
-  /** 走訪可見文字節點，串成一份文字並記下每一段的位移。 */
-  function collect(root: HTMLElement): { text: string; slices: TextSlice[] } {
-    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const slices: TextSlice[] = [];
-    let text = "";
-    let block: Element | null = null;
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const parent = node.parentElement;
-      if (!parent || SKIP_TAGS.has(parent.tagName)) {
-        continue;
-      }
-      // 被標為搜尋要略過的子樹（例如 Mermaid 圖表模式下收起的原始碼）不算內容。
-      if (parent.closest("[data-search-skip]")) {
-        continue;
-      }
-      const value = (node as Text).data;
-      if (!value) {
-        continue;
-      }
-      const nextBlock = parent.closest(BLOCK_SELECTOR);
-      if (text && nextBlock && nextBlock !== block) {
-        text += "\n";
-      }
-      block = nextBlock;
-      slices.push({ node: node as Text, start: text.length, end: text.length + value.length });
-      text += value;
-    }
-    return { text, slices };
-  }
 
   /** 把上一次的標記還原成純文字（合併回同一個文字節點）。 */
   function clearMarks(root: HTMLElement) {
@@ -215,7 +170,7 @@ export function useViewerSearch(options: ViewerSearchOptions) {
       return;
     }
     clearMarks(root);
-    const { text, slices } = collect(root);
+    const { text, slices } = collectTextNodes(root);
     const built = searchText(text, query.value, flags.value);
     result.value = built;
     elements = applyMarks(slices, built.hits);

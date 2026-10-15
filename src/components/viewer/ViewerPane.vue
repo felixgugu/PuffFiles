@@ -10,6 +10,7 @@ import MarkdownView from "./MarkdownView.vue";
 import PdfView from "./PdfView.vue";
 import TextView from "./TextView.vue";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
+import { copyViewerContent } from "@/composables/useViewerCopy";
 import { scrollViewer, useViewerScrollEdges } from "@/composables/useViewerNavigation";
 import { useExplorerStore } from "@/stores/explorer";
 import { useSettingsStore } from "@/stores/settings";
@@ -19,9 +20,12 @@ import type { PaneId } from "@/types/fs";
 import { formatBytes } from "@/utils/format";
 import { colorFor, iconFor } from "@/utils/fileKind";
 import {
+  MAX_COPY_BYTES,
   supportsViewerBookmarks,
+  supportsViewerCopy,
   supportsViewerScroll,
   supportsViewerSearch,
+  viewerCopyLabel,
 } from "@/utils/viewer";
 import { viewerHeaderFit } from "@/utils/viewerHeader";
 import { panelFits } from "@/utils/viewerPanel";
@@ -171,6 +175,40 @@ const scrollActions = computed<HeaderAction[]>(() => [
   },
 ]);
 
+/**
+ * 複製鈕：把這一份內容整份寫進剪貼簿（複製的是什麼由種類與模式決定，
+ * 見 `utils/viewer.ts` 的 `viewerCopyLabel()`）。
+ *
+ * 按不下去的情況維持「可見但反灰＋標題說明原因」的慣例：內容還在載入、
+ * 讀取失敗、或檔案大到不適合整份塞進剪貼簿。沒有檢視器的類型整顆不畫。
+ */
+const copyAction = computed<HeaderAction | null>(() => {
+  const current = state.value;
+  if (!current || !supportsViewerCopy(current.kind)) {
+    return null;
+  }
+  const label = viewerCopyLabel(current.kind, current.mode);
+  if (!label) {
+    return null;
+  }
+  const loading = current.status === "loading";
+  const failed = current.status === "error";
+  const tooLarge = current.size > MAX_COPY_BYTES;
+  return {
+    id: "copy",
+    icon: "copy",
+    title: loading
+      ? "內容載入中"
+      : failed
+        ? "內容讀取失敗，無法複製"
+        : tooLarge
+          ? `檔案過大（${formatBytes(current.size)}），不適合整份複製`
+          : label.title,
+    disabled: loading || failed || tooLarge,
+    run: () => void copyViewerContent(props.paneId),
+  };
+});
+
 const viewerActions = computed<HeaderAction[]>(() => {
   const current = state.value;
   if (!current) {
@@ -204,6 +242,10 @@ const viewerActions = computed<HeaderAction[]>(() => {
       title: previewing.value ? "看原始碼" : "看預覽",
       run: toggleMode,
     });
+  }
+  const copy = copyAction.value;
+  if (copy) {
+    actions.push(copy);
   }
   return actions;
 });

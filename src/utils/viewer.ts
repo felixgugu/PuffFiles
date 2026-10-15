@@ -1,6 +1,6 @@
 import type { FileEntry } from "@/types/fs";
 import type { BookmarkKind } from "@/types/bookmarks";
-import type { ViewerKind } from "@/types/viewer";
+import type { ViewerKind, ViewerMode } from "@/types/viewer";
 import { fileKindOf } from "@/utils/fileKind";
 import { fileNameOf, samePath } from "@/utils/path";
 import { MAX_SEARCH_TEXT } from "@/utils/textSearch";
@@ -86,6 +86,61 @@ export function viewerKindOfPath(path: string): ViewerKind | null {
  */
 export function supportsViewerSearch(kind: ViewerKind | null): boolean {
   return kind === "markdown" || kind === "html" || kind === "text" || kind === "docx";
+}
+
+/**
+ * 整份複製的上限。
+ *
+ * 剪貼簿要一次收下一整份字串（UTF-16，記憶體大約是檔案大小的兩倍），所以與
+ * 「DOCX 檢視器只處理 50 MB 以下」同一條線：超過就停用整份複製，用手動選取
+ * 仍然可以複製一段。判定用檔案大小而不是實際文字長度 —— 按鈕要能在動手之前
+ * 就說清楚為什麼按不下去。
+ */
+export const MAX_COPY_BYTES = 50 * 1024 * 1024;
+
+/**
+ * 這個檢視器有沒有「複製」鈕（工具列）。
+ *
+ * 範圍與搜尋一致：文字類的 Markdown／HTML／純文字與程式碼／DOCX。圖片與 PDF
+ * 沒有文字內容可複製，「沒有檢視器的類型」更是連內容都沒讀。
+ */
+export function supportsViewerCopy(kind: ViewerKind | null): boolean {
+  return kind === "markdown" || kind === "html" || kind === "text" || kind === "docx";
+}
+
+/** 複製鈕的標題與成功訊息（兩者要是同一句話，按鈕才會說到做到）。 */
+export interface ViewerCopyLabel {
+  /** 按鈕的提示文字。 */
+  title: string;
+  /** 複製成功後的提示。 */
+  done: string;
+}
+
+/**
+ * 這個檢視器要複製什麼、以及該怎麼稱呼它。
+ *
+ * - Markdown 與純文字（含 HTML 的原始碼模式）複製的是**檔案內容本身**
+ *   （`ViewerState.text`），所以 Markdown 拿到的是原始碼，不是渲染後的文字。
+ * - HTML 預覽與 DOCX 只有畫面，複製的是排版後的**可見文字**。
+ */
+export function viewerCopyLabel(
+  kind: ViewerKind | null,
+  mode: ViewerMode,
+): ViewerCopyLabel | null {
+  switch (kind) {
+    case "markdown":
+      return { title: "複製 Markdown 原始碼", done: "已複製 Markdown 原始碼" };
+    case "text":
+      return { title: "複製全部內容", done: "已複製檔案內容" };
+    case "html":
+      return mode === "source"
+        ? { title: "複製原始碼", done: "已複製原始碼" }
+        : { title: "複製可見文字", done: "已複製可見文字" };
+    case "docx":
+      return { title: "複製可見文字", done: "已複製可見文字" };
+    default:
+      return null;
+  }
 }
 
 /**
