@@ -10,6 +10,7 @@ import SettingsView from "@/components/settings/SettingsView.vue";
 import TabToolbar from "@/components/toolbar/TabToolbar.vue";
 import WorkspaceView from "@/components/workspace/WorkspaceView.vue";
 import { useKeyboardShortcuts } from "@/composables/useKeyboardShortcuts";
+import { useMouseNavigation } from "@/composables/useMouseNavigation";
 import * as api from "@/services/api";
 import { useBookmarksStore } from "@/stores/bookmarks";
 import { useSettingsStore } from "@/stores/settings";
@@ -24,6 +25,7 @@ const bookmarks = useBookmarksStore();
 const settings = useSettingsStore();
 
 useKeyboardShortcuts();
+useMouseNavigation();
 
 onMounted(async () => {
   // 內建工具（目前只有 7-Zip）開機偵測一次；只填空白的執行檔，不覆蓋使用者填過的值。

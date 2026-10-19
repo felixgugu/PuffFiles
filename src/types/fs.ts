@@ -19,7 +19,11 @@ export interface FileEntry {
 export type DirStreamEvent =
   | { type: "start"; path: string; name: string; parent: string | null }
   | { type: "batch"; entries: FileEntry[] }
-  | { type: "done"; total: number; truncated: boolean };
+  /**
+   * `skipped` 是「讀不到而略過的資料夾」數量，只有扁平化列舉（`list_dir_flat_stream`）
+   * 可能大於 0；單層列舉一律 0。
+   */
+  | { type: "done"; total: number; truncated: boolean; skipped: number };
 
 export type DriveKind = "fixed" | "removable" | "network" | "unknown";
 

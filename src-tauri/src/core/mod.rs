@@ -1,11 +1,13 @@
 //! 不依賴 Tauri IPC 的核心邏輯，可獨立測試。
 
 pub mod dir;
+pub mod flat;
 pub mod oplog;
 pub mod paths;
 pub mod programs;
 pub mod shell;
 pub mod stream;
+pub mod tree;
 pub mod viewer;
 pub mod watch;
 

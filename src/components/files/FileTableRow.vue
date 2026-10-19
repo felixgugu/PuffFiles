@@ -4,6 +4,7 @@ import AppIcon from "@/components/common/AppIcon.vue";
 import type { ColumnId, FileEntry } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
 import { colorFor, iconFor } from "@/utils/fileKind";
+import { flatLabelOf } from "@/utils/flatView";
 import type { CompareState } from "@/utils/compare";
 
 const props = defineProps<{
@@ -17,6 +18,11 @@ const props = defineProps<{
   editing: boolean;
   /** 目錄比對的狀態（見 `utils/compare.ts`）；null＝相同或沒開啟比對。 */
   compareState?: CompareState | null;
+  /**
+   * 扁平化展示的根目錄；有值時名稱欄前面會多一段淡色的資料夾前綴
+   * （見 `utils/flatView.ts`），同名檔案才分得出自己在哪個子資料夾。
+   */
+  flatRoot?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -58,6 +64,14 @@ const compareTitle = computed(() => {
       return null;
   }
 });
+
+/** 扁平化展示時的名稱：資料夾前綴＋檔名；一般清單時是 null。 */
+const flat = computed(() =>
+  props.flatRoot ? flatLabelOf(props.entry, props.flatRoot) : null,
+);
+
+/** 滑過去的說明：比對狀態優先，其次在扁平化時說出完整的相對路徑（長路徑會被截掉）。 */
+const rowTitle = computed(() => compareTitle.value ?? flat.value?.label ?? null);
 
 /**
  * 輸入框的 template ref。
@@ -148,7 +162,7 @@ onBeforeUnmount(() => {
         : [compareRowClass, 'hover:bg-surface-hover active:bg-pressed'],
       focused ? 'outline outline-1 -outline-offset-1 outline-accent/50' : '',
     ]"
-    :title="compareTitle ?? undefined"
+    :title="rowTitle ?? undefined"
     @dblclick="onDblclick"
     @contextmenu.prevent.stop="$emit('contextmenu', $event)"
   >
@@ -190,7 +204,24 @@ onBeforeUnmount(() => {
           @keydown.esc.prevent="cancel"
           @blur="commit"
         />
-        <span v-else class="truncate" :class="entry.isHidden ? 'text-ink-faint' : ''">{{ entry.name }}</span>
+        <template v-else>
+          <!--
+            扁平化展示：前面補一段淡色的資料夾前綴。前綴與檔名是同一個路徑的兩段，所以
+            包在一起、中間不留 gap（清單列的 gap 是給圖示與徽章的）。前綴的 flex-shrink
+            刻意給得比檔名大很多 —— 欄位不夠寬時先吃掉前綴，檔名留到最後。
+          -->
+          <span class="flex min-w-0 items-center">
+            <span
+              v-if="flat?.folder"
+              class="min-w-0 truncate text-ink-faint"
+              :style="{ flexShrink: 20 }"
+            >{{ flat.folder }}</span>
+            <span
+              class="min-w-0 truncate"
+              :class="entry.isHidden ? 'text-ink-faint' : ''"
+            >{{ entry.name }}</span>
+          </span>
+        </template>
         <span
           v-if="entry.isSymlink"
           class="shrink-0 rounded bg-surface-muted px-1 text-2xs text-ink-faint"

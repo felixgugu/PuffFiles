@@ -43,7 +43,15 @@ export const useCompareStore = defineStore("compare", () => {
     }
     for (const paneId of tab.paneIds) {
       const other = tab.paneIds.find((id) => id !== paneId);
-      if (!other || explorer.meta(other)?.status !== "ready") {
+      /*
+       * 扁平化展示的清單是「所有子資料夾的檔案」，而配對的鍵是檔名：兩邊同名的檔案
+       * 幾乎一定在不同的資料夾裡，比出來的顏色只會誤導。任何一邊開著扁平化就不比對
+       * （狀態列也因此不會出現統計）。
+       */
+      if (!other || explorer.meta(paneId)?.flat || explorer.meta(other)?.flat) {
+        continue;
+      }
+      if (explorer.meta(other)?.status !== "ready") {
         continue;
       }
       result.set(paneId, indexByName(explorer.entries(other)));

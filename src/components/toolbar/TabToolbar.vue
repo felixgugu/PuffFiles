@@ -184,6 +184,24 @@ function revealCurrent() {
   }
 }
 
+/**
+ * 扁平化展示：路徑列右側的一顆切換鈕（每個窗格各自獨立）。
+ *
+ * 只做按鈕是刻意的 —— 這個模式會換掉整份清單的內容，不是那種會想隨手按的鍵；
+ * 說明放在 tooltip 裡，按下去的清單下方也會說明它不自動更新。
+ */
+const flatButton = computed(() => {
+  const current = pane.value;
+  const on = current?.flat === true;
+  return {
+    on,
+    enabled: !!current?.currentPath,
+    title: on
+      ? "扁平化展示中：只列出這個資料夾（含所有子資料夾）的檔案，按一下回到一般清單"
+      : "扁平化展示：直接列出這個資料夾（含所有子資料夾）的所有檔案",
+  };
+});
+
 /** 在檢視器窗格打字搜尋＝回到檔案清單，否則搜尋結果會看不到。 */
 function onSearch(value: string) {
   if (viewer.isOpen(paneId.value)) {
@@ -232,11 +250,27 @@ function onSearch(value: string) {
 
     <SearchField
       :model-value="pane.query"
+      :placeholder="pane.flat ? '搜尋（含子資料夾）' : '搜尋目前資料夾'"
       class="w-52"
       @update:model-value="onSearch"
     />
 
     <div class="flex shrink-0 items-center gap-0.5">
+      <!--
+        扁平化展示：清單只用一層，這顆鈕把整個子樹的檔案攤平（見 AGENTS.md §3.1）。
+      -->
+      <button
+        type="button"
+        class="flex size-7 active:scale-95 items-center justify-center rounded-md pressable enabled:hover:bg-surface-hover enabled:active:bg-pressed disabled:opacity-30"
+        :class="flatButton.on ? 'bg-accent-soft text-accent' : 'text-ink-muted enabled:hover:text-ink'"
+        :aria-pressed="flatButton.on"
+        :disabled="!flatButton.enabled"
+        :title="flatButton.title"
+        @click="explorer.setFlat(paneId, !flatButton.on)"
+      >
+        <AppIcon name="flatten" :size="15" />
+      </button>
+
       <button
         type="button"
         class="flex size-7 active:scale-95 items-center justify-center rounded-md text-ink-muted pressable hover:bg-surface-hover active:bg-pressed hover:text-ink"

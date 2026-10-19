@@ -4,7 +4,14 @@ import * as api from "@/services/api";
 import { normalizeBackendError } from "@/services/errors";
 import { useSettingsStore } from "@/stores/settings";
 import type { PaneId } from "@/types/fs";
-import type { ViewerMode, ViewerPanelState, ViewerSearchState, ViewerState } from "@/types/viewer";
+import type {
+  DirectoryTreeStyle,
+  ViewerMode,
+  ViewerPanelState,
+  ViewerSearchState,
+  ViewerState,
+  ViewerTreeState,
+} from "@/types/viewer";
 import { formatBytes } from "@/utils/format";
 import { fileNameOf, parentOf, samePath } from "@/utils/path";
 import { supportsViewerSearch, viewerKindOfPath } from "@/utils/viewer";
@@ -48,6 +55,20 @@ const DEFAULT_SEARCH: ViewerSearchState = {
 /** 浮動面板的初始值：展開、貼右上角（`x === null`）、給定寬度、高度自適應。 */
 function defaultPanel(width: number): ViewerPanelState {
   return { collapsed: false, layout: { x: null, y: 0, width, height: null } };
+}
+
+function defaultTree(): ViewerTreeState {
+  return {
+    includeFiles: false,
+    includeHidden: false,
+    style: "unicode",
+    unicodeText: "",
+    asciiText: "",
+    directories: 0,
+    files: 0,
+    truncated: false,
+    skipped: 0,
+  };
 }
 
 /**
@@ -194,10 +215,61 @@ export const useViewerStore = defineStore("viewer", () => {
     state.error = normalizeBackendError(new Error(message));
   }
 
+  /** 目錄樹內容與檔案不同：沒有檔案串流，也不掛檔案層級的自動重載。 */
+  async function loadTree(paneId: PaneId): Promise<void> {
+    const state = views[paneId];
+    if (!state?.tree) {
+      return;
+    }
+
+    clearTimer(paneId);
+    controllers.get(paneId)?.abort();
+    const controller = new AbortController();
+    controllers.set(paneId, controller);
+    const version = (versions.get(paneId) ?? 0) + 1;
+    versions.set(paneId, version);
+    const current = () => versions.get(paneId) === version && !controller.signal.aborted;
+
+    state.status = "loading";
+    state.error = null;
+    state.text = "";
+
+    try {
+      const result = await api.readDirectoryTree(
+        state.path,
+        state.tree.includeFiles,
+        state.tree.includeHidden,
+      );
+      if (!current()) {
+        return;
+      }
+      const tree = state.tree;
+      tree.unicodeText = result.unicodeText;
+      tree.asciiText = result.asciiText;
+      tree.directories = result.directories;
+      tree.files = result.files;
+      tree.truncated = result.truncated;
+      tree.skipped = result.skipped;
+      state.name = result.name || state.name;
+      state.text = tree.style === "ascii" ? tree.asciiText : tree.unicodeText;
+      state.status = "ready";
+    } catch (cause) {
+      if (!current()) {
+        return;
+      }
+      state.status = "error";
+      state.error = normalizeBackendError(cause);
+    }
+  }
+
   async function load(paneId: PaneId, attempt = 0): Promise<void> {
     const state = views[paneId];
     // 沒有檢視器的類型（kind 為 null）只顯示提示，沒有內容可讀。
     if (!state || state.kind === null) {
+      return;
+    }
+    if (state.kind === "directory-tree") {
+      await loadTree(paneId);
       return;
     }
 
@@ -448,12 +520,77 @@ export const useViewerStore = defineStore("viewer", () => {
       search: previousSearch ? { ...previousSearch } : { ...DEFAULT_SEARCH },
       tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
       searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
+      tree: null,
     };
     // 沒有檢視器的類型只顯示提示，不去讀檔；它仍然是「目前顯示的目標」，
     // 這樣在檔案清單按 Space 才能繼續往下前進。
     if (kind) {
       await load(paneId);
     }
+  }
+
+  /**
+   * 在指定窗格開啟一個資料夾的樹狀檢視。
+   *
+   * 預設只列資料夾、隱藏項目關閉、Unicode 樹枝；每次開啟都從這組預設值開始。
+   */
+  async function openDirectoryTree(paneId: PaneId, path: string): Promise<void> {
+    close(paneId);
+    views[paneId] = {
+      path,
+      name: fileNameOf(path) || path,
+      sourcePaneId: null,
+      kind: "directory-tree",
+      mode: "preview",
+      status: "loading",
+      error: null,
+      text: "",
+      encoding: null,
+      blobUrl: null,
+      streamToken: null,
+      streamUrl: null,
+      bytes: null,
+      size: 0,
+      modifiedMs: null,
+      scrollTop: 0,
+      atTop: true,
+      atBottom: true,
+      search: { ...DEFAULT_SEARCH },
+      tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
+      searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
+      tree: defaultTree(),
+    };
+    await load(paneId);
+  }
+
+  /** 切換包含檔案；選項改變後要重新掃描。 */
+  async function setTreeIncludeFiles(paneId: PaneId, value: boolean): Promise<void> {
+    const tree = views[paneId]?.tree;
+    if (!tree || tree.includeFiles === value) {
+      return;
+    }
+    tree.includeFiles = value;
+    await load(paneId);
+  }
+
+  /** 切換包含隱藏項目；與全域 showHidden 無關，選項改變後重新掃描。 */
+  async function setTreeIncludeHidden(paneId: PaneId, value: boolean): Promise<void> {
+    const tree = views[paneId]?.tree;
+    if (!tree || tree.includeHidden === value) {
+      return;
+    }
+    tree.includeHidden = value;
+    await load(paneId);
+  }
+
+  /** 切換樹枝字元只換目前文字，不需要再掃一次目錄。 */
+  function setTreeStyle(paneId: PaneId, style: DirectoryTreeStyle) {
+    const state = views[paneId];
+    if (!state?.tree || state.tree.style === style) {
+      return;
+    }
+    state.tree.style = style;
+    state.text = style === "ascii" ? state.tree.asciiText : state.tree.unicodeText;
   }
 
   /** 切換 HTML 的「預覽／原始碼」；其他種類沒有切換鈕，呼叫也只是改一個沒人讀的欄位。 */
@@ -572,6 +709,10 @@ export const useViewerStore = defineStore("viewer", () => {
     isOpen,
     requestBookmark,
     open,
+    openDirectoryTree,
+    setTreeIncludeFiles,
+    setTreeIncludeHidden,
+    setTreeStyle,
     reload,
     setMode,
     toggleSearch,

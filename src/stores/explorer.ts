@@ -6,12 +6,34 @@ import { normalizeBackendError, type AppErrorView } from "@/services/errors";
 import { COLUMN_DEFAULTS, COLUMN_MIN, useSettingsStore } from "@/stores/settings";
 import { useUiStore } from "@/stores/ui";
 import { useViewerStore } from "@/stores/viewer";
-import type { ColumnId, FileEntry, PaneId, SortDirection, SortKey } from "@/types/fs";
+import type {
+  ColumnId,
+  DirStreamEvent,
+  FileEntry,
+  PaneId,
+  SortDirection,
+  SortKey,
+} from "@/types/fs";
 import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
-import { fileNameOf, parentOf, samePath, toUnixPath } from "@/utils/path";
+import { compareFlatOrder, flatLabelOf } from "@/utils/flatView";
+import { fileNameOf, normalizeKey, parentOf, samePath, toUnixPath } from "@/utils/path";
 
 export type ExplorerStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * 上一頁／下一頁要還原的清單狀態。
+ *
+ * 路徑本身不足以回到「原來的位置」：Windows 檔案總管返回時也會還原選取、焦點列與
+ * 捲動位置。`focusedPath` 是主要依據；清單內容變動、該項目消失時才退回 `focusedIndex`。
+ */
+export interface NavigationSnapshot {
+  path: string;
+  selectedPaths: string[];
+  focusedPath: string | null;
+  focusedIndex: number;
+  scrollTop: number;
+}
 
 /** 單一窗格的瀏覽狀態。每個窗格各自獨立，互不干擾。 */
 export interface PaneMeta {
@@ -26,10 +48,22 @@ export interface PaneMeta {
   sortDirection: SortDirection;
   selected: string[];
   focusedIndex: number;
-  backStack: string[];
-  forwardStack: string[];
+  backStack: NavigationSnapshot[];
+  forwardStack: NavigationSnapshot[];
   truncated: boolean;
   total: number;
+  /** 檔案清單目前的垂直捲動位置；供上一頁／下一頁重建視野。 */
+  scrollTop: number;
+  /** 一次性請求：虛擬清單完成渲染後要跳到的位置。`token` 讓相同位置也能重播。 */
+  scrollRestore: { token: number; top: number } | null;
+  /**
+   * 扁平化展示：直接列出這個資料夾底下（含所有子資料夾）的檔案，而不是只列一層。
+   *
+   * 每個窗格各自獨立（見 AGENTS.md §3.1）；開啟時不掛目錄監控，要手動重新整理。
+   */
+  flat: boolean;
+  /** 上一次扁平化列舉略過的資料夾數（讀不到）；一般清單固定 0。 */
+  skipped: number;
   /** 這個窗格自己的欄位寬度；兩個窗格互不影響。 */
   columnWidths: Record<string, number>;
 }
@@ -63,6 +97,7 @@ export const useExplorerStore = defineStore("explorer", () => {
   const pendingChanges = new Map<PaneId, Map<string, WatchEvent>>();
   const flushTimers = new Map<PaneId, ReturnType<typeof setTimeout>>();
   let sequence = 0;
+  let scrollRequestSequence = 0;
 
   function entriesRef(id: PaneId): ShallowRef<FileEntry[]> {
     return entriesByPane.get(id)!;
@@ -86,7 +121,11 @@ export const useExplorerStore = defineStore("explorer", () => {
     return panes[id];
   }
 
-  function createPane(initialPath = "", widths?: Record<string, number>): PaneId {
+  function createPane(
+    initialPath = "",
+    widths?: Record<string, number>,
+    flat = false,
+  ): PaneId {
     const id = `pane-${++sequence}`;
     panes[id] = {
       id,
@@ -104,6 +143,10 @@ export const useExplorerStore = defineStore("explorer", () => {
       forwardStack: [],
       truncated: false,
       total: 0,
+      scrollTop: 0,
+      scrollRestore: null,
+      flat,
+      skipped: 0,
       // 新窗格從設定裡的預設欄寬出發，之後就各自獨立。
       // 注意 `...widths` 是複製：兩個窗格不能共用同一個物件，否則拖曳會互相影響。
       columnWidths: { ...COLUMN_DEFAULTS, ...settings.columnWidths, ...(widths ?? {}) },
@@ -116,6 +159,8 @@ export const useExplorerStore = defineStore("explorer", () => {
   function destroyPane(id: PaneId) {
     controllers.get(id)?.abort();
     controllers.delete(id);
+    // 走訪在後端的阻塞執行緒上跑，中止訊號到不了那裡，要另外請它收工。
+    void api.cancelFlatScan(id).catch(() => undefined);
     stopWatch(id);
     viewer.destroy(id);
     entriesByPane.delete(id);
@@ -244,7 +289,39 @@ export const useExplorerStore = defineStore("explorer", () => {
     recompute(id);
   }
 
-  function compare(a: FileEntry, b: FileEntry, key: SortKey, direction: SortDirection): number {
+  /**
+   * 一般清單的排序：資料夾優先，其餘依欄位。
+   *
+   * `flatRoot` 有值時走扁平化展示的規則（見下）：清單裡只有檔案，「先淺後深、同一層依
+   * 相對路徑」就是它的預設順序 —— 其他欄位平手時也拿它當第二鍵，否則同名檔案會散開。
+   */
+  function compare(
+    a: FileEntry,
+    b: FileEntry,
+    key: SortKey,
+    direction: SortDirection,
+    flatRoot: string | null = null,
+  ): number {
+    if (flatRoot !== null) {
+      const flatBase = (() => {
+        switch (key) {
+          case "modified":
+            return (a.modifiedMs ?? 0) - (b.modifiedMs ?? 0) || compareFlatOrder(a, b, flatRoot);
+          case "created":
+            return (a.createdMs ?? 0) - (b.createdMs ?? 0) || compareFlatOrder(a, b, flatRoot);
+          case "size":
+            return a.size - b.size || compareFlatOrder(a, b, flatRoot);
+          case "kind":
+            return (
+              collator.compare(kindLabel(a), kindLabel(b)) || compareFlatOrder(a, b, flatRoot)
+            );
+          default:
+            return compareFlatOrder(a, b, flatRoot);
+        }
+      })();
+      return direction === "asc" ? flatBase : -flatBase;
+    }
+
     // 資料夾永遠排在最前面，與 Windows 檔案總管一致。
     if (a.isDir !== b.isDir) {
       return a.isDir ? -1 : 1;
@@ -268,6 +345,11 @@ export const useExplorerStore = defineStore("explorer", () => {
     return direction === "asc" ? base : -base;
   }
 
+  /** 搜尋比對用的文字：一般清單是檔名，扁平化時是相對路徑（子資料夾名稱也搜得到）。 */
+  function searchText(item: FileEntry, flatRoot: string | null): string {
+    return flatRoot ? flatLabelOf(item, flatRoot).key : item.name.toLocaleLowerCase();
+  }
+
   /** 依搜尋字串、隱藏項目與排序條件重算可見清單。 */
   function recompute(id: PaneId) {
     const pane = panes[id];
@@ -279,20 +361,22 @@ export const useExplorerStore = defineStore("explorer", () => {
     const source = entriesByPane.get(id)!.value;
     const keyword = pane.query.trim().toLocaleLowerCase();
     const backendSorted = pane.sortKey === "name" && pane.sortDirection === "asc" && !keyword;
+    // 扁平化時後端送來的順序就是它的預設順序（`compareFlatOrder` 重現同一個順序）。
+    const flatRoot = pane.flat && pane.currentPath ? pane.currentPath : null;
     const next: FileEntry[] = [];
 
     for (const item of source) {
       if (!settings.showHidden && item.isHidden) {
         continue;
       }
-      if (keyword && !item.name.toLocaleLowerCase().includes(keyword)) {
+      if (keyword && !searchText(item, flatRoot).includes(keyword)) {
         continue;
       }
       next.push(item);
     }
 
     if (!backendSorted && (pane.status !== "loading" || source.length <= EAGER_SORT_LIMIT)) {
-      next.sort((a, b) => compare(a, b, pane.sortKey, pane.sortDirection));
+      next.sort((a, b) => compare(a, b, pane.sortKey, pane.sortDirection, flatRoot));
     }
 
     target.value = next;
@@ -302,20 +386,84 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
-  function recomputeAll() {
-    for (const id of Object.keys(panes)) {
-      recompute(id);
-    }
+  /*
+   * 顯示隱藏項目的偏好是全域的：一般清單只是把已讀到的項目再篩一次，所以就地重算；
+   * 扁平化展示連「要不要走進隱藏資料夾」都跟著這個開關（後端就不掃了），只能重讀。
+   */
+  watch(
+    () => settings.showHidden,
+    () => {
+      for (const id of Object.keys(panes)) {
+        if (panes[id].flat) {
+          void refresh(id);
+        } else {
+          recompute(id);
+        }
+      }
+    },
+  );
+
+  /** 離開目前資料夾前，保存下一頁／上一頁需要還原的位置。 */
+  function navigationSnapshot(pane: PaneMeta): NavigationSnapshot {
+    const visible = visibleRef(pane.id).value;
+    const focused = visible[Math.min(Math.max(pane.focusedIndex, 0), visible.length - 1)];
+    return {
+      path: pane.currentPath,
+      selectedPaths: [...pane.selected],
+      focusedPath: focused?.path ?? null,
+      focusedIndex: pane.focusedIndex,
+      scrollTop: pane.scrollTop,
+    };
   }
 
-  // 顯示隱藏項目的偏好是全域的，切換時所有窗格一起重算。
-  watch(() => settings.showHidden, recomputeAll);
+  /**
+   * 清單串流完成後套用歷史位置。
+   *
+   * 項目在離開期間可能被刪除、改名或排序改變，所以選取以路徑重新對應到目前清單；
+   * 對不上的部分安靜略過。焦點優先找回同一個項目，找不到才退回原本的列號。
+   */
+  function restoreNavigationSnapshot(pane: PaneMeta, snapshot: NavigationSnapshot) {
+    const visible = visibleRef(pane.id).value;
+    const byKey = new Map(visible.map((item) => [normalizeKey(item.path), item]));
+    const selected = snapshot.selectedPaths
+      .map((path) => byKey.get(normalizeKey(path))?.path)
+      .filter((path): path is string => path !== undefined);
+    pane.selected = [...new Set(selected)];
+
+    let focusedIndex = snapshot.focusedPath
+      ? visible.findIndex((item) => samePath(item.path, snapshot.focusedPath!))
+      : -1;
+    if (focusedIndex < 0) {
+      focusedIndex = Math.min(
+        Math.max(snapshot.focusedIndex, 0),
+        Math.max(visible.length - 1, 0),
+      );
+    }
+    pane.focusedIndex = focusedIndex;
+
+    pane.scrollTop = Math.max(0, snapshot.scrollTop);
+    pane.scrollRestore = { token: ++scrollRequestSequence, top: pane.scrollTop };
+  }
 
   /** 載入資料夾內容；同一窗格的新請求會中止尚未結束的舊串流。 */
-  async function load(id: PaneId, target: string): Promise<void> {
+  async function load(
+    id: PaneId,
+    target: string,
+    restore?: NavigationSnapshot,
+  ): Promise<void> {
     const pane = panes[id];
     if (!pane) {
       return;
+    }
+
+    /*
+     * 扁平化列舉在後端的阻塞執行緒上跑，前端的 AbortController 到不了那裡，所以換路徑
+     * 時要另外請它停下來。只有「新的這一輪不是扁平化」時才在這裡取消：順序是
+     * 取消 → 新請求，兩個 IPC 沒有先後保證，反過來的話會取消掉剛開始的新走訪
+     * （新的扁平化走訪由後端自己換掉舊旗標，見 `core::flat` 與 `commands::fs`）。
+     */
+    if (!pane.flat) {
+      void api.cancelFlatScan(id).catch(() => undefined);
     }
 
     // 換資料夾就先放掉舊的監控，載入成功後再掛上新的。
@@ -327,44 +475,59 @@ export const useExplorerStore = defineStore("explorer", () => {
     pane.status = "loading";
     pane.error = null;
     pane.truncated = false;
+    pane.skipped = 0;
     pane.selected = [];
     pane.focusedIndex = 0;
+    pane.scrollTop = 0;
+    pane.scrollRestore = null;
     entriesRef(id).value = [];
     triggerRef(entriesRef(id));
     recompute(id);
 
     try {
-      await api.listDirectory(
-        target,
-        (event) => {
-          if (local.signal.aborted) {
-            return;
-          }
-          switch (event.type) {
-            case "start":
-              pane.currentPath = event.path;
-              pane.currentName = event.name;
-              pane.parentPath = event.parent;
-              break;
-            case "batch":
-              // 窗格可能在串流途中被關閉；此時直接丟棄這一批。
-              if (!entriesByPane.has(id)) {
-                return;
-              }
-              entriesRef(id).value.push(...event.entries);
-              triggerRef(entriesRef(id));
-              recompute(id);
-              break;
-            case "done":
-              pane.truncated = event.truncated;
-              pane.status = "ready";
-              recompute(id);
+      const onEvent = (event: DirStreamEvent) => {
+        if (local.signal.aborted) {
+          return;
+        }
+        switch (event.type) {
+          case "start":
+            pane.currentPath = event.path;
+            pane.currentName = event.name;
+            pane.parentPath = event.parent;
+            break;
+          case "batch":
+            // 窗格可能在串流途中被關閉；此時直接丟棄這一批。
+            if (!entriesByPane.has(id)) {
+              return;
+            }
+            entriesRef(id).value.push(...event.entries);
+            triggerRef(entriesRef(id));
+            recompute(id);
+            break;
+          case "done":
+            pane.truncated = event.truncated;
+            pane.skipped = event.skipped;
+            pane.status = "ready";
+            recompute(id);
+            if (restore) {
+              restoreNavigationSnapshot(pane, restore);
+            }
+            /*
+             * 扁平化展示不掛目錄監控：`ReadDirectoryChangesW` 只看得到這一層，子資料夾裡
+             * 的變動收不到，接了只會讓清單半新半舊，不如不接（F5 手動重新整理）。
+             */
+            if (!pane.flat) {
               startWatch(id, pane.currentPath);
-              break;
-          }
-        },
-        local.signal,
-      );
+            }
+            break;
+        }
+      };
+
+      if (pane.flat) {
+        await api.listDirectoryFlat(target, settings.showHidden, id, onEvent, local.signal);
+      } else {
+        await api.listDirectory(target, onEvent, local.signal);
+      }
 
       if (!local.signal.aborted && pane.status === "loading") {
         pane.status = "ready";
@@ -390,7 +553,7 @@ export const useExplorerStore = defineStore("explorer", () => {
       return refresh(id);
     }
     if (pane.currentPath) {
-      pane.backStack = [...pane.backStack, pane.currentPath];
+      pane.backStack = [...pane.backStack, navigationSnapshot(pane)];
       pane.forwardStack = [];
     }
     return load(id, target);
@@ -403,9 +566,10 @@ export const useExplorerStore = defineStore("explorer", () => {
       return Promise.resolve();
     }
     viewer.close(id);
+    const current = navigationSnapshot(pane);
     pane.backStack = pane.backStack.slice(0, -1);
-    pane.forwardStack = [...pane.forwardStack, pane.currentPath];
-    return load(id, target);
+    pane.forwardStack = [...pane.forwardStack, current];
+    return load(id, target.path, target);
   }
 
   function goForward(id: PaneId): Promise<void> {
@@ -415,9 +579,10 @@ export const useExplorerStore = defineStore("explorer", () => {
       return Promise.resolve();
     }
     viewer.close(id);
+    const current = navigationSnapshot(pane);
     pane.forwardStack = pane.forwardStack.slice(0, -1);
-    pane.backStack = [...pane.backStack, pane.currentPath];
-    return load(id, target);
+    pane.backStack = [...pane.backStack, current];
+    return load(id, target.path, target);
   }
 
   function goUp(id: PaneId): Promise<void> {
@@ -429,6 +594,14 @@ export const useExplorerStore = defineStore("explorer", () => {
   function refresh(id: PaneId): Promise<void> {
     const pane = panes[id];
     return pane?.currentPath ? load(id, pane.currentPath) : Promise.resolve();
+  }
+
+  /** 檔案清單每次捲動時同步位置，供下一次返回時重建同一個視野。 */
+  function setScrollTop(id: PaneId, value: number) {
+    const pane = panes[id];
+    if (pane && pane.scrollTop !== value) {
+      pane.scrollTop = Math.max(0, value);
+    }
   }
 
   function applySort(id: PaneId, key: SortKey) {
@@ -767,6 +940,23 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
+  /**
+   * 切換扁平化展示。
+   *
+   * 兩邊的清單內容完全不同（一層 vs. 整棵子樹），所以直接重讀這條路徑 —— 重新讀取也會
+   * 清掉選取，這正是使用者預期的（原本選到的項目可能根本不在新清單裡）。
+   */
+  function setFlat(id: PaneId, value: boolean) {
+    const pane = panes[id];
+    if (!pane || pane.flat === value) {
+      return;
+    }
+    pane.flat = value;
+    if (pane.currentPath) {
+      void load(id, pane.currentPath);
+    }
+  }
+
   return {
     createPane,
     destroyPane,
@@ -779,6 +969,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     goForward,
     goUp,
     refresh,
+    setScrollTop,
     applySort,
     select,
     selectAll,
@@ -805,6 +996,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     resetColumnWidth,
     resetAllColumnWidths,
     setQuery,
+    setFlat,
   };
 });
 

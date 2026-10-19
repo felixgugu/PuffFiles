@@ -24,11 +24,13 @@ export function attributesOf(
  *
  * 名稱欄在畫面上是「圖示＋名稱＋徽章」的自訂排版，這裡只回傳名稱本身，
  * 讓「自動調整欄寬」能跟其他欄位走同一條量測路徑（規則只有這一份，不會走鐘）。
+ * `nameLabel` 是名稱欄在扁平化展示時的另一種寫法（相對路徑＋檔名），量測要跟著它，
+ * 否則自動欄寬會少算前面的資料夾前綴。
  */
-export function cellText(column: ColumnId, entry: FileEntry): string {
+export function cellText(column: ColumnId, entry: FileEntry, nameLabel?: string): string {
   switch (column) {
     case "name":
-      return entry.name;
+      return nameLabel ?? entry.name;
     case "kind":
       return kindLabel(entry);
     case "size":

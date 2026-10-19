@@ -2,10 +2,14 @@
 
 use crate::core;
 use crate::error::{AppError, AppResult};
-use crate::model::DirEvent;
+use crate::model::{DirEvent, DirectoryTreeResult, FileEntry};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::ipc::Channel;
+use tauri::State;
 
 /// 每批回傳的項目數：夠大能攤平 IPC 成本，夠小能讓 UI 保持流暢。
 const STREAM_BATCH_SIZE: usize = 256;
@@ -41,6 +45,126 @@ pub async fn list_dir_stream(path: String, on_event: Channel<DirEvent>) -> AppRe
         DirEvent::Done {
             total,
             truncated: listing.truncated,
+            // 單層列舉不會略過資料夾：開不起來的資料夾本身就是錯誤。
+            skipped: 0,
+        },
+    )
+}
+
+/// 扁平化列舉用的取消旗標。
+///
+/// 鍵是窗格 id（與 `core::watch` 的監控註冊表同一套路）：同一個窗格換路徑時，舊的走訪
+/// 應該立刻停下來，而不是繼續把整棵樹掃完再讓結果被丟掉。走訪本身在阻塞執行緒上跑，
+/// 只能靠這面共享旗標請它收工。
+#[derive(Default)]
+pub struct FlatScans {
+    flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl FlatScans {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+        // 有執行緒 panic 過也繼續用裡面的資料（release 是 `panic = "abort"`）。
+        self.flags
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 開始一次走訪：先叫舊的停下來，再換上新的旗標。
+    fn start(&self, id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Some(previous) = self.lock().insert(id.to_string(), Arc::clone(&flag)) {
+            previous.store(true, Ordering::SeqCst);
+        }
+        flag
+    }
+
+    fn cancel(&self, id: &str) {
+        if let Some(flag) = self.lock().remove(id) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// 走訪結束後把自己的旗標收掉；已經被下一次走訪換掉時不動它。
+    fn finish(&self, id: &str, flag: &Arc<AtomicBool>) {
+        let mut flags = self.lock();
+        if flags.get(id).is_some_and(|current| Arc::ptr_eq(current, flag)) {
+            flags.remove(id);
+        }
+    }
+}
+
+/// 扁平化列舉：把一個資料夾底下（含所有子資料夾）的檔案攤平成一份清單。
+///
+/// 走訪在阻塞執行緒上跑、**邊走邊送**（不等整棵樹掃完），所以大目錄能看到檔案一批批
+/// 出現。`id` 是窗格 id，換路徑時前端會用 [`cancel_dir_flat`] 讓這條走訪提早收工。
+#[tauri::command]
+pub async fn list_dir_flat_stream(
+    path: String,
+    include_hidden_dirs: bool,
+    id: String,
+    on_event: Channel<DirEvent>,
+    scans: State<'_, FlatScans>,
+) -> AppResult<()> {
+    let flag = scans.start(&id);
+    let cancel = Arc::clone(&flag);
+
+    let walked = tauri::async_runtime::spawn_blocking(move || {
+        walk_and_stream(PathBuf::from(&path), include_hidden_dirs, &on_event, &cancel)
+    })
+    .await;
+
+    scans.finish(&id, &flag);
+    walked.map_err(|error| AppError::Io {
+        message: format!("背景工作失敗：{error}"),
+    })?
+}
+
+/// 取消某個窗格正在跑的扁平化列舉（沒有在跑就什麼都不做）。
+#[tauri::command]
+pub fn cancel_dir_flat(id: String, scans: State<'_, FlatScans>) {
+    scans.cancel(&id);
+}
+
+fn walk_and_stream(
+    path: PathBuf,
+    include_hidden_dirs: bool,
+    on_event: &Channel<DirEvent>,
+    cancel: &AtomicBool,
+) -> AppResult<()> {
+    let root = core::flat::resolve_root(&path)?;
+    send(
+        on_event,
+        DirEvent::Start {
+            path: root.display.clone(),
+            name: root.name.clone(),
+            parent: root.parent.clone(),
+        },
+    )?;
+
+    let mut emit = |entries: Vec<FileEntry>| -> bool {
+        match send(on_event, DirEvent::Batch { entries }) {
+            // 通道中斷（窗格關掉了、WebView 走了）不是錯誤，安靜地收工就好。
+            Ok(()) => true,
+            Err(_) => false,
+        }
+    };
+    let outcome = core::flat::walk_files(
+        &root,
+        include_hidden_dirs,
+        &|| cancel.load(Ordering::SeqCst),
+        &mut emit,
+    );
+
+    if outcome.stopped {
+        return Ok(());
+    }
+
+    send(
+        on_event,
+        DirEvent::Done {
+            total: outcome.total,
+            truncated: outcome.truncated,
+            skipped: outcome.skipped,
         },
     )
 }
@@ -71,6 +195,17 @@ pub async fn reveal_path(path: String) -> AppResult<()> {
 #[tauri::command]
 pub async fn list_subdirs(path: String) -> AppResult<Vec<crate::model::FileEntry>> {
     run_blocking(move || core::list_subdirs(Path::new(&path))).await
+}
+
+/// 讀取資料夾樹狀內容；同一次走訪回傳 Unicode 與純 ASCII 兩種格式。
+#[tauri::command]
+pub async fn read_directory_tree(
+    path: String,
+    include_files: bool,
+    include_hidden: bool,
+) -> AppResult<DirectoryTreeResult> {
+    run_blocking(move || core::tree::read_tree(Path::new(&path), include_files, include_hidden))
+        .await
 }
 
 /// 在指定父層底下建立新資料夾，回傳新資料夾路徑。

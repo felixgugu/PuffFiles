@@ -316,7 +316,10 @@ function openNodeMenu(node: FolderNode, event: MouseEvent) {
   // 左側是書籤清單，不直接操作實體檔案，所以不顯示剪貼組（剪下／複製／貼上／刪除），
   // 樹也沒有就地編輯，因此不提供重新命名。
   const target: MenuTarget = { path: node.path ?? "", isDir: true };
-  const items: MenuItem[] = menuFor({ paneId: paneId.value, target, targets: [target] });
+  const items: MenuItem[] = menuFor(
+    { paneId: paneId.value, target, targets: [target] },
+    { treeContext: true },
+  );
   items.push({
     id: "node:move",
     label: "移動到虛擬目錄…",

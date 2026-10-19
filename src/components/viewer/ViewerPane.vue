@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import ErrorBanner from "@/components/common/ErrorBanner.vue";
 import type { IconName } from "@/components/common/icons";
+import DirectoryTreeView from "./DirectoryTreeView.vue";
 import DocxView from "./DocxView.vue";
 import HtmlView from "./HtmlView.vue";
 import ImageView from "./ImageView.vue";
@@ -209,12 +210,49 @@ const copyAction = computed<HeaderAction | null>(() => {
   };
 });
 
+/** 目錄樹的選項：包含檔案、包含隱藏項目、ASCII 樹枝。 */
+const treeActions = computed<HeaderAction[]>(() => {
+  const current = state.value;
+  const tree = current?.kind === "directory-tree" ? current.tree : null;
+  if (!tree) {
+    return [];
+  }
+  const loading = current?.status === "loading";
+  return [
+    {
+      id: "tree-files",
+      icon: "file",
+      title: tree.includeFiles ? "只顯示資料夾" : "顯示檔案",
+      active: tree.includeFiles,
+      disabled: loading,
+      run: () => void viewer.setTreeIncludeFiles(props.paneId, !tree.includeFiles),
+    },
+    {
+      id: "tree-hidden",
+      icon: tree.includeHidden ? "eye" : "eyeOff",
+      title: tree.includeHidden ? "不顯示隱藏項目" : "顯示隱藏項目",
+      active: tree.includeHidden,
+      disabled: loading,
+      run: () => void viewer.setTreeIncludeHidden(props.paneId, !tree.includeHidden),
+    },
+    {
+      id: "tree-style",
+      icon: "code",
+      title: tree.style === "ascii" ? "改用 Unicode 樹枝" : "改用純 ASCII 樹枝",
+      active: tree.style === "ascii",
+      disabled: loading,
+      run: () =>
+        viewer.setTreeStyle(props.paneId, tree.style === "ascii" ? "unicode" : "ascii"),
+    },
+  ];
+});
+
 const viewerActions = computed<HeaderAction[]>(() => {
   const current = state.value;
   if (!current) {
     return [];
   }
-  const actions: HeaderAction[] = [];
+  const actions: HeaderAction[] = [...treeActions.value];
   if (supportsViewerSearch(current.kind)) {
     actions.push({
       id: "search",
@@ -251,6 +289,16 @@ const viewerActions = computed<HeaderAction[]>(() => {
 });
 
 const fileActions = computed<HeaderAction[]>(() => {
+  if (state.value?.kind === "directory-tree") {
+    return [
+      {
+        id: "reload",
+        icon: "refresh",
+        title: "重新整理 (F5)",
+        run: () => void viewer.reload(props.paneId),
+      },
+    ];
+  }
   const actions: HeaderAction[] = [
     { id: "open-default", icon: "externalLink", title: "用預設程式開啟", run: openWithDefault },
     { id: "reveal", icon: "folderOpen", title: "在檔案總管中顯示", run: reveal },
@@ -343,14 +391,32 @@ const isHtml = computed(() => state.value?.kind === "html");
 const previewing = computed(() => isHtml.value && state.value?.mode === "preview");
 
 const icon = computed(() =>
-  iconFor({ isDir: false, isSymlink: false, extension: extension.value }),
+  state.value?.kind === "directory-tree"
+    ? iconFor({ isDir: true, isSymlink: false, extension: null })
+    : iconFor({ isDir: false, isSymlink: false, extension: extension.value }),
 );
-const color = computed(() => colorFor({ isDir: false, extension: extension.value }));
+const color = computed(() =>
+  colorFor({
+    isDir: state.value?.kind === "directory-tree",
+    extension: state.value?.kind === "directory-tree" ? null : extension.value,
+  }),
+);
 
 const detail = computed(() => {
   const current = state.value;
   if (!current) {
     return "";
+  }
+  if (current.kind === "directory-tree" && current.tree) {
+    const tree = current.tree;
+    const parts = [`${tree.directories} 個資料夾`];
+    if (tree.includeFiles) {
+      parts.push(`${tree.files} 個檔案`);
+    }
+    if (tree.truncated) {
+      parts.push("已截斷");
+    }
+    return parts.join(" · ");
   }
   const parts: string[] = [];
   if (current.size > 0) {
@@ -464,6 +530,10 @@ function reveal() {
     <ImageView v-else-if="state.kind === 'image'" :pane-id="paneId" />
     <PdfView v-else-if="state.kind === 'pdf'" :pane-id="paneId" />
     <DocxView v-else-if="state.kind === 'docx'" :pane-id="paneId" />
+    <DirectoryTreeView
+      v-else-if="state.kind === 'directory-tree'"
+      :pane-id="paneId"
+    />
     <TextView v-else :pane-id="paneId" />
   </div>
 </template>

@@ -10,6 +10,8 @@ import type { PaneId, SplitDirection, TabState } from "@/types/fs";
 interface SessionPane {
   path: string;
   columnWidths?: Record<string, number>;
+  /** 扁平化展示（見 §3.1）；舊版快照沒有這個欄位＝一般清單。 */
+  flat?: boolean;
 }
 
 interface SessionTab {
@@ -291,6 +293,7 @@ export const useTabsStore = defineStore("tabs", () => {
         panes: tab.paneIds.map((paneId) => ({
           path: explorer.meta(paneId)?.currentPath ?? "",
           columnWidths: explorer.meta(paneId)?.columnWidths,
+          flat: explorer.meta(paneId)?.flat ?? false,
         })),
         direction: tab.direction,
         ratio: tab.ratio,
@@ -313,7 +316,7 @@ export const useTabsStore = defineStore("tabs", () => {
 
     for (const saved of session.tabs) {
       const paneIds = saved.panes.map((pane) =>
-        explorer.createPane(pane.path, pane.columnWidths),
+        explorer.createPane(pane.path, pane.columnWidths, pane.flat === true),
       );
       if (paneIds.length === 0) {
         continue;

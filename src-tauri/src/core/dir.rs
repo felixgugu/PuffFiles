@@ -168,9 +168,11 @@ fn extension_of(path: &Path) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn is_hidden(_name: &str, meta: &fs::Metadata) -> bool {
+fn is_hidden(name: &str, meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
-    meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+    // 開發工具常用 `.git`、`.agents` 這類名稱；即使沒有 Windows 隱藏屬性，
+    // 也沿用 Unix 的慣例把它們當成隱藏項目，避免清單與遞迴走訪被雜訊淹沒。
+    name.starts_with('.') || meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
 }
 
 #[cfg(not(windows))]
@@ -259,5 +261,29 @@ mod tests {
         let entry = build_entry(&std::env::temp_dir()).expect("temp dir should be readable");
         assert!(entry.is_dir);
         assert_eq!(entry.size, 0);
+    }
+
+    #[test]
+    fn dot_prefixed_files_and_directories_are_hidden() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("pufffile-hidden-{stamp}"));
+        fs::create_dir_all(root.join(".agents")).expect("create hidden dir");
+        fs::write(root.join(".env"), b"x").expect("create hidden file");
+
+        assert!(
+            build_entry(&root.join(".agents"))
+                .expect("hidden dir")
+                .is_hidden
+        );
+        assert!(
+            build_entry(&root.join(".env"))
+                .expect("hidden file")
+                .is_hidden
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

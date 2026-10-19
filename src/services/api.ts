@@ -14,7 +14,9 @@ import {
   mockClearClipboard,
   mockCreateEntry,
   mockListDirectory,
+  mockListDirectoryFlat,
   mockListSubdirs,
+  mockReadDirectoryTree,
   mockReadClipboard,
   mockReadViewerFile,
   mockRenameEntry,
@@ -26,7 +28,7 @@ import type {
   FileEntry,
   QuickLocation,
 } from "@/types/fs";
-import type { ViewerStreamEvent } from "@/types/viewer";
+import type { DirectoryTreeResult, ViewerStreamEvent } from "@/types/viewer";
 
 export function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -81,7 +83,45 @@ export async function listDirectory(
     await mockListDirectory(path, onEvent, signal);
     return;
   }
+  return streamDirectory("list_dir_stream", { path }, onEvent, signal);
+}
 
+/**
+ * 串流列舉「這個資料夾底下（含所有子資料夾）的所有檔案」，也就是扁平化展示。
+ *
+ * 事件序列與 [`listDirectory`] 相同，差別只有兩點：只會出現檔案，而且 `done` 會回報
+ * 略過的資料夾數。`id` 是窗格 id，換路徑時用 [`cancelFlatScan`] 讓後端提早收工 ——
+ * 走訪在阻塞執行緒上跑，前端的中止訊號到不了那裡。
+ */
+export async function listDirectoryFlat(
+  path: string,
+  includeHiddenDirs: boolean,
+  id: string,
+  onEvent: (event: DirStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!isDesktopRuntime()) {
+    await mockListDirectoryFlat(path, onEvent, signal);
+    return;
+  }
+  return streamDirectory("list_dir_flat_stream", { path, includeHiddenDirs, id }, onEvent, signal);
+}
+
+/** 停掉某個窗格正在跑的扁平化列舉（沒有在跑就什麼都不做）。 */
+export async function cancelFlatScan(id: string): Promise<void> {
+  if (!isDesktopRuntime()) {
+    return;
+  }
+  return guarded(() => invoke("cancel_dir_flat", { id }));
+}
+
+/** Channel 樣板：兩個列舉指令的事件形狀相同，只有參數與命令名稱不同。 */
+async function streamDirectory(
+  command: string,
+  args: Record<string, unknown>,
+  onEvent: (event: DirStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   const channel = new Channel<DirStreamEvent>();
   channel.onmessage = (event) => {
     if (!signal?.aborted) {
@@ -90,7 +130,7 @@ export async function listDirectory(
   };
 
   try {
-    await invoke("list_dir_stream", { path, onEvent: channel });
+    await invoke(command, { ...args, onEvent: channel });
   } catch (error) {
     throw toBackendError(error);
   }
@@ -139,6 +179,20 @@ export async function listSubdirs(path: string): Promise<FileEntry[]> {
     return mockListSubdirs(path);
   }
   return guarded(() => invoke<FileEntry[]>("list_subdirs", { path }));
+}
+
+/** 讀取資料夾樹；後端同時回傳 Unicode 與純 ASCII 兩種文字。 */
+export async function readDirectoryTree(
+  path: string,
+  includeFiles: boolean,
+  includeHidden: boolean,
+): Promise<DirectoryTreeResult> {
+  if (!isDesktopRuntime()) {
+    return mockReadDirectoryTree(path, includeFiles, includeHidden);
+  }
+  return guarded(() =>
+    invoke<DirectoryTreeResult>("read_directory_tree", { path, includeFiles, includeHidden }),
+  );
 }
 
 export async function quickLocations(): Promise<QuickLocation[]> {

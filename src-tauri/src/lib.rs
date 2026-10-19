@@ -20,13 +20,18 @@ pub fn run() {
         // PDF 檢視器的來源：`stream://` 直接串流檔案位元組（支援 Range），
         // 不走 base64／Blob，前端只要把 URL 交給 iframe。
         .manage(commands::stream::StreamRegistry::default())
+        // 扁平化列舉的取消旗標（見 `commands::fs::FlatScans`）。
+        .manage(commands::fs::FlatScans::default())
         .register_asynchronous_uri_scheme_protocol(
             commands::stream::SCHEME,
             commands::stream::handle,
         )
         .invoke_handler(tauri::generate_handler![
             commands::fs::list_dir_stream,
+            commands::fs::list_dir_flat_stream,
+            commands::fs::cancel_dir_flat,
             commands::fs::list_subdirs,
+            commands::fs::read_directory_tree,
             commands::fs::create_folder,
             commands::fs::create_file,
             commands::fs::save_binary_file,

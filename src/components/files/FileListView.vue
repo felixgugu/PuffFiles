@@ -18,6 +18,7 @@ import { useUiStore } from "@/stores/ui";
 import type { MenuRequest } from "@/composables/usePathMenu";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
+import { FLAT_VIEW_LIMIT, flatLabelOf } from "@/utils/flatView";
 import { formatCount } from "@/utils/format";
 import { samePath } from "@/utils/path";
 import { measureText, widestText } from "@/utils/textMetrics";
@@ -154,13 +155,28 @@ function fitColumn(column: ColumnId, event: MouseEvent) {
     (column === "name"
       ? NAME_LEADING + (rows.value.some((entry) => entry.isSymlink) ? NAME_SYMLINK_BADGE : 0)
       : 0);
-  const content = widestText(rows.value.map((entry) => cellText(column, entry)), fontOf(scrollEl.value));
+  const content = widestText(
+    rows.value.map((entry) => cellText(column, entry, nameLabel(entry))),
+    fontOf(scrollEl.value),
+  );
   const headerNeed =
     measureText(COLUMN_LABELS[column], fontOf(header)) +
     CELL_PADDING +
     (pane.value.sortKey === column ? HEADER_SORT_ICON : 0);
   const next = Math.ceil(Math.max(content + extra, headerNeed) + FIT_SLACK);
   explorer.setColumnWidth(props.paneId, column, Math.min(next, COLUMN_FIT_MAX));
+}
+
+/**
+ * 名稱欄實際顯示的文字。
+ *
+ * 扁平化展示時名稱欄是「相對路徑＋檔名」（`FileTableRow` 的兩段式排版），量測也要用
+ * 同一份文字，否則「雙擊自動調整欄寬」會把欄位縮到只剩檔名的寬度。
+ */
+function nameLabel(entry: FileEntry): string | undefined {
+  return pane.value.flat && pane.value.currentPath
+    ? flatLabelOf(entry, pane.value.currentPath).label
+    : undefined;
 }
 
 const start = computed(() =>
@@ -182,20 +198,57 @@ const emptyTitle = computed(() => {
   if (!pane.value.currentPath) {
     return "還沒有開啟資料夾";
   }
-  return pane.value.query.trim() ? "沒有符合的項目" : "這個資料夾是空的";
+  if (pane.value.query.trim()) {
+    return "沒有符合的項目";
+  }
+  return pane.value.flat ? "這個資料夾（含子資料夾）沒有檔案" : "這個資料夾是空的";
 });
 
 const emptyDescription = computed(() => {
   if (!pane.value.currentPath) {
     return "從左側清單選擇一個資料夾，或按「加入」把常用的工作資料夾加進來。";
   }
-  return pane.value.query.trim()
-    ? `找不到包含「${pane.value.query.trim()}」的檔案或資料夾。`
+  if (pane.value.query.trim()) {
+    const keyword = pane.value.query.trim();
+    return pane.value.flat
+      ? `找不到相對路徑包含「${keyword}」的檔案（含所有子資料夾）。`
+      : `找不到包含「${keyword}」的檔案或資料夾。`;
+  }
+  return pane.value.flat
+    ? "子資料夾裡也沒有找到任何檔案。"
     : "可以在這裡建立新的資料夾。";
 });
 
+/**
+ * 清單下方那一條說明：一次只說一件事，依「現在最需要知道什麼」排優先序。
+ *
+ * 扁平化展示是例外狀態，所以它的說明都集中在這裡：載入中（走訪整棵樹可能要好幾秒）、
+ * 被 5 萬筆上限截斷、有讀不到的資料夾、以及「這個模式不會自動更新」。
+ */
+const statusNote = computed(() => {
+  const current = pane.value;
+  if (!current.flat) {
+    return current.truncated
+      ? `項目過多，僅顯示前 ${formatCount(rows.value.length)} 筆。`
+      : null;
+  }
+  if (current.status === "loading") {
+    return `正在掃描子資料夾…（已找到 ${formatCount(current.total)} 筆）`;
+  }
+  if (current.truncated) {
+    return `檔案超過 ${formatCount(FLAT_VIEW_LIMIT)} 筆，僅列出前 ${formatCount(FLAT_VIEW_LIMIT)} 筆。`;
+  }
+  if (current.skipped > 0) {
+    return `已略過 ${formatCount(current.skipped)} 個無法讀取的資料夾。`;
+  }
+  // 自動重新整理本來會讓清單自己跟上變化，這裡刻意沒有；講出來免得使用者以為壞了。
+  return settings.autoRefresh ? "扁平化展示不會自動更新，按 F5 重新讀取。" : null;
+});
+
 function onScroll() {
-  scrollTop.value = scrollEl.value?.scrollTop ?? 0;
+  const value = scrollEl.value?.scrollTop ?? 0;
+  scrollTop.value = value;
+  explorer.setScrollTop(props.paneId, value);
 }
 
 /** 表頭也是這個捲動容器的一部分，點它不該被當成「點空白處」。 */
@@ -429,7 +482,24 @@ function onPointerUp() {
   }
 }
 
-/** 鍵盤移動焦點時，把目標列捲進可視範圍（虛擬清單不能靠 scrollIntoView）。 */
+/** 把指定列捲進可視範圍；虛擬清單不能靠 `scrollIntoView`。 */
+function revealRow(index: number, element: HTMLElement) {
+  if (index < 0) {
+    return;
+  }
+  const top = index * rowHeight.value;
+  const bottom = top + rowHeight.value;
+  const visibleTop = element.scrollTop + HEADER_HEIGHT;
+  const visibleBottom = element.scrollTop + element.clientHeight;
+
+  if (top < visibleTop) {
+    element.scrollTop = Math.max(0, top - HEADER_HEIGHT);
+  } else if (bottom > visibleBottom) {
+    element.scrollTop = bottom - element.clientHeight;
+  }
+}
+
+/** 鍵盤移動焦點時，把目標列捲進可視範圍。 */
 watch(
   () => pane.value.focusedIndex,
   async (index) => {
@@ -441,16 +511,40 @@ watch(
     if (!element) {
       return;
     }
-    const top = index * rowHeight.value;
-    const bottom = top + rowHeight.value;
-    const visibleTop = element.scrollTop + HEADER_HEIGHT;
-    const visibleBottom = element.scrollTop + element.clientHeight;
+    revealRow(index, element);
+  },
+);
 
-    if (top < visibleTop) {
-      element.scrollTop = Math.max(0, top - HEADER_HEIGHT);
-    } else if (bottom > visibleBottom) {
-      element.scrollTop = bottom - element.clientHeight;
+/**
+ * 上一頁／下一頁完成載入後，等虛擬清單把新高度算好，再一次跳到原本的捲動位置。
+ *
+ * 先還原精確位置；若清單內容在離開期間改變，讓焦點列落到可視範圍外時，再做最小幅度的
+ * 補正。這個 watcher 放在焦點 watcher 之後，順序才會是「焦點先就位 → 視野回到原位」。
+ */
+watch(
+  () => pane.value.scrollRestore,
+  async (request) => {
+    if (!request) {
+      return;
     }
+    await nextTick();
+    if (pane.value.scrollRestore?.token !== request.token) {
+      return;
+    }
+    const element = scrollEl.value;
+    if (!element) {
+      return;
+    }
+    element.scrollTop = request.top;
+    scrollTop.value = element.scrollTop;
+    explorer.setScrollTop(props.paneId, element.scrollTop);
+    await nextTick();
+    if (pane.value.scrollRestore?.token !== request.token) {
+      return;
+    }
+    revealRow(pane.value.focusedIndex, element);
+    scrollTop.value = element.scrollTop;
+    explorer.setScrollTop(props.paneId, element.scrollTop);
   },
 );
 
@@ -711,6 +805,7 @@ function sortBy(column: ColumnId) {
             :cut="clipboard.isCut(entry.path)"
             :compare-state="compare.statusFor(props.paneId, entry)"
             :editing="renaming?.path === entry.path"
+            :flat-root="pane.flat ? pane.currentPath : null"
             :data-index="start + index"
             @activate="syncedNav.open(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"
@@ -728,10 +823,10 @@ function sortBy(column: ColumnId) {
     </div>
 
     <div
-      v-if="pane.truncated"
+      v-if="statusNote"
       class="shrink-0 border-t border-line bg-surface-muted px-3 py-1.5 text-xs text-ink-muted"
     >
-      項目過多，僅顯示前 {{ formatCount(rows.length) }} 筆。
+      {{ statusNote }}
     </div>
 
     <ContextMenu

@@ -35,7 +35,7 @@ PuffFiles/
 │  │  ├─ clipboard.ts          # 文字剪貼簿（含 WebView 相容降級）
 │  │  └─ window.ts             # 無邊框視窗控制
 │  ├─ stores/                  # Pinia 4 setup stores（狀態唯一真實來源）
-│  │  ├─ explorer.ts           # 每個窗格的路徑、項目、選取、排序、欄寬、瀏覽歷史
+│  │  ├─ explorer.ts           # 每個窗格的路徑、項目、選取、排序、欄寬、瀏覽歷史、扁平化展示
 │  │  ├─ tabs.ts               # 分頁與分割版面、窗格生命週期、工作階段還原
 │  │  ├─ folders.ts            # 左側「我的資料夾」清單（含虛擬目錄、順序、展開狀態）
 │  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除／重新命名、送到另一窗格、忙碌狀態
@@ -65,13 +65,13 @@ PuffFiles/
 │  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
 │  │  ├─ viewer/               # ViewerPane、MarkdownView、DocxView、TextView、BookmarkOutline（書籤目錄）、
 │  │  │                        # OutlinePanel（目錄索引）、HtmlView、ImageView、PdfView、
-│  │  │                        # FloatingPanel、ViewerSearchPanel
+│  │  │                        # DirectoryTreeView（ASCII 目錄樹）、FloatingPanel、ViewerSearchPanel
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
 │  │  ├─ overlays/             # ContextMenu、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
 │  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / mermaid /
 │                              # spring / viewer / docx / bookmarkAnchor / docxBookmark /
-│                              # textBookmark / compare …）
+│                              # textBookmark / compare / flatView …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ tools/mermaid-clip-check/   # Mermaid 圖表裁切／縮放與平移的驗證工具（見 docs/redesign-plan.md §7）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
@@ -85,6 +85,7 @@ PuffFiles/
       ├─ model.rs              # FileEntry / DirListing / DirEvent / ViewerEvent / DriveInfo / QuickLocation
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
+      │  ├─ flat.rs            # 扁平化列舉：遞迴走訪所有子資料夾、只回檔案（見 §3.1）
       │  ├─ paths.rs           # 應用資料與日誌位置（資料收在 %LOCALAPPDATA%\PuffFile，日誌跟執行檔）
       │  ├─ programs.rs        # 偵測電腦上已安裝的外部程式（目前只有 7-Zip）
       │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
@@ -92,7 +93,8 @@ PuffFiles/
       │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
       │  └─ oplog.rs           # 檔案操作紀錄（<資料根>\logs）
       └─ commands/
-         ├─ fs.rs              # list_dir_stream、list_subdirs、建立資料夾／檔案、外部工具、reveal
+         ├─ fs.rs              # list_dir_stream、list_dir_flat_stream／cancel_dir_flat、list_subdirs、
+         │                     # 建立資料夾／檔案、外部工具、reveal
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
          ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
@@ -114,6 +116,34 @@ PuffFiles/
 
 目錄變更由 `core/watch.rs`（ReadDirectoryChangesW）推送，前端以**增量**套用（插入／移除／就地更新），
 不重讀整份清單；只有通知溢位時才退回整份重讀。
+
+**隱藏項目判定**：Windows 的 `FILE_ATTRIBUTE_HIDDEN`，以及名稱以 `.` 開頭的檔案或資料夾
+（`.git`、`.agents` 這類開發用目錄）都視為隱藏；因此關閉「顯示隱藏項目」時，一般清單、
+扁平化列舉與目錄樹都不會列出或進入這些位置。
+
+**扁平化展示（2026-10-16）**：每個窗格可以切換成「直接列出這個資料夾底下（含所有子資料夾）的
+檔案」。它和檢視器一樣只是**窗格的一種顯示模式**，切回一般清單就回到同一層的內容：
+
+- 後端走 `list_dir_flat_stream`（`core/flat.rs` 的 `resolve_root` ＋ `walk_files`）：只回檔案、
+  **先淺後深**（同一層依相對路徑），走訪在阻塞執行緒上跑並**邊走邊送**，所以大目錄會一批批
+  出現；`done` 額外回報 `skipped`（讀不到而略過的資料夾數，單層列舉固定 0）。
+- **不進入 reparse point**（符號連結／junction／掛載點）：`C:\Users\<user>` 底下就有指向自己的
+  junction，跟進去會變成無窮迴圈。判斷用 Windows 的 `FILE_ATTRIBUTE_REPARSE_POINT`，
+  不能只靠 `is_symlink`（junction 不是符號連結）。
+- 上限 `MAX_FILES = 50_000`（前端 `utils/flatView.ts` 的 `FLAT_VIEW_LIMIT` 是同一個數字），
+  超過就截斷並在清單下方說明。`settings.showHidden` 為關時**連隱藏資料夾都不進去**
+  （`AppData`、`.git` 這類位置掃了也是白掃），所以切換這個設定時扁平窗格要重讀。
+- 名稱欄顯示**相對路徑**：`flatLabelOf()` 把相對路徑拆成「淡色前綴＋檔名」，欄位不夠寬時
+  先吃掉前綴（檔名是辨識關鍵）；搜尋與「名稱」排序也走相對路徑，`compareFlatOrder()`
+  重現後端的走訪順序，所以名字升冪時可以直接沿用後端送來的順序。
+- **不掛目錄監控**：`ReadDirectoryChangesW` 只看得到一層，子資料夾裡的變動收不到，
+  接了只會讓清單半新半舊；改成請使用者按 F5，並在清單下方說明（`settings.autoRefresh`
+  為真時才提示，因為那時使用者原本預期它會自己更新）。
+- 每個窗格各自獨立、寫進工作階段快照（`SessionPane.flat`）；分割或新分頁產生的新窗格預設
+  一般清單，導覽到別的資料夾仍保持扁平（模式跟著窗格，不跟著路徑）。換路徑時前端呼叫
+  `cancel_dir_flat`，讓後端的走訪提早收工 —— 走訪在阻塞執行緒上，AbortController 到不了。
+- 入口只有路徑列右側的一顆切換鈕（不綁快速鍵、不進右鍵選單）。**目錄比對在扁平窗格上停用**：
+  比對用檔名配對，攤平後同名檔案幾乎都在不同資料夾裡（見 §3.7）。
 
 ### 3.2 我的資料夾（含虛擬目錄）
 
@@ -196,6 +226,10 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 選取的那一列刪除時，落點由實際被刪的列算，不是由 `pane.selected` 算。其他會讓項目消失
 的操作（複製到另一窗格、搬移）維持原樣。
 
+資料夾列、清單空白處與「我的資料夾」的真實資料夾節點另外提供「在○（窗格）開啟 ASCII
+樹狀目錄」。它和一般「在○窗格開啟」不同：前者把資料夾開成檔案清單，後者把目錄樹開成
+只讀檢視器。目標沿用焦點窗格的鄰居；未分割時一樣先分割再開啟。
+
 ### 3.5 檢視器（Viewer）
 
 檢視器是**窗格內容模式之一**，不是第三種版面：窗格預設顯示檔案清單，被檢視器佔用時
@@ -207,6 +241,13 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   沿用來源窗格的資料夾，檢視器再疊上去；已分割時直接把內容開在相鄰窗格。
   **焦點一律留在原本的檔案清單**（連續用方向鍵＋`Space` 快速換檔案預覽）；
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
+- **ASCII 目錄樹狀檢視器（2026-10-19）**：資料夾也能以只讀文字檢視器開啟。後端
+  `read_directory_tree` 走訪一次並同時產生 Unicode（預設）與 Windows `tree /A` 格式的純
+  ASCII 樹枝（`+---`／`\---`）；每次開啟
+  都從「不含檔案、不含隱藏項目、Unicode」開始，這三項可在檢視器標頭切換。前兩項改變時
+  重新掃描，字元樣式只換目前文字。最多 20,000 個節點，讀不到的資料夾與截斷狀態會顯示在
+  內容上方；不進入 reparse point，也不掛目錄監控，重新整理走 F5／標頭按鈕。支援整份複製、
+  捲動與關閉，不提供搜尋或書籤。
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
   WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、`.pdf`（與圖檔同樣走自訂協定，見下），
   `.docx／.docm`（`docx-preview`，見下），以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
@@ -512,6 +553,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   選取時底色讓給 `bg-accent-soft`、色條保留；狀態列每一行顯示「僅此窗格 N · 不同 M」，
   數的是**可見列**（看到什麼就數什麼）。顏色權杖是 `main.css` 的 `--color-compare-*`
   （淺／深各一組，底色亮度比照 `accent-soft`，文字對比不掉）。
+  **扁平化展示的窗格不參與比對**（任一邊開著扁平化就整組不比、狀態列也不顯示統計）：
+  配對的鍵是檔名，攤平後兩邊同名的檔案幾乎一定在不同的子資料夾裡，比出來的顏色只會誤導。
 
 ### 3.8 外部工具（含 7-Zip 自動整合）
 

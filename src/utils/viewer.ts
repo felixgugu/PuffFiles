@@ -42,6 +42,9 @@ const PDF_EXTENSIONS = new Set(["pdf"]);
  */
 const DOCX_EXTENSIONS = new Set(["docx", "docm"]);
 
+/** 目錄樹一次最多輸出的節點數；與 Rust 的 `core::tree::MAX_NODES` 相同。 */
+export const DIRECTORY_TREE_LIMIT = 20_000;
+
 /**
  * 這個項目能不能用檢視器打開；不能就回 `null`。
  *
@@ -101,11 +104,17 @@ export const MAX_COPY_BYTES = 50 * 1024 * 1024;
 /**
  * 這個檢視器有沒有「複製」鈕（工具列）。
  *
- * 範圍與搜尋一致：文字類的 Markdown／HTML／純文字與程式碼／DOCX。圖片與 PDF
- * 沒有文字內容可複製，「沒有檢視器的類型」更是連內容都沒讀。
+ * 文字類的 Markdown／HTML／純文字與程式碼／DOCX，以及由文字組成的目錄樹。
+ * 圖片與 PDF 沒有文字內容可複製，「沒有檢視器的類型」更是連內容都沒讀。
  */
 export function supportsViewerCopy(kind: ViewerKind | null): boolean {
-  return kind === "markdown" || kind === "html" || kind === "text" || kind === "docx";
+  return (
+    kind === "markdown" ||
+    kind === "html" ||
+    kind === "text" ||
+    kind === "docx" ||
+    kind === "directory-tree"
+  );
 }
 
 /** 複製鈕的標題與成功訊息（兩者要是同一句話，按鈕才會說到做到）。 */
@@ -122,6 +131,7 @@ export interface ViewerCopyLabel {
  * - Markdown 與純文字（含 HTML 的原始碼模式）複製的是**檔案內容本身**
  *   （`ViewerState.text`），所以 Markdown 拿到的是原始碼，不是渲染後的文字。
  * - HTML 預覽與 DOCX 只有畫面，複製的是排版後的**可見文字**。
+ * - 目錄樹複製目前 Unicode／ASCII 樣式的完整文字。
  */
 export function viewerCopyLabel(
   kind: ViewerKind | null,
@@ -138,6 +148,8 @@ export function viewerCopyLabel(
         : { title: "複製可見文字", done: "已複製可見文字" };
     case "docx":
       return { title: "複製可見文字", done: "已複製可見文字" };
+    case "directory-tree":
+      return { title: "複製目錄樹", done: "已複製目錄樹" };
     default:
       return null;
   }
@@ -170,7 +182,13 @@ export function bookmarkKindOf(kind: ViewerKind | null): BookmarkKind | null {
  * 那一組按鈕。HTML 兩種模式都算：預覽捲 iframe 的文件、原始碼捲純文字容器。
  */
 export function supportsViewerScroll(kind: ViewerKind | null): boolean {
-  return kind === "markdown" || kind === "docx" || kind === "text" || kind === "html";
+  return (
+    kind === "markdown" ||
+    kind === "docx" ||
+    kind === "text" ||
+    kind === "html" ||
+    kind === "directory-tree"
+  );
 }
 
 /**

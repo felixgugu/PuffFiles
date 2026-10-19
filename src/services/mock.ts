@@ -6,7 +6,7 @@
  */
 
 import type { DirStreamEvent, DriveInfo, FileEntry, QuickLocation } from "@/types/fs";
-import type { ViewerStreamEvent } from "@/types/viewer";
+import type { DirectoryTreeResult, ViewerStreamEvent } from "@/types/viewer";
 import { fileNameOf, joinPath, parentOf } from "@/utils/path";
 import { viewerKindOfPath } from "@/utils/viewer";
 
@@ -146,7 +146,146 @@ export async function mockListDirectory(
     onEvent({ type: "batch", entries: entries.slice(index, index + 4) });
   }
 
-  onEvent({ type: "done", total: entries.length, truncated: false });
+  onEvent({ type: "done", total: entries.length, truncated: false, skipped: 0 });
+}
+
+/** 瀏覽器預覽用的扁平化列舉：再多往下幾層、只回檔案，順序與 Rust 端一致。 */
+const MOCK_FLAT_DEPTH = 2;
+const MOCK_FLAT_LIMIT = 120;
+
+export async function mockListDirectoryFlat(
+  path: string,
+  onEvent: (event: DirStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  await delay(90);
+  if (signal?.aborted) return;
+
+  onEvent({
+    type: "start",
+    path,
+    name: fileNameOf(path) || path,
+    parent: parentOf(path),
+  });
+
+  const queue: { dir: string; depth: number }[] = [{ dir: path, depth: 0 }];
+  const batch: FileEntry[] = [];
+  let total = 0;
+  let truncated = false;
+
+  /** 湊到一批就送；回傳 false 代表呼叫端已經走了。 */
+  const flush = async (force: boolean): Promise<boolean> => {
+    if (batch.length === 0 || (!force && batch.length < 4)) {
+      return true;
+    }
+    await delay(30);
+    if (signal?.aborted) {
+      return false;
+    }
+    onEvent({ type: "batch", entries: batch.splice(0, batch.length) });
+    return true;
+  };
+
+  while (queue.length) {
+    const { dir, depth } = queue.shift()!;
+    const entries = buildMockEntries(dir);
+    // 這裡刻意把檔案排在子資料夾前面，與後端「先送這一層、再排入子資料夾」一致。
+    const files = entries
+      .filter((entry) => !entry.isDir)
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const file of files) {
+      if (total >= MOCK_FLAT_LIMIT) {
+        truncated = true;
+        break;
+      }
+      total += 1;
+      batch.push(file);
+      if (!(await flush(false))) {
+        return;
+      }
+    }
+    if (truncated) {
+      break;
+    }
+    if (depth + 1 < MOCK_FLAT_DEPTH) {
+      for (const entry of entries) {
+        if (entry.isDir) {
+          queue.push({ dir: entry.path, depth: depth + 1 });
+        }
+      }
+    }
+  }
+
+  if (!(await flush(true))) {
+    return;
+  }
+  onEvent({ type: "done", total, truncated, skipped: 0 });
+}
+
+/** 瀏覽器預覽用的目錄樹；最多走三層，避免假資料夾無限遞迴。 */
+const MOCK_TREE_DEPTH = 3;
+
+export async function mockReadDirectoryTree(
+  path: string,
+  includeFiles: boolean,
+  includeHidden: boolean,
+): Promise<DirectoryTreeResult> {
+  await delay(80);
+  const unicodeLines = [path];
+  const asciiLines = [path];
+  let directories = 0;
+  let files = 0;
+
+  const walk = (
+    directory: string,
+    depth: number,
+    unicodePrefix: string,
+    asciiPrefix: string,
+  ) => {
+    if (depth >= MOCK_TREE_DEPTH) {
+      return;
+    }
+    const entries = buildMockEntries(directory)
+      .filter((entry) => includeHidden || !entry.isHidden)
+      .filter((entry) => includeFiles || entry.isDir)
+      .sort((left, right) =>
+        left.isDir === right.isDir
+          ? left.name.localeCompare(right.name)
+          : left.isDir
+            ? -1
+            : 1,
+      );
+
+    entries.forEach((entry, index) => {
+      const last = index === entries.length - 1;
+      unicodeLines.push(`${unicodePrefix}${last ? "└─ " : "├─ "}${entry.name}`);
+      asciiLines.push(`${asciiPrefix}${last ? "\\--- " : "+--- "}${entry.name}`);
+      if (entry.isDir) {
+        directories += 1;
+        walk(
+          entry.path,
+          depth + 1,
+          `${unicodePrefix}${last ? "   " : "│  "}`,
+          `${asciiPrefix}${last ? "    " : "|   "}`,
+        );
+      } else {
+        files += 1;
+      }
+    });
+  };
+
+  walk(path, 0, "", "");
+  return {
+    path,
+    name: fileNameOf(path) || path,
+    unicodeText: unicodeLines.join("\n"),
+    asciiText: asciiLines.join("\n"),
+    directories,
+    files,
+    truncated: false,
+    skipped: 0,
+  };
 }
 
 function delay(ms: number): Promise<void> {

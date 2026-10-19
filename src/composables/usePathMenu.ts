@@ -41,13 +41,15 @@ export interface MenuRequest {
  *
  * 檔案清單預設不顯示剪貼組（剪下／複製／貼上／刪除），只有按住 Shift 右鍵的
  * 「擴充選單」才出現；左側資料夾樹是書籤清單，兩者都不顯示（它不傳
- * `MenuOptions`，見 `FolderTreePanel`）。
+ * 剪貼與重新命名選項，只帶 `treeContext` 改變樹狀檢視文案，見 `FolderTreePanel`）。
  */
 export interface MenuOptions {
   /** 顯示「剪下／複製／貼上／刪除」這一組。 */
   clipboard?: boolean;
   /** 顯示「重新命名」（只有檔案清單能就地編輯）。 */
   rename?: boolean;
+  /** 左側「我的資料夾」的選單：樹狀檢視文案不重複「窗格」二字。 */
+  treeContext?: boolean;
 }
 
 /**
@@ -200,6 +202,21 @@ export function usePathMenu() {
     return { id: "open-tab", label: "在新分頁開啟", icon: "tabNew" };
   }
 
+  function treePaneItem(paneId: PaneId, options: MenuOptions): MenuItem {
+    const neighbor = neighborPaneId(paneId);
+    const tab = tabs.activeTab;
+    const slot = neighbor && tab ? paneSlotLabel(tab, neighbor) : "";
+    return {
+      id: "open-tree-pane",
+      label: slot
+        ? options.treeContext
+          ? `在${slot}開啟 ASCII 樹狀目錄`
+          : `在${slot}窗格開啟 ASCII 樹狀目錄`
+        : "在新窗格開啟 ASCII 樹狀目錄",
+      icon: "directoryTree",
+    };
+  }
+
   function append(items: MenuItem[], block: MenuItem[]) {
     block.forEach((item, index) => {
       items.push({ ...item, separatorBefore: index === 0 ? items.length > 0 : false });
@@ -207,10 +224,14 @@ export function usePathMenu() {
   }
 
   /** 空白處：只提供跟「目前這個資料夾」有關的動作，加上新增（貼上屬於擴充選單）。 */
-  function menuForBlank(target: MenuTarget, options: MenuOptions): MenuItem[] {
+  function menuForBlank(
+    target: MenuTarget,
+    paneId: PaneId,
+    options: MenuOptions,
+  ): MenuItem[] {
     const items: MenuItem[] = [];
     // 「在新分頁開啟」是開啟這一組的第一項，所有選單一致放在最上方。
-    append(items, [openTabItem()]);
+    append(items, [openTabItem(), treePaneItem(paneId, options)]);
     append(items, newItems());
     if (options.clipboard) {
       append(items, editItems("blank", options));
@@ -235,6 +256,7 @@ export function usePathMenu() {
         // 圖示直接反映會用哪個方向：沿用上次分割的方向（與路徑列的版面切換一致）。
         icon: splitIcon(neighbor && tab ? tab.direction : settings.lastSplit.direction),
       },
+      treePaneItem(paneId, options),
     ];
     append(items, newItems());
     if (options.clipboard) {
@@ -295,7 +317,7 @@ export function usePathMenu() {
 
   function menuFor(request: MenuRequest, options: MenuOptions = {}): MenuItem[] {
     if (!request.targets.length) {
-      return menuForBlank(request.target, options);
+      return menuForBlank(request.target, request.paneId, options);
     }
     if (request.targets.length > 1) {
       return menuForSelection(request, options);
@@ -462,6 +484,28 @@ export function usePathMenu() {
         const created = tabs.activePaneId;
         tabs.setActivePane(source);
         await viewer.open(created, target.path, source);
+        return;
+      }
+      case "open-tree-pane": {
+        if (!target.isDir) {
+          return;
+        }
+        const targetPane = options.targetPaneId ?? neighborPaneId(request.paneId);
+        const keepFocus = options.keepFocus ?? false;
+        if (targetPane) {
+          if (!keepFocus && targetPane !== request.paneId) {
+            tabs.setActivePane(targetPane);
+          }
+          await viewer.openDirectoryTree(targetPane, target.path);
+          return;
+        }
+        // 新窗格一開始就停在樹根資料夾：關掉檢視器後看到的就是剛才瀏覽的目錄。
+        tabs.split(settings.lastSplit.direction, target.path);
+        const created = tabs.activePaneId;
+        if (keepFocus) {
+          tabs.setActivePane(request.paneId);
+        }
+        await viewer.openDirectoryTree(created, target.path);
         return;
       }
       case "copy-name":

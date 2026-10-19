@@ -18,7 +18,42 @@ export interface OutlineItem {
 }
 
 /** 檢視器支援的內容種類。 */
-export type ViewerKind = "markdown" | "html" | "image" | "text" | "pdf" | "docx";
+export type ViewerKind =
+  | "markdown"
+  | "html"
+  | "image"
+  | "text"
+  | "pdf"
+  | "docx"
+  | "directory-tree";
+
+/** 目錄樹枝的字元樣式。 */
+export type DirectoryTreeStyle = "unicode" | "ascii";
+
+/** 後端 `read_directory_tree` 的結果。 */
+export interface DirectoryTreeResult {
+  path: string;
+  name: string;
+  unicodeText: string;
+  asciiText: string;
+  directories: number;
+  files: number;
+  truncated: boolean;
+  skipped: number;
+}
+
+/** 目錄樹狀檢視器的選項與統計；每個窗格各自一份。 */
+export interface ViewerTreeState {
+  includeFiles: boolean;
+  includeHidden: boolean;
+  style: DirectoryTreeStyle;
+  unicodeText: string;
+  asciiText: string;
+  directories: number;
+  files: number;
+  truncated: boolean;
+  skipped: number;
+}
 
 /**
  * HTML 的顯示模式：`preview` 是靜態預覽（不執行 JavaScript），`source` 是原始碼。
@@ -135,4 +170,6 @@ export interface ViewerState {
   tocPanel: ViewerPanelState;
   /** 搜尋面板的收合與位置尺寸。 */
   searchPanel: ViewerPanelState;
+  /** 目錄樹狀檢視器的選項與結果；其他檢視器為 `null`。 */
+  tree: ViewerTreeState | null;
 }

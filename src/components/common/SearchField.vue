@@ -3,7 +3,14 @@ import { useTemplateRef, watch } from "vue";
 import AppIcon from "./AppIcon.vue";
 import { useUiStore } from "@/stores/ui";
 
-const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true });
+const props = withDefaults(
+  defineProps<{
+    active?: boolean;
+    /** 提示文字：扁平化展示時搜尋的範圍含子資料夾，說法要跟著換。 */
+    placeholder?: string;
+  }>(),
+  { active: true, placeholder: "搜尋目前資料夾" },
+);
 
 /** 使用 `defineModel`（Vue 3.4+）雙向綁定搜尋字串。 */
 const keyword = defineModel<string>({ default: "" });
@@ -33,7 +40,7 @@ watch(
       v-model="keyword"
       type="text"
       spellcheck="false"
-      placeholder="搜尋目前資料夾"
+      :placeholder="placeholder"
       class="min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
     />
     <button

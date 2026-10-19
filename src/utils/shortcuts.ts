@@ -40,6 +40,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ["Enter"], label: "開啟資料夾；檔案以系統預設程式開啟" },
       { keys: ["Backspace", "Alt+↑"], label: "上一層" },
       { keys: ["Alt+←", "Alt+→"], label: "上一頁／下一頁" },
+      { keys: ["滑鼠後側鍵"], label: "上一頁（作用於焦點窗格）" },
       { keys: ["F5"], label: "重新整理清單與資料夾樹" },
       { keys: ["Ctrl+F"], label: "搜尋目前資料夾（焦點在檔案清單時）" },
       { keys: ["Ctrl+L"], label: "輸入路徑" },

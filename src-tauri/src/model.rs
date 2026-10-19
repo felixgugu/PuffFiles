@@ -18,7 +18,12 @@ pub enum DirEvent {
     /// 一批已排序的項目。
     Batch { entries: Vec<FileEntry> },
     /// 列舉結束。
-    Done { total: usize, truncated: bool },
+    Done {
+        total: usize,
+        truncated: bool,
+        /// 讀不到而略過的資料夾數；只有扁平化列舉可能大於 0（單層列舉一律 0）。
+        skipped: usize,
+    },
 }
 
 /// 串流讀取檢視器內容時的進度事件。
@@ -76,6 +81,22 @@ pub struct DirListing {
     pub entries: Vec<FileEntry>,
     /// 項目數超過上限而被截斷。
     pub truncated: bool,
+}
+
+/// ASCII 目錄樹狀檢視器的內容。
+///
+/// 同一次走訪同時產生 Unicode 與純 ASCII 兩種樹枝；前端切換樣式時不需要重掃磁碟。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryTreeResult {
+    pub path: String,
+    pub name: String,
+    pub unicode_text: String,
+    pub ascii_text: String,
+    pub directories: usize,
+    pub files: usize,
+    pub truncated: bool,
+    pub skipped: usize,
 }
 
 /// 磁碟種類。

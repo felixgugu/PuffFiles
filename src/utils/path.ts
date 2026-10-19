@@ -30,6 +30,26 @@ export function extensionOf(path: string): string {
   return index > 0 ? name.slice(index).toLocaleLowerCase() : "";
 }
 
+/**
+ * `path` 相對於 `root` 的路徑（`C:\a\b\c.txt` 對 `C:\a` → `b\c.txt`）。
+ *
+ * 扁平化展示用它把清單裡的每一列接回自己的資料夾。`path` 就是 `root` 自己時回空字串；
+ * 不在 `root` 底下（被移動過、或根本不是同一棵樹）時回 `null`，呼叫端會退回完整路徑。
+ */
+export function relativeTo(root: string, path: string): string | null {
+  if (!root) {
+    return null;
+  }
+  const base = normalizeKey(root);
+  const target = toBackslashes(path);
+  if (target.toLocaleLowerCase() === base) {
+    return "";
+  }
+  return target.toLocaleLowerCase().startsWith(`${base}\\`)
+    ? target.slice(base.length + 1)
+    : null;
+}
+
 export function joinPath(base: string, name: string): string {
   const normalized = toBackslashes(base);
   return normalized.endsWith("\\") ? `${normalized}${name}` : `${normalized}\\${name}`;
