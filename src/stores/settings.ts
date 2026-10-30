@@ -186,6 +186,8 @@ interface StoredSettings {
   tools: ExternalTool[];
   treeWidth: number;
   treeCollapsed: boolean;
+  /** 資料夾樹固定在左／上窗格開啟（預設開啟，見 AGENTS.md §3.2）。 */
+  treePrefersLeftPane: boolean;
   /** 上次分割時，第二個窗格開在哪個資料夾、用哪個方向。 */
   lastSplit: { path: string; direction: SplitDirection };
   /** Markdown 檢視器的目錄索引開關（預設開啟）。 */
@@ -237,6 +239,7 @@ const DEFAULTS: StoredSettings = {
   tools: DEFAULT_TOOLS,
   treeWidth: 260,
   treeCollapsed: false,
+  treePrefersLeftPane: true,
   lastSplit: { path: "", direction: "row" },
   markdownTocEnabled: true,
   viewerBookmarksEnabled: true,
@@ -335,6 +338,10 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
       typeof raw.compareDirectories === "boolean"
         ? raw.compareDirectories
         : DEFAULTS.compareDirectories,
+    treePrefersLeftPane:
+      typeof raw.treePrefersLeftPane === "boolean"
+        ? raw.treePrefersLeftPane
+        : DEFAULTS.treePrefersLeftPane,
     // 面板共用值 2026-10-06 從 markdownToc* 改名，舊鍵要先搬過來才不會白掉設定。
     viewerPanelMinWidth: clampPanelMinWidth(
       numberOr(raw.viewerPanelMinWidth ?? raw.markdownTocMinWidth, PANEL_MIN_WIDTH_DEFAULT),
@@ -373,6 +380,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const tools = ref<ExternalTool[]>(stored.tools);
   const treeWidth = ref(stored.treeWidth);
   const treeCollapsed = ref(stored.treeCollapsed);
+  const treePrefersLeftPane = ref(stored.treePrefersLeftPane);
   const lastSplit = ref<{ path: string; direction: SplitDirection }>(
     stored.lastSplit ?? { path: stored.lastSplitPath ?? "", direction: "row" },
   );
@@ -433,7 +441,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, lastSplit, markdownTocEnabled, viewerBookmarksEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, treePrefersLeftPane, lastSplit, markdownTocEnabled, viewerBookmarksEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -453,6 +461,7 @@ export const useSettingsStore = defineStore("settings", () => {
           tools: tools.value,
           treeWidth: treeWidth.value,
           treeCollapsed: treeCollapsed.value,
+          treePrefersLeftPane: treePrefersLeftPane.value,
           lastSplit: lastSplit.value,
           markdownTocEnabled: markdownTocEnabled.value,
           viewerBookmarksEnabled: viewerBookmarksEnabled.value,
@@ -630,6 +639,7 @@ export const useSettingsStore = defineStore("settings", () => {
     tools,
     treeWidth,
     treeCollapsed,
+    treePrefersLeftPane,
     lastSplit,
     isDark,
     reduceMotion,

@@ -5,6 +5,7 @@ import { useSpringValue } from "@/composables/useSpringValue";
 import { useExplorerStore } from "@/stores/explorer";
 import { useFoldersStore } from "@/stores/folders";
 import { useSettingsStore } from "@/stores/settings";
+import { useTabsStore } from "@/stores/tabs";
 import type { FolderNode, PaneId } from "@/types/fs";
 import { folderDisplayName } from "@/utils/folders";
 import { SPRINGS } from "@/utils/spring";
@@ -29,6 +30,7 @@ const emit = defineEmits<{
 const folders = useFoldersStore();
 const explorer = useExplorerStore();
 const settings = useSettingsStore();
+const tabs = useTabsStore();
 
 const isGroup = computed(() => props.node.kind === "group");
 /** 有別名時套用設定裡的顯示格式；沒有別名的節點（含檔案系統子資料夾）就是原名。 */
@@ -201,7 +203,15 @@ function activate() {
   if (isGroup.value || !props.node.path) {
     return;
   }
-  void explorer.navigate(props.paneId, props.node.path);
+  /*
+   * 導覽目標由 `settings.treePrefersLeftPane` 決定（預設開啟＝左／上窗格，見 AGENTS.md §3.2）。
+   * 換了窗格時焦點一起移過去：路徑列、樹的高亮與後續鍵盤操作才跟著作動的那一邊。
+   */
+  const target = tabs.treeTargetPaneId;
+  if (target !== props.paneId) {
+    tabs.setActivePane(target);
+  }
+  void explorer.navigate(target, props.node.path);
 }
 
 function toggle() {

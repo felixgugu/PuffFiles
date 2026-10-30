@@ -10,7 +10,8 @@
 - **前端核心庫**：Pinia 4 setup stores（狀態管理）。
 - **後端技術棧**：Rust edition 2024、Tokio、thiserror 2、sysinfo、windows-rs（Shell／剪貼簿／目錄監控）。
 - **打包**：`npm run build:portable`（＝ `tauri build --no-bundle`）或 `build-portable.ps1`，
-  產出單檔免安裝的 `dist-portable\PuffFile.exe`。
+  `build-portable.ps1` 會產出單檔免安裝的 `dist-portable\PuffFile.exe`，並自動壓成
+  `dist-portable\PuffFile.7z`；加上 `-Zip` 可另外產生 ZIP。
 
 ## 2. 目錄結構與職責
 
@@ -169,6 +170,11 @@ interface FolderNode {
   `reveal(path)` 會先展開所在的群組再展開沿路資料夾；`collapseAll()` 兩者都清。
 - **展開／收合只由節點左邊的箭頭圖示控制**：點節點名稱只選取（真實資料夾會一併導覽），
   不會展開或收合；虛擬目錄沒有實體路徑，選取後就結束。
+- **導覽目標預設固定在左／上窗格**（`settings.treePrefersLeftPane`，設定頁「瀏覽 → 資料夾樹」，
+  預設開啟）：點真實資料夾時一律開在 `paneIds[0]`（左右分割的左、上下分割的上），不管焦點
+  在哪一邊，並把焦點一起移過去（路徑列與樹的高亮才跟著作動的那一邊）。目標由
+  `stores/tabs.ts` 的 `treeTargetPaneId` 決定，`addFolder()` 加入後的自動導覽也套同一條規則；
+  關掉才回到焦點窗格。右鍵選單的「在○窗格開啟」是明確指定，不受這個設定影響。
 - **窗格瀏覽不會自動展開樹**：切換窗格路徑只讓樹跟著高亮（`selectByPath`），不呼叫
   `reveal()`。唯一的自動展開是樹工具列的「定位」；加入資料夾只會打開所在的虛擬目錄
   （`reveal(path, { expandTarget: false })`），不會展開新資料夾本身。

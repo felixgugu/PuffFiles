@@ -167,7 +167,12 @@ async function addFolder(groupId: string) {
       ui.showNotice("這個資料夾已經在清單裡了");
       return;
     }
-    await explorer.navigate(paneId.value, chosen);
+    // 加入後導覽到新資料夾：跟樹的點選同一條規則（固定在左／上窗格，見 AGENTS.md §3.2）。
+    const target = tabs.treeTargetPaneId;
+    if (target !== paneId.value) {
+      tabs.setActivePane(target);
+    }
+    await explorer.navigate(target, chosen);
   } catch (cause) {
     ui.showNotice(normalizeBackendError(cause).message);
   }

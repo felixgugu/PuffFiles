@@ -309,6 +309,28 @@ async function selectSection(id: SectionId) {
             </section>
 
             <section class="py-6 first:pt-0 last:pb-0">
+              <h3 class="text-base font-semibold text-ink">資料夾樹</h3>
+              <div class="mt-2 space-y-2">
+                <label class="flex items-center justify-between py-1">
+                  <span class="text-base text-ink">資料夾樹固定使用左／上窗格</span>
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-[var(--color-accent)]"
+                    :checked="settings.treePrefersLeftPane"
+                    @change="
+                      settings.treePrefersLeftPane = ($event.target as HTMLInputElement).checked
+                    "
+                  />
+                </label>
+                <p class="text-xs leading-relaxed text-ink-faint">
+                  點選左側資料夾樹時一律在左／上窗格開啟（左右分割的左、上下分割的上），不管焦點在哪一邊，
+                  焦點也會一起移過去；加入資料夾後的自動導覽同樣適用。取消後回到原本的焦點窗格。
+                  右鍵選單的「在○窗格開啟」不受影響。
+                </p>
+              </div>
+            </section>
+
+            <section class="py-6 first:pt-0 last:pb-0">
               <div class="flex items-baseline justify-between">
                 <h3 class="text-base font-semibold text-ink">顯示欄位</h3>
                 <button

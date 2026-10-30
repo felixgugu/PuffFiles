@@ -53,6 +53,19 @@ export const useTabsStore = defineStore("tabs", () => {
   const activePaneId = computed(() => activeTab.value?.activePaneId ?? "");
   const isSplit = computed(() => (activeTab.value?.paneIds.length ?? 0) > 1);
 
+  /**
+   * 資料夾樹要導覽的窗格（見 AGENTS.md §3.2）。
+   *
+   * `settings.treePrefersLeftPane` 開啟時固定在左／上窗格（左右分割的左、上下分割的上，
+   * 也就是 `paneIds[0]`），不管焦點在哪一邊；單一窗格時就是它自己。關掉才回到焦點窗格。
+   */
+  const treeTargetPaneId = computed(() => {
+    if (!settings.treePrefersLeftPane) {
+      return activePaneId.value;
+    }
+    return activeTab.value?.paneIds[0] ?? activePaneId.value;
+  });
+
   function createTabState(paneIds: PaneId[], direction: SplitDirection, ratio: number): TabState {
     return {
       id: `tab-${++sequence}`,
@@ -464,6 +477,7 @@ export const useTabsStore = defineStore("tabs", () => {
     activeTab,
     activePaneId,
     isSplit,
+    treeTargetPaneId,
     newTab,
     closeTab,
     activateTab,
