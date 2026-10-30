@@ -256,6 +256,14 @@
 }
 
 /*
+ * 拖曳檔案時游標由 `useFileDrag` 統一決定（copy／not-allowed／一般箭頭），
+ * 不能被列與樹節點自己的 cursor 蓋掉（未分層的規則優先於 Tailwind 的 utilities）。
+ */
+body[data-file-drag] * {
+  cursor: inherit;
+}
+
+/*
  * 可按元素的共同行為：**按下要瞬間、放開才做動畫**。
  * 回饋出現在 pointer-down 而不是放手，是「反應」的第一原則。
  */

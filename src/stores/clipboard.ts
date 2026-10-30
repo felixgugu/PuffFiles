@@ -221,6 +221,68 @@ export const useClipboardStore = defineStore("clipboard", () => {
     }
   }
 
+  /** 搬完後把剛移入的項目選取起來（檔案總管也是這樣）；沒有窗格顯示目的資料夾就不動。 */
+  function selectMoved(destination: string, sources: string[]) {
+    const paneIds = tabs.tabs.flatMap((tab) => tab.paneIds);
+    const showing = paneIds.filter((id) =>
+      samePath(explorer.meta(id)?.currentPath ?? "", destination),
+    );
+    const target = showing.includes(tabs.activePaneId) ? tabs.activePaneId : showing[0];
+    if (!target) {
+      return;
+    }
+    explorer.selectPaths(
+      target,
+      sources.map((source) => joinPath(destination, fileNameOf(source))),
+    );
+  }
+
+  /**
+   * 直接搬移／複製一組路徑（拖曳放開時使用，見 AGENTS.md「檔案拖曳移動」）。
+   *
+   * 與 `transfer()` 的差別只有「不跳確認框」：放開當下目標就在游標下方並已高亮，
+   * 再問一次反而多餘。同名衝突、進度、取消與 Ctrl+Z 一樣交給 Windows。
+   */
+  async function transferPaths(
+    sources: string[],
+    destination: string,
+    mode: "copy" | "move",
+  ): Promise<boolean> {
+    if (busy.value || !sources.length || !destination) {
+      return false;
+    }
+    try {
+      busy.value = true;
+      const completed =
+        mode === "copy"
+          ? (await api.copyItems(sources, destination)).completed
+          : await api.moveItems(sources, destination);
+      if (!completed) {
+        ui.showNotice("操作已取消");
+        // 中途取消時可能已經搬了一部分，畫面還是要跟上實際狀況。
+        await refreshPanes();
+        return false;
+      }
+
+      if (mode === "move") {
+        const moved = new Set(sources.map(normalizeKey));
+        cutKeys.value = cutKeys.value.filter((key) => !moved.has(key));
+      }
+
+      ui.showNotice(
+        mode === "copy" ? `已複製 ${sources.length} 個項目` : `已搬移 ${sources.length} 個項目`,
+      );
+      await refreshPanes();
+      selectMoved(destination, sources);
+      return true;
+    } catch (cause) {
+      report(cause);
+      return false;
+    } finally {
+      busy.value = false;
+    }
+  }
+
   /**
    * 刪除（預設進資源回收筒，確認與否由 Windows 決定）。
    *
@@ -341,6 +403,7 @@ export const useClipboardStore = defineStore("clipboard", () => {
     cutSelection,
     paste,
     transfer,
+    transferPaths,
     transferToOtherPane,
     removePaths,
     renameEntry,

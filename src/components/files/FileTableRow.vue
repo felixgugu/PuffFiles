@@ -18,6 +18,8 @@ const props = defineProps<{
   editing: boolean;
   /** 目錄比對的狀態（見 `utils/compare.ts`）；null＝相同或沒開啟比對。 */
   compareState?: CompareState | null;
+  /** 拖曳中的檔案正懸停在這一列（資料夾）上方，放開就會移進去。 */
+  dropHover?: boolean;
   /**
    * 扁平化展示的根目錄；有值時名稱欄前面會多一段淡色的資料夾前綴
    * （見 `utils/flatView.ts`），同名檔案才分得出自己在哪個子資料夾。
@@ -174,6 +176,11 @@ onBeforeUnmount(() => {
       v-if="compareStripeClass"
       class="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
       :class="compareStripeClass"
+    />
+    <!-- 拖曳懸停：整個列框起來（用覆蓋層，不與選取／比對的底色互搶）。 -->
+    <span
+      v-if="dropHover"
+      class="pointer-events-none absolute inset-0 z-[1] rounded-[2px] bg-accent/10 ring-2 ring-accent ring-inset"
     />
     <!--
       格子要撐滿整列高度（h-full），否則 border-r 只會畫在文字那一小段，

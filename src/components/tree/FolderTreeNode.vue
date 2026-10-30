@@ -2,6 +2,7 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import { useSpringValue } from "@/composables/useSpringValue";
+import { useDragStore } from "@/stores/drag";
 import { useExplorerStore } from "@/stores/explorer";
 import { useFoldersStore } from "@/stores/folders";
 import { useSettingsStore } from "@/stores/settings";
@@ -9,7 +10,7 @@ import { useTabsStore } from "@/stores/tabs";
 import type { FolderNode, PaneId } from "@/types/fs";
 import { folderDisplayName } from "@/utils/folders";
 import { SPRINGS } from "@/utils/spring";
-import { samePath } from "@/utils/path";
+import { normalizeKey, samePath } from "@/utils/path";
 
 const props = defineProps<{
   node: FolderNode;
@@ -31,6 +32,7 @@ const folders = useFoldersStore();
 const explorer = useExplorerStore();
 const settings = useSettingsStore();
 const tabs = useTabsStore();
+const dragState = useDragStore();
 
 const isGroup = computed(() => props.node.kind === "group");
 /** 有別名時套用設定裡的顯示格式；沒有別名的節點（含檔案系統子資料夾）就是原名。 */
@@ -41,6 +43,13 @@ const isActive = computed(() => folders.activeId === props.node.id);
 const isCurrent = computed(
   () =>
     !isGroup.value && samePath(explorer.meta(props.paneId)?.currentPath ?? "", props.node.path ?? ""),
+);
+/** 拖曳中的檔案正懸停在這個資料夾上（放開就會移進來）。 */
+const isDropTarget = computed(
+  () =>
+    !!props.node.path &&
+    dragState.hoverKind === "tree" &&
+    dragState.hoverKey === normalizeKey(props.node.path),
 );
 
 /** 虛擬目錄的內容就是清單裡的真實資料夾；真實資料夾的內容則來自檔案系統。 */
@@ -229,15 +238,19 @@ function forwardContextMenu(node: FolderNode, event: MouseEvent) {
       :data-tree-path="node.path"
       :data-container-id="draggable ? containerId : undefined"
       :data-item-index="draggable ? itemIndex : undefined"
+      :data-drop-path="node.path"
+      :data-drop-kind="node.path ? 'tree' : undefined"
       class="group flex h-7 items-center rounded-md pr-1.5 text-base pressable"
       :class="[
         draggable ? 'cursor-grab' : '',
         dragging ? 'z-10 opacity-95 shadow-md' : '',
-        isCurrent
-          ? 'bg-accent-soft text-tree-ink-strong'
-          : isActive
-            ? 'bg-surface-hover text-tree-ink-strong'
-            : 'text-tree-ink hover:bg-surface-hover active:bg-pressed hover:text-tree-ink-strong',
+        isDropTarget
+          ? 'bg-accent-soft text-tree-ink-strong ring-2 ring-accent ring-inset'
+          : isCurrent
+            ? 'bg-accent-soft text-tree-ink-strong'
+            : isActive
+              ? 'bg-surface-hover text-tree-ink-strong'
+              : 'text-tree-ink hover:bg-surface-hover active:bg-pressed hover:text-tree-ink-strong',
       ]"
       :style="{ paddingLeft: `${6 + depth * 12}px` }"
       @click="activate"

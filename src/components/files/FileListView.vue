@@ -3,13 +3,16 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import AppIcon from "@/components/common/AppIcon.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import ContextMenu from "@/components/overlays/ContextMenu.vue";
+import DragGhost from "./DragGhost.vue";
 import FileTableRow from "./FileTableRow.vue";
 import { ADD_TO_FOLDERS_ID, useAddToFolders } from "@/composables/useAddToFolders";
 import { useDragGesture } from "@/composables/useDragGesture";
+import { useFileDrag } from "@/composables/useFileDrag";
 import { usePathMenu } from "@/composables/usePathMenu";
 import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import { useClipboardStore } from "@/stores/clipboard";
 import { useCompareStore } from "@/stores/compare";
+import { useDragStore, type DragSource } from "@/stores/drag";
 import { useExplorerStore } from "@/stores/explorer";
 import { TREE_ROOT_CONTAINER } from "@/stores/folders";
 import { COLUMN_FIT_MAX, useSettingsStore } from "@/stores/settings";
@@ -20,7 +23,7 @@ import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
 import { FLAT_VIEW_LIMIT, flatLabelOf } from "@/utils/flatView";
 import { formatCount } from "@/utils/format";
-import { samePath } from "@/utils/path";
+import { normalizeKey, samePath } from "@/utils/path";
 import { measureText, widestText } from "@/utils/textMetrics";
 
 const props = defineProps<{ paneId: PaneId }>();
@@ -30,6 +33,8 @@ const settings = useSettingsStore();
 const tabs = useTabsStore();
 const clipboard = useClipboardStore();
 const compare = useCompareStore();
+const drag = useDragStore();
+const fileDrag = useFileDrag();
 const ui = useUiStore();
 const { menuFor, requestFor, blankRequest, run: runMenu } = usePathMenu();
 const addToFolders = useAddToFolders();
@@ -257,7 +262,31 @@ function isChrome(target: EventTarget | null): boolean {
 }
 
 /* ---------------------------------------------------------------------------
- * 選取：對齊檔案總管 —— 按下即選取、拖曳延伸範圍、空白處框選、到邊緣自動捲動。
+ * 拖曳移動的放置目標（見 AGENTS.md「檔案拖曳移動」）
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 空白處代表「這個窗格目前的資料夾」。扁平化展示不當放置目標：窗格代表整棵子樹，
+ * 拖到空白處要移進哪一層說不清楚。
+ */
+const dropZonePath = computed(() =>
+  pane.value.flat ? undefined : pane.value.currentPath || undefined,
+);
+
+const paneIsDropTarget = computed(
+  () =>
+    drag.hoverKind === "pane" &&
+    !!pane.value.currentPath &&
+    drag.hoverKey === normalizeKey(pane.value.currentPath),
+);
+
+/** 列只接受放到「資料夾」上（放到檔案列＝放到這個窗格的資料夾，交由容器的高亮處理）。 */
+function isRowDropTarget(entry: FileEntry): boolean {
+  return entry.isDir && drag.hoverKind === "folder" && drag.hoverKey === normalizeKey(entry.path);
+}
+
+/* ---------------------------------------------------------------------------
+ * 選取與拖曳：對齊檔案總管 —— 按下即選取、按住列拖曳＝拖曳檔案、空白處框選、到邊緣自動捲動。
  * ------------------------------------------------------------------------- */
 
 /** 遲滯：超過這個距離才算拖曳，否則只當成點擊。 */
@@ -282,7 +311,7 @@ interface RowDrag {
   lastClientY: number;
 }
 
-let drag: RowDrag | null = null;
+let pointerDrag: RowDrag | null = null;
 let autoScrollFrame = 0;
 const marquee = ref<{ left: number; top: number; width: number; height: number } | null>(null);
 
@@ -324,10 +353,17 @@ function onPointerDown(event: PointerEvent) {
 
   tabs.setActivePane(props.paneId);
 
+  // 上一次手勢若沒收到 pointerup（例如在視窗外放開），先把殘影與狀態收乾淨。
+  if (drag.active) {
+    fileDrag.cancel();
+  }
+  // 新的手勢：上一次拖曳若被 Esc 取消，這裡重新開放。
+  drag.resetCancel();
+
   const rowElement = target?.closest<HTMLElement>("[data-row]") ?? null;
   const index = rowElement ? Number(rowElement.dataset.index ?? "0") : -1;
 
-  drag = {
+  pointerDrag = {
     mode: rowElement ? "rows" : "marquee",
     anchor: index,
     additive: event.ctrlKey || event.metaKey,
@@ -343,29 +379,29 @@ function onPointerDown(event: PointerEvent) {
   if (rowElement) {
     const path = rows.value[index]?.path;
     if (!path) {
-      drag = null;
+      pointerDrag = null;
       return;
     }
     if (event.shiftKey) {
       explorer.selectRange(props.paneId, pane.value.focusedIndex, index);
-    } else if (drag.additive) {
+    } else if (pointerDrag.additive) {
       explorer.select(props.paneId, path, "toggle");
     } else if (!pane.value.selected.includes(path)) {
       // 按下即選取：不等放開。
       explorer.select(props.paneId, path, "replace");
     } else {
       // 已經選取：先不動，這樣才拖得動一整組選取。
-      drag.collapseTo = path;
+      pointerDrag.collapseTo = path;
     }
   }
 
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp, { once: true });
-  window.addEventListener("pointercancel", onPointerUp, { once: true });
+  window.addEventListener("pointercancel", onPointerCancel, { once: true });
 }
 
 function onPointerMove(event: PointerEvent) {
-  const state = drag;
+  const state = pointerDrag;
   if (!state) {
     return;
   }
@@ -380,24 +416,50 @@ function onPointerMove(event: PointerEvent) {
   state.lastClientY = event.clientY;
 
   if (state.mode === "rows") {
-    extendRowSelection(event.clientY);
-  } else {
-    updateMarquee(event.clientX, event.clientY);
+    /*
+     * 對標檔案總管：按住列拖曳＝拖曳檔案（整組選取），不再延伸選取。
+     * 範圍選取改用 Shift+點擊、Shift+方向鍵或從空白處框選。
+     */
+    if (!drag.active) {
+      if (drag.cancelled || clipboard.busy) {
+        return;
+      }
+      const sources = dragSources(state.anchor);
+      if (!sources.length) {
+        return;
+      }
+      fileDrag.begin(sources, props.paneId);
+    }
+    fileDrag.move(event.clientX, event.clientY, event);
+    updateAutoScroll(event.clientY);
+    return;
   }
+
+  updateMarquee(event.clientX, event.clientY);
   updateAutoScroll(event.clientY);
 }
 
-function extendRowSelection(clientY: number) {
-  const state = drag;
-  if (!state) {
-    return;
+/**
+ * 這次拖曳要帶走的項目：以按下那一列為準。
+ *
+ * 按在已選取的項目上＝整組選取（與檔案總管一致）；按在未選取的項目上（或 Ctrl 把它
+ * 切換掉的項目）＝只有它自己。只取目前在畫面清單裡的項目，選取狀態才不會帶到舊資料夾。
+ */
+function dragSources(anchor: number): DragSource[] {
+  const anchorEntry = rows.value[anchor];
+  if (!anchorEntry) {
+    return [];
   }
-  const to = indexAt(toContentPoint(state.lastClientX, clientY).y, true);
-  explorer.selectRange(props.paneId, state.anchor, to, state.additive);
+  const wanted = new Set(
+    pane.value.selected.includes(anchorEntry.path) ? pane.value.selected : [anchorEntry.path],
+  );
+  return rows.value
+    .filter((entry) => wanted.has(entry.path))
+    .map((entry) => ({ path: entry.path, isDir: entry.isDir }));
 }
 
 function updateMarquee(clientX: number, clientY: number) {
-  const state = drag;
+  const state = pointerDrag;
   if (!state) {
     return;
   }
@@ -416,10 +478,10 @@ function updateMarquee(clientX: number, clientY: number) {
   explorer.selectRange(props.paneId, from, to);
 }
 
-/** 指標靠近上下邊緣時持續捲動，並在捲動中延伸選取。 */
+/** 指標靠近上下邊緣時持續捲動；拖曳檔案時順便重新判定游標底下的放置目標。 */
 function updateAutoScroll(clientY: number) {
   const element = scrollEl.value;
-  if (!element || !drag) {
+  if (!element || !pointerDrag) {
     stopAutoScroll();
     return;
   }
@@ -436,7 +498,7 @@ function updateAutoScroll(clientY: number) {
   }
 
   const step = () => {
-    const state = drag;
+    const state = pointerDrag;
     const target = scrollEl.value;
     if (!state || !target) {
       stopAutoScroll();
@@ -444,7 +506,8 @@ function updateAutoScroll(clientY: number) {
     }
     target.scrollTop += delta;
     if (state.mode === "rows") {
-      extendRowSelection(state.lastClientY);
+      // 捲動後游標底下的列換了，放置目標要重新命中。
+      fileDrag.move(state.lastClientX, state.lastClientY);
     } else {
       updateMarquee(state.lastClientX, state.lastClientY);
     }
@@ -461,11 +524,18 @@ function stopAutoScroll() {
 }
 
 function onPointerUp() {
-  const state = drag;
-  drag = null;
+  const state = pointerDrag;
+  pointerDrag = null;
   window.removeEventListener("pointermove", onPointerMove);
+  window.removeEventListener("pointercancel", onPointerCancel);
   stopAutoScroll();
   marquee.value = null;
+
+  // 拖曳檔案：放開就執行移動／複製，後續的選取收斂一律不套用。
+  if (drag.active) {
+    void fileDrag.finish();
+    return;
+  }
 
   if (!state) {
     return;
@@ -480,6 +550,16 @@ function onPointerUp() {
   if (!state.moved) {
     explorer.clearSelection(props.paneId);
   }
+}
+
+/** 系統取消指標（例如觸控手勢被系統接手）：收掉拖曳，不做任何檔案操作。 */
+function onPointerCancel() {
+  pointerDrag = null;
+  window.removeEventListener("pointermove", onPointerMove);
+  window.removeEventListener("pointerup", onPointerUp);
+  stopAutoScroll();
+  marquee.value = null;
+  fileDrag.cancel();
 }
 
 /** 把指定列捲進可視範圍；虛擬清單不能靠 `scrollIntoView`。 */
@@ -727,6 +807,9 @@ function sortBy(column: ColumnId) {
     <div
       ref="scroll"
       class="scroll-area min-h-0 flex-1 overflow-auto bg-canvas"
+      :class="paneIsDropTarget ? 'ring-2 ring-accent/40 ring-inset' : ''"
+      :data-drop-path="dropZonePath"
+      data-drop-kind="pane"
       @scroll="onScroll"
       @pointerdown="onPointerDown"
       @contextmenu.prevent="openBlankMenu"
@@ -806,6 +889,9 @@ function sortBy(column: ColumnId) {
             :compare-state="compare.statusFor(props.paneId, entry)"
             :editing="renaming?.path === entry.path"
             :flat-root="pane.flat ? pane.currentPath : null"
+            :data-drop-path="entry.isDir ? entry.path : undefined"
+            :data-drop-kind="entry.isDir ? 'folder' : undefined"
+            :drop-hover="isRowDropTarget(entry)"
             :data-index="start + index"
             @activate="syncedNav.open(props.paneId, entry)"
             @contextmenu="openRowMenu(entry, $event)"
@@ -837,5 +923,7 @@ function sortBy(column: ColumnId) {
       @select="onMenuSelect"
       @close="menu = null"
     />
+
+    <DragGhost />
   </div>
 </template>

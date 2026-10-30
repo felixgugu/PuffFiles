@@ -648,6 +648,29 @@ export const useExplorerStore = defineStore("explorer", () => {
     }
   }
 
+  /**
+   * 一次選取多個路徑（拖曳搬移後在目的窗格標示剛移入的項目）。
+   *
+   * 以清單裡的實際路徑為準（後端回報的大小寫可能不同）；找不到的項目安靜略過。
+   */
+  function selectPaths(id: PaneId, paths: string[]) {
+    const pane = panes[id];
+    if (!pane || !paths.length) {
+      return;
+    }
+    const visible = visibleRef(id).value;
+    const wanted = new Set(paths.map(normalizeKey));
+    const matched = visible
+      .filter((item) => wanted.has(normalizeKey(item.path)))
+      .map((item) => item.path);
+    pane.selected = matched;
+    const first = paths[0] ? normalizeKey(paths[0]) : "";
+    const index = visible.findIndex((item) => normalizeKey(item.path) === first);
+    if (index >= 0) {
+      pane.focusedIndex = index;
+    }
+  }
+
   function selectAll(id: PaneId) {
     const pane = panes[id];
     if (pane) {
@@ -973,6 +996,7 @@ export const useExplorerStore = defineStore("explorer", () => {
     applySort,
     select,
     selectAll,
+    selectPaths,
     selectRange,
     clearSelection,
     focusAt,

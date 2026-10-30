@@ -40,6 +40,7 @@ PuffFiles/
 │  │  ├─ tabs.ts               # 分頁與分割版面、窗格生命週期、工作階段還原
 │  │  ├─ folders.ts            # 左側「我的資料夾」清單（含虛擬目錄、順序、展開狀態）
 │  │  ├─ clipboard.ts          # 剪下／複製／貼上／刪除／重新命名、送到另一窗格、忙碌狀態
+│  │  ├─ drag.ts              # 檔案拖曳：來源、游標位置、懸停的放置目標；放開後交給 clipboard
 │  │  ├─ compare.ts            # 目錄比對：以另一個窗格的完整清單為索引
 │  │  ├─ history.ts            # 瀏覽紀錄（MRU，含分割版面）
 │  │  ├─ settings.ts           # 主題、欄位、外部工具、動態效果、樹寬、上次分割
@@ -55,6 +56,7 @@ PuffFiles/
 │  │  ├─ useScrollSpy.ts       # 目錄索引的捲動同步與跳轉（元素或 Range，三個檢視器共用）
 │  │  ├─ useViewerBookmarks.ts # 檢視器書籤：錨點重算、加入／跳轉／重新命名／刪除
 │  │  ├─ useDragGesture.ts     # 通用拖曳手勢（含速度取樣，交給彈簧接手）
+│  │  ├─ useFileDrag.ts        # 檔案拖曳：命中放置目標、游標、Esc／視窗失焦取消
 │  │  ├─ useSpringValue.ts     # 以自製彈簧驅動的數值
 │  │  └─ useRefreshView.ts     # 重新整理（清單＋資料夾樹）
 │  ├─ components/
@@ -63,7 +65,7 @@ PuffFiles/
 │  │  ├─ workspace/            # 工作區：WorkspaceView（樹面板＋窗格區）、BrowserPane（窗格）
 │  │  ├─ tree/                 # 資料夾樹面板：FolderTreePanel、FolderTreeNode（「我的資料夾」樹）
 │  │  ├─ toolbar/              # TabToolbar（每個分頁一條路徑列）、PathBreadcrumb
-│  │  ├─ files/                # FileListView（虛擬滾動＋選取）、FileTableRow
+│  │  ├─ files/                # FileListView（虛擬滾動＋選取＋拖曳）、FileTableRow、DragGhost（拖曳殘影）
 │  │  ├─ viewer/               # ViewerPane、MarkdownView、DocxView、TextView、BookmarkOutline（書籤目錄）、
 │  │  │                        # OutlinePanel（目錄索引）、HtmlView、ImageView、PdfView、
 │  │  │                        # DirectoryTreeView（ASCII 目錄樹）、FloatingPanel、ViewerSearchPanel
@@ -72,7 +74,7 @@ PuffFiles/
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
 │  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / mermaid /
 │                              # spring / viewer / docx / bookmarkAnchor / docxBookmark /
-│                              # textBookmark / compare / flatView …）
+│                              # textBookmark / compare / flatView / dragDrop …）
 ├─ tools/make-icons.py         # 由 icon-source.png 產生 icon.ico（16/24/32/48 用簡化版頭像）
 ├─ tools/mermaid-clip-check/   # Mermaid 圖表裁切／縮放與平移的驗證工具（見 docs/redesign-plan.md §7）
 ├─ docs/redesign-plan.md       # 設計與取捨的完整記錄（含未完成項）
@@ -586,6 +588,32 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   自己的對話框呈現；也刻意不查登錄檔，自訂安裝位置由使用者填路徑。
 - **新增內建工具要讓既有使用者拿到**：`settings` 載入時 `withBuiltins()` 補上
   `DEFAULT_TOOLS` 裡缺少的 id（只補缺的，既有內容含使用者改過的路徑都不動）。
+
+### 3.9 檔案拖曳移動（2026-10-30）
+
+對標 Windows 檔案總管：在檔案清單**按住列拖曳＝拖曳那一組選取**（按在已選取的列上拖整組，
+按在未選取的列上只拖它自己），**框選只能從空白處開始**。拖曳中的狀態住在 `stores/drag.ts`，
+手勢與命中判定在 `composables/useFileDrag.ts`，殘影是 `components/files/DragGhost.vue`，
+「能不能放、要移動還是複製」是純函數 `utils/dragDrop.ts`（`planDrop`）。
+
+- **放置目標**：同一或另一個窗格的資料夾列、窗格空白處（＝該窗格目前的資料夾）、左側資料夾樹
+  的真實資料夾節點。扁平化展示的窗格**不當放置目標**（空白處代表整棵子樹，說不清楚要移進
+  哪一層）；檔案列本身不是目標，命中時退回「這個窗格的資料夾」。
+- **效果**：同磁碟機＝移動、跨磁碟機（路徑根不同，含 UNC 分享）＝複製；拖曳中按 Ctrl 強制
+  複製、Shift 強制移動。游標（`copy`／`not-allowed`／一般箭頭）與殘影第二行
+  「移動／複製到『…』」即時跟著改。
+- **不動作**：放開在自己的資料夾（項目已經在那裡）、把資料夾放進它自己或子孫、沒有懸停目標；
+  游標變成 `not-allowed`、殘影說明原因，不會呼叫後端。拖曳中按 **Esc** 或視窗失焦即取消，
+  取消後同一次手勢不會再自己開始拖曳。
+- **執行**：`clipboard.transferPaths()` —— 與貼上共用同一條 `move_items`／`copy_items`
+  （`IFileOperation`；同名衝突、進度、取消、Explorer 的 Ctrl+Z 都由 Windows 處理）。
+  **不跳確認框**（目標就在游標下方並已高亮），與「移動到另一窗格」的確認框不同。
+  完成後重讀所有窗格，並在顯示目的資料夾的窗格選取剛移入的項目（檔案總管也是這樣）。
+- **與剪貼簿、另一窗格搬移的分工**：拖曳是「直接用滑鼠指定目標」的捷徑，不寫入系統剪貼簿；
+  搬走的項目會從 `cutKeys`（剪下標記）移除。
+- **已知缺口**：不能把檔案拖到 Explorer／桌面（WebView 當不了 OLE 拖曳來源，需要原生外掛）、
+  沒有右拖選單與建立捷徑、跨磁碟機是路徑根近似判斷（掛載點／符號連結可能判錯，Ctrl／Shift
+  可覆寫）、搬移含開著檢視器的檔案時檢視器會失效（與既有搬移一致）。
 
 ## 4. 開發與修改規範
 
