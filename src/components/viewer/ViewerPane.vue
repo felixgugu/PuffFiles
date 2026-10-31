@@ -521,8 +521,13 @@ function reveal() {
       class="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
     >
       <AppIcon name="info" :size="22" class="text-ink-faint" />
-      <p class="text-sm text-ink-muted">這個檔案類型還沒有檢視器</p>
+      <p class="text-sm text-ink-muted">
+        {{ state.binary ? "這是二進位內容，無法以文字檢視" : "這個檔案類型還沒有檢視器" }}
+      </p>
       <p v-if="noViewerHint" class="text-xs text-ink-faint">{{ noViewerHint }}</p>
+      <p v-else-if="state.binary" class="text-xs text-ink-faint">
+        請用預設程式開啟（檢視器標頭的「用預設程式開啟」）
+      </p>
     </div>
 
     <MarkdownView v-else-if="state.kind === 'markdown'" :pane-id="paneId" />

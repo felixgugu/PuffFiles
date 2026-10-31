@@ -157,6 +157,29 @@ mod tests {
     }
 
     #[test]
+    fn refuses_binary_files_without_emitting_events() {
+        let root = scratch("binary");
+        let file = root.join("blob.dat");
+        std::fs::write(&file, b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR").expect("write");
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let channel = Channel::<ViewerEvent>::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(text) = body {
+                sink.lock().unwrap().push(text);
+            }
+            Ok(())
+        });
+
+        let result = tauri::async_runtime::block_on(read_viewer_file(
+            file.to_string_lossy().into_owned(),
+            channel,
+        ));
+        assert!(matches!(result, Err(crate::AppError::NotText { .. })));
+        assert!(events.lock().unwrap().is_empty(), "拒絕時不該先送事件");
+    }
+
+    #[test]
     fn reports_missing_files() {
         let root = scratch("missing");
         let events = Arc::new(Mutex::new(Vec::new()));

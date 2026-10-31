@@ -7,10 +7,19 @@
 
 import type { DirStreamEvent, DriveInfo, FileEntry, QuickLocation } from "@/types/fs";
 import type { DirectoryTreeResult, ViewerStreamEvent } from "@/types/viewer";
-import { fileNameOf, joinPath, parentOf } from "@/utils/path";
+import { BackendError } from "@/services/errors";
+import { extensionOf, fileNameOf, joinPath, parentOf } from "@/utils/path";
 import { viewerKindOfPath } from "@/utils/viewer";
 
 const now = Date.now();
+
+/**
+ * 瀏覽器預覽模式沒有真的位元組，用副檔名模擬幾個常見的二進位檔。
+ *
+ * 桌面版由後端看內容判斷（`core/viewer.rs` 的 `looks_binary`）—— 這裡只為了
+ * `npm run dev` 時也看得到「這是二進位內容」的面板。
+ */
+const MOCK_BINARY_EXTENSIONS = new Set(["bin", "dat", "db", "pyc"]);
 
 export const MOCK_DRIVES: DriveInfo[] = [
   {
@@ -67,6 +76,9 @@ const FILE_NAMES = [
   "index.html",
   "archive.zip",
   "setup.exe",
+  // 沒有副檔名與未知副檔名：前者試讀成文字，後者（`dat`）在瀏覽器模式模擬二進位拒絕。
+  "LICENSE",
+  "Dockerfile",
   "unknown.dat",
 ];
 
@@ -316,6 +328,10 @@ export async function mockReadViewerFile(
     size: 0,
     modifiedMs: now,
   };
+
+  if (MOCK_BINARY_EXTENSIONS.has(extensionOf(name).replace(/^\./, ""))) {
+    throw new BackendError("notText", `這是二進位內容，無法以文字檢視：${path}`, path);
+  }
 
   if (kind === "image") {
     const svg = mockImageSvg(name);

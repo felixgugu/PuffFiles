@@ -33,6 +33,10 @@ pub enum AppError {
     #[error("這個功能尚未支援：{feature}")]
     Unsupported { feature: String },
 
+    /// 內容是二進位（含 NUL 或大量控制字元），不適合用文字檢視器顯示。
+    #[error("這是二進位內容，無法以文字檢視：{path}")]
+    NotText { path: String },
+
     #[error("找不到外部程式：{program}")]
     ProgramNotFound { program: String },
 
@@ -81,6 +85,7 @@ impl Serialize for AppError {
             Self::AlreadyExists { path } => ("alreadyExists", Some(path.as_str())),
             Self::InvalidName { .. } => ("invalidName", None),
             Self::Unsupported { .. } => ("unsupported", None),
+            Self::NotText { path } => ("notText", Some(path.as_str())),
             Self::ProgramNotFound { .. } => ("programNotFound", None),
             Self::Io { .. } => ("io", None),
         };

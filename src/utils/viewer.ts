@@ -50,12 +50,17 @@ export const DIRECTORY_TREE_LIMIT = 20_000;
  *
  * Markdown 與 HTML 各成一類；其餘沿用 `fileKind.ts` 既有的分類 —— 被歸成
  * 「文字文件」或「程式碼」的一律當純文字看，所以不用另外維護第二份副檔名清單。
+ *
+ * `file`（沒有副檔名與未知副檔名）也一併當純文字**試讀**：`LICENSE`、`Makefile`、
+ * `Dockerfile` 這類檔案本來就是文字，`.bin`／`.dat` 這種則由後端看內容決定
+ * （出現 NUL 或大量控制字元就回 `notText`，見 `core/viewer.rs` 的 `looks_binary`）。
+ * 已知的二進位種類（圖片／影片／音樂／壓縮檔／文件／試算表／程式）維持不開。
  */
 export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): ViewerKind | null {
-  if (entry.isDir || !entry.extension) {
+  if (entry.isDir) {
     return null;
   }
-  const extension = entry.extension.toLocaleLowerCase();
+  const extension = entry.extension?.toLocaleLowerCase() ?? "";
   if (IMAGE_EXTENSIONS.has(extension)) {
     return "image";
   }
@@ -72,7 +77,7 @@ export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): Vie
     return "docx";
   }
   const kind = fileKindOf(entry);
-  return kind === "text" || kind === "code" ? "text" : null;
+  return kind === "text" || kind === "code" || kind === "file" ? "text" : null;
 }
 
 /** 只有路徑時的版本（後端回來的路徑、Markdown 內的連結都用這個）。 */

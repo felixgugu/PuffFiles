@@ -7,6 +7,7 @@
 # PuffFile - 單檔免安裝版 (Portable) 自動建置與打包
 #
 # 產出：dist-portable\PuffFile.exe —— 一個檔案就是整套程式。
+#       dist-portable\PuffFile.7z —— 建置成功後自動壓縮的可攜版。
 #   * 前端（Vite 產物）由 tauri-build 內嵌進執行檔
 #   * 應用程式圖示內嵌在執行檔的資源區
 #   * MSVC 工具鏈以靜態方式連結 WebView2 載入器，不需要任何外部 DLL
@@ -14,8 +15,8 @@
 # （唯一的前提是系統要有 WebView2 Runtime，Windows 11 與已更新的 Windows 10 內建）。
 #
 # 用法：
-#   .\build-portable.ps1            只產出單一執行檔
-#   .\build-portable.ps1 -Zip       另外產生 PuffFile-Portable.zip
+#   .\build-portable.ps1            產出執行檔並自動壓縮成 PuffFile.7z
+#   .\build-portable.ps1 -Zip       另外再產生 PuffFile-Portable.zip
 #   .\build-portable.ps1 -NoPause   結束不等待按鍵（給自動化使用）
 #
 # 編碼規範：UTF-8 with BOM (相容 Windows PowerShell 5.1 與 PowerShell 7+)
@@ -49,10 +50,23 @@ function Test-CommandAvailable ($cmd) {
     return [bool](Get-Command $cmd -ErrorAction SilentlyContinue)
 }
 
+function Find-SevenZip {
+    $command = Get-Command "7z.exe" -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+    $candidates = @(
+        "$env:ProgramFiles\7-Zip\7z.exe",
+        "${env:ProgramFiles(x86)}\7-Zip\7z.exe",
+        "$env:ProgramW6432\7-Zip\7z.exe"
+    )
+    return $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+}
+
 # ------------------------------------------------------------------------
-# 1/4 檢查系統編譯環境 (Node.js, npm, Rust/Cargo)
+# 1/5 檢查系統編譯環境 (Node.js, npm, Rust/Cargo)
 # ------------------------------------------------------------------------
-Write-Host "[1/4] 正在檢查系統編譯環境..." -ForegroundColor Yellow
+Write-Host "[1/5] 正在檢查系統編譯環境..." -ForegroundColor Yellow
 
 if (-not (Test-CommandAvailable "node")) {
     Stop-Script "找不到 Node.js，請確認已安裝 Node.js 並設定環境變數 PATH。"
@@ -72,9 +86,9 @@ Write-Host "  - Cargo:   OK ($(cargo --version))" -ForegroundColor Green
 Write-Host ""
 
 # ------------------------------------------------------------------------
-# 2/4 準備輸出目錄
+# 2/5 準備輸出目錄
 # ------------------------------------------------------------------------
-Write-Host "[2/4] 準備輸出目錄 (dist-portable)..." -ForegroundColor Yellow
+Write-Host "[2/5] 準備輸出目錄 (dist-portable)..." -ForegroundColor Yellow
 $OutDir = Join-Path $PSScriptRoot "dist-portable"
 if (-not (Test-Path -LiteralPath $OutDir)) {
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
@@ -86,7 +100,8 @@ $StaleArtifacts = @(
     (Join-Path $OutDir "PuffFile.exe"),
     (Join-Path $OutDir "puff-file.exe"),
     (Join-Path $OutDir "WebView2Loader.dll"),
-    (Join-Path $OutDir "PuffFile-Portable.zip")
+    (Join-Path $OutDir "PuffFile-Portable.zip"),
+    (Join-Path $OutDir "PuffFile.7z")
 )
 foreach ($StalePath in $StaleArtifacts) {
     if (Test-Path -LiteralPath $StalePath) {
@@ -97,9 +112,9 @@ foreach ($StalePath in $StaleArtifacts) {
 Write-Host ""
 
 # ------------------------------------------------------------------------
-# 3/4 建置單檔免安裝程式（--no-bundle：跳過 MSI / NSIS 安裝包）
+# 3/5 建置單檔免安裝程式（--no-bundle：跳過 MSI / NSIS 安裝包）
 # ------------------------------------------------------------------------
-Write-Host "[3/4] 開始建置單檔免安裝程式 (Frontend + Rust Core)..." -ForegroundColor Yellow
+Write-Host "[3/5] 開始建置單檔免安裝程式 (Frontend + Rust Core)..." -ForegroundColor Yellow
 Write-Host "  - 執行: npm run build:portable" -ForegroundColor Gray
 Write-Host "  - 請稍候，正在進行前端打包與 Rust release 最佳化編譯 (LTO，第一次會慢一些)..." -ForegroundColor Gray
 Write-Host ""
@@ -111,9 +126,9 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 
 # ------------------------------------------------------------------------
-# 4/4 匯出單一執行檔
+# 4/5 匯出單一執行檔
 # ------------------------------------------------------------------------
-Write-Host "[4/4] 正在匯出單一執行檔..." -ForegroundColor Yellow
+Write-Host "[4/5] 正在匯出單一執行檔..." -ForegroundColor Yellow
 
 $CandidateExes = @(
     "$PSScriptRoot\src-tauri\target\release\puff-file.exe",
@@ -147,10 +162,42 @@ else {
 }
 Write-Host ""
 
-# 選用：壓縮成一個 zip，方便分享（單檔本身不需要解壓縮就能執行）
+# ------------------------------------------------------------------------
+# 5/5 壓縮可攜版
+# ------------------------------------------------------------------------
+Write-Host "[5/5] 正在壓縮可攜版..." -ForegroundColor Yellow
+
+$SevenZip = Find-SevenZip
+if (-not $SevenZip) {
+    Stop-Script "找不到 7-Zip（7z.exe）。請安裝 7-Zip 或將它加入 PATH。"
+}
+
+$ArchivePath = Join-Path $OutDir "PuffFile.7z"
+if (Test-Path -LiteralPath $ArchivePath) {
+    Remove-Item -LiteralPath $ArchivePath -Force
+}
+
+$ItemsToArchive = @("PuffFile.exe")
+if ($HasDll) {
+    $ItemsToArchive += "WebView2Loader.dll"
+}
+
+Push-Location $OutDir
+try {
+    & $SevenZip a -t7z -mx=9 -y $ArchivePath @ItemsToArchive
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ArchivePath)) {
+        Stop-Script "建立 PuffFile.7z 失敗，請檢查上方 7-Zip 訊息。"
+    }
+}
+finally {
+    Pop-Location
+}
+Write-Host "  - 7z 壓縮檔建立成功: $ArchivePath" -ForegroundColor Green
+
+# 選用：再壓縮成一個 zip，方便分享（單檔本身不需要解壓縮就能執行）
 $ZipPath = Join-Path $OutDir "PuffFile-Portable.zip"
 if ($Zip) {
-    Write-Host "正在打包可攜版壓縮檔..." -ForegroundColor Yellow
+    Write-Host "  - 另外建立 ZIP 壓縮檔..." -ForegroundColor Yellow
     if (Test-Path -LiteralPath $ZipPath) {
         Remove-Item -LiteralPath $ZipPath -Force
     }
@@ -160,10 +207,10 @@ if ($Zip) {
     }
     Compress-Archive -LiteralPath $ItemsToZip -DestinationPath $ZipPath -Force
     if (Test-Path -LiteralPath $ZipPath) {
-        Write-Host "  - 壓縮檔建立成功: $ZipPath" -ForegroundColor Green
+        Write-Host "  - ZIP 壓縮檔建立成功: $ZipPath" -ForegroundColor Green
     }
-    Write-Host ""
 }
+Write-Host ""
 
 # ------------------------------------------------------------------------
 # 完成資訊與大小摘要
@@ -176,6 +223,13 @@ $ExeItem = Get-Item -LiteralPath $TargetExe
 $ExeSizeMB = [math]::Round($ExeItem.Length / 1MB, 2)
 Write-Host "  執行檔:   $TargetExe" -ForegroundColor White
 Write-Host "  檔案大小: $ExeSizeMB MB ($($ExeItem.Length.ToString('N0')) bytes)" -ForegroundColor Gray
+
+if (Test-Path -LiteralPath $ArchivePath) {
+    $ArchiveItem = Get-Item -LiteralPath $ArchivePath
+    $ArchiveSizeMB = [math]::Round($ArchiveItem.Length / 1MB, 2)
+    Write-Host "  7z 壓縮檔: $ArchivePath" -ForegroundColor Green
+    Write-Host "  壓縮大小:  $ArchiveSizeMB MB ($($ArchiveItem.Length.ToString('N0')) bytes)" -ForegroundColor Gray
+}
 
 if (Test-Path -LiteralPath $ZipPath) {
     $ZipItem = Get-Item -LiteralPath $ZipPath

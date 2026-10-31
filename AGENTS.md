@@ -245,7 +245,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 與 `explorer` 的瀏覽狀態分開，但生命週期綁在一起：
 
 - **入口**：`usePathMenu` 對支援的檔案加上 `open-pane`（單一窗格＝「在新窗格開啟」，
-  分割時＝「在○窗格開啟」，說法與資料夾一致）。未分割時 `tabs.split()` 建立的新窗格
+  分割時＝「在○窗格開啟」，說法與資料夾一致）。沒有副檔名與未知副檔名的檔案也算「支援」
+  —— 選單照樣出現，能不能顯示由內容決定（見下面「支援範圍」）。未分割時 `tabs.split()` 建立的新窗格
   沿用來源窗格的資料夾，檢視器再疊上去；已分割時直接把內容開在相鄰窗格。
   **焦點一律留在原本的檔案清單**（連續用方向鍵＋`Space` 快速換檔案預覽）；
   點進檢視器窗格才會把焦點移過去（Esc、文字選取複製、Ctrl+W 等才作用在它身上）。
@@ -259,10 +260,21 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
   WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、`.pdf`（與圖檔同樣走自訂協定，見下），
   `.docx／.docm`（`docx-preview`，見下），以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
+  **沒有副檔名與未知副檔名的檔案也當純文字試讀**（2026-10-31，`LICENSE`、`Makefile`、
+  `Dockerfile`、`.gitignore` 這類檔案本來就是文字）：`viewerKindOf` 把 `fileKind.ts` 的
+  `file` 一起歸成 `text`，由後端看內容決定能不能顯示。
+  **只有內容是二進位才拒絕**：`core/viewer.rs` 的 `looks_binary()` 只看開頭 8 KB
+  （`SNIFF_BYTES`）—— 有 NUL（git 判斷文字檔的同一條規則）或控制字元超過一成就算二進位，
+  先看 BOM／無 BOM 的 UTF-16 以免誤殺；是二進位就回 `AppError::NotText`，**整份都不讀**。
+  這個拒絕不是錯誤狀態：`stores/viewer.ts` 的 `failRead()` 把 `kind` 設回 `null`、
+  `ViewerState.binary` 設為 `true`、狀態就緒，窗格顯示「這是二進位內容，無法以文字檢視」
+  與請用預設程式的說明（沒有重試鈕）。規則套用到**所有**文字類檢視器，所以被改名的
+  二進位 `.txt` 也會被擋下來。
   **沒有檢視器的類型**（`.mp4`／`.exe`／舊版 `.doc`…）不會讀取內容，
   但仍會佔用窗格並顯示「這個檔案類型還沒有檢視器」——`ViewerState.kind` 為 `null`，
   `open()` 不呼叫 `load()`、標頭的重整鈕不出現；它仍是「目前顯示的目標」，供 `Space` 判斷前進。
   `.doc／.rtf／.odt` 這種「看起來像 Word 但不是 DOCX」的格式會多一行說明，講清楚要走預設程式。
+  檔案重新命名時 `viewer.retarget()` 會重算 `kind`（`.bin` → `.txt` 才會重新試讀）。
 - **圖片導覽**：圖片檢視器左右兩側各一顆半透明圓形按鈕（`ImageView.vue`；只有 10% 的
   極淡圓底提示、無邊框無陰影，游標移上去才轉深。對比由實色的箭頭負責，所以不隨
   `prefers-reduced-transparency` 改成不透明）。順序＝**開啟這張圖片的來源

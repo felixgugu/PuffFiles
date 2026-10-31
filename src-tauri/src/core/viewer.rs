@@ -6,6 +6,7 @@
 use crate::core::{display_path, normalize};
 use crate::error::{AppError, AppResult};
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
@@ -13,6 +14,11 @@ use std::time::UNIX_EPOCH;
 pub const TEXT_CHUNK_BYTES: usize = 256 * 1024;
 /// 圖片一批送出的原始位元組數。必須是 3 的倍數，base64 片段才能直接串接。
 pub const IMAGE_CHUNK_BYTES: usize = 192 * 1024;
+/// 判斷是不是二進位內容時只讀開頭這麼多位元組。
+///
+/// 未知副檔名與沒有副檔名的檔案都會先被當成文字試讀（見 `viewerKindOf`），
+/// 但二進位檔常常好幾 GB —— 不能為了判斷而整份讀進記憶體。
+pub const SNIFF_BYTES: usize = 8 * 1024;
 
 /// 讀出來的一般文字檔（Markdown 與純文字共用）。
 #[derive(Debug)]
@@ -56,6 +62,10 @@ pub fn image_mime(path: &Path) -> Option<&'static str> {
 }
 
 /// 讀取文字檔並偵測編碼。
+///
+/// 先讀開頭 [`SNIFF_BYTES`] 判斷內容是不是二進位；是的話直接拒絕（`AppError::NotText`），
+/// 連整份都不用讀進來。這條路徑不只服務 `.txt`／`.md`，無副檔名與未知副檔名的檔案也走
+/// 這裡 —— 使用者常常要看的正是 `LICENSE`、`Makefile`、`Dockerfile` 這種沒有副檔名的文字檔。
 pub fn read_text(path: &Path) -> AppResult<TextFile> {
     let resolved = normalize(path)?;
     let meta = fs::metadata(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
@@ -65,7 +75,26 @@ pub fn read_text(path: &Path) -> AppResult<TextFile> {
         });
     }
 
-    let bytes = fs::read(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
+    let mut file =
+        fs::File::open(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| AppError::from_io(error, &resolved))?;
+    if looks_binary(&bytes) {
+        return Err(AppError::NotText {
+            path: display_path(&resolved),
+        });
+    }
+    // 還沒讀完（檔案比嗅探範圍大）才接著把剩下的補齊。
+    if meta.len() > bytes.len() as u64 {
+        file.seek(SeekFrom::Start(bytes.len() as u64))
+            .map_err(|error| AppError::from_io(error, &resolved))?;
+        file.read_to_end(&mut bytes)
+            .map_err(|error| AppError::from_io(error, &resolved))?;
+    }
+
     let (text, encoding) = decode_text(&bytes);
     let text = normalize_newlines(&text);
 
@@ -77,6 +106,37 @@ pub fn read_text(path: &Path) -> AppResult<TextFile> {
         encoding,
         text,
     })
+}
+
+/// 開頭這段位元組看起來像不像二進位內容。
+///
+/// 規則刻意保守，寧可放過也不要誤殺正常文字：
+/// 1. 帶 BOM、或看起來是沒有 BOM 的 UTF-16 → 文字（這種文字本身就夾著大量 NUL）。
+/// 2. 出現 NUL 位元組 → 二進位（git 判斷文字檔用的也是這條）。
+/// 3. 控制字元（不含 tab／換行／換頁）超過一成 → 二進位。含 ANSI 色碼的 log
+///    大約在 5% 上下，不會被誤判。
+pub fn looks_binary(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF])
+        || bytes.starts_with(&[0xFF, 0xFE])
+        || bytes.starts_with(&[0xFE, 0xFF])
+        || utf16_without_bom(bytes).is_some()
+    {
+        return false;
+    }
+    if bytes.contains(&0) {
+        return true;
+    }
+
+    let controls = bytes.iter().filter(|byte| is_control(**byte)).count();
+    controls * 10 > bytes.len()
+}
+
+/// 文字檔不會出現的控制字元（tab／LF／VT／FF／CR 不算）。
+fn is_control(byte: u8) -> bool {
+    matches!(byte, 0x00..=0x08 | 0x0E..=0x1F | 0x7F)
 }
 
 /// 讀取圖片檔。
@@ -470,5 +530,73 @@ mod tests {
             read_image(&file),
             Err(AppError::Unsupported { .. })
         ));
+    }
+
+    #[test]
+    fn treats_plain_text_as_text() {
+        assert!(!looks_binary(b""));
+        assert!(!looks_binary(b"Hello, world\n"));
+        assert!(!looks_binary("中文筆記\n".as_bytes()));
+        // UTF-16（含與不含 BOM）本身就夾著大量 NUL，不能當成二進位。
+        assert!(!looks_binary(&[0xFF, 0xFE, b'h', 0, b'i', 0]));
+        assert!(!looks_binary(&[b'h', 0, b'i', 0]));
+        // 含 ANSI 色碼的 log：控制字元有一點比例，但不到一成。
+        assert!(!looks_binary(
+            b"\x1b[31mERROR\x1b[0m something failed\n\x1b[32mok\x1b[0m\n"
+        ));
+
+        // Big5 的中文不是合法 UTF-8，仍然是文字。
+        let (big5, _, _) = encoding_rs::BIG5.encode("中文筆記");
+        assert!(!looks_binary(&big5));
+    }
+
+    #[test]
+    fn spots_binary_content() {
+        // NUL 位元組是最可靠的訊號（PNG／ZIP／EXE 開頭都有）。
+        assert!(looks_binary(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"));
+        assert!(looks_binary(&[0x50, 0x4B, 0x03, 0x04, 0, 0, 0, 0]));
+        // 沒有 NUL 但控制字元密集的二進位資料。
+        let dense: Vec<u8> = std::iter::repeat_n([0x01, 0x02, 0x1F, 0x7F], 16)
+            .flatten()
+            .collect();
+        assert!(looks_binary(&dense));
+    }
+
+    #[test]
+    fn refuses_binary_files_without_reading_them_as_text() {
+        let root = scratch("binary");
+        let file = root.join("blob.dat");
+        fs::write(&file, b"\x00\x01\x02binary junk\x00\x00").expect("write");
+
+        assert!(matches!(read_text(&file), Err(AppError::NotText { .. })));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn reads_extensionless_text_files() {
+        let root = scratch("no-extension");
+        let file = root.join("LICENSE");
+        fs::write(&file, "MIT License\n\nPermission is hereby granted…").expect("write");
+
+        let text = read_text(&file).expect("read text");
+        assert_eq!(text.name, "LICENSE");
+        assert_eq!(text.text, "MIT License\n\nPermission is hereby granted…");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn sniffs_only_the_beginning_of_large_files() {
+        let root = scratch("large-text");
+        let file = root.join("notes.txt");
+        // 開頭正常、整份遠大於嗅探範圍：內容仍然要完整讀回來。
+        let mut content = String::from("start\n");
+        content.push_str(&"x".repeat(SNIFF_BYTES * 2));
+        content.push_str("\nend\n");
+        fs::write(&file, &content).expect("write");
+
+        let text = read_text(&file).expect("read text");
+        assert_eq!(text.text.len(), content.len());
+        assert!(text.text.ends_with("end\n"));
+        fs::remove_dir_all(&root).ok();
     }
 }

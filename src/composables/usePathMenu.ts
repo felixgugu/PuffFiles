@@ -276,7 +276,8 @@ export function usePathMenu() {
       // 檔案沿用它的上層資料夾，效果與資料夾的「在新分頁開啟」一致。
       openTabItem(),
     ];
-    // 支援的檔案（Markdown／圖檔／純文字）多一個「在窗格開啟」，說法與資料夾完全一致。
+    // 支援的檔案（Markdown／圖檔／純文字，以及沒有副檔名或未知副檔名而試讀成文字的檔案）
+    // 多一個「在窗格開啟」，說法與資料夾完全一致。
     if (viewerKindOfPath(target.path)) {
       const neighbor = neighborPaneId(paneId);
       const tab = tabs.activeTab;

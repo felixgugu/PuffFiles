@@ -215,6 +215,33 @@ export const useViewerStore = defineStore("viewer", () => {
     state.error = normalizeBackendError(new Error(message));
   }
 
+  /**
+   * 讀取失敗的統一落點。
+   *
+   * 「內容是二進位」不算錯誤（`AppError::NotText`）：無副檔名與未知副檔名的檔案
+   * 都會先試讀成文字，這種檔案只是試讀之後確認不能看，所以與「沒有檢視器的類型」
+   * 走同一條路 —— `kind` 設回 `null`、狀態就緒，窗格改顯示說明面板，
+   * 而不是跳出一個按了也不會成功的「重試」。
+   */
+  function failRead(paneId: PaneId, cause: unknown) {
+    const state = views[paneId];
+    if (!state) {
+      return;
+    }
+    if (normalizeBackendError(cause).kind === "notText") {
+      state.kind = null;
+      state.binary = true;
+      state.text = "";
+      state.encoding = null;
+      state.bytes = null;
+      state.status = "ready";
+      state.error = null;
+      return;
+    }
+    state.status = "error";
+    state.error = normalizeBackendError(cause);
+  }
+
   /** 目錄樹內容與檔案不同：沒有檔案串流，也不掛檔案層級的自動重載。 */
   async function loadTree(paneId: PaneId): Promise<void> {
     const state = views[paneId];
@@ -375,8 +402,7 @@ export const useViewerStore = defineStore("viewer", () => {
       if (!current()) {
         return;
       }
-      state.status = "error";
-      state.error = normalizeBackendError(cause);
+      failRead(paneId, cause);
     }
   }
 
@@ -501,6 +527,7 @@ export const useViewerStore = defineStore("viewer", () => {
       name: fileNameOf(path) || path,
       sourcePaneId,
       kind,
+      binary: false,
       // HTML 預設先給使用者看畫面；要讀原始碼再從標頭切換。
       mode: "preview",
       // 沒有檢視器的類型沒有東西可讀，直接是就緒狀態、內容區顯示提示。
@@ -541,6 +568,7 @@ export const useViewerStore = defineStore("viewer", () => {
       name: fileNameOf(path) || path,
       sourcePaneId: null,
       kind: "directory-tree",
+      binary: false,
       mode: "preview",
       status: "loading",
       error: null,
@@ -697,6 +725,18 @@ export const useViewerStore = defineStore("viewer", () => {
         stopWatch(paneId);
         state.path = newPath;
         state.name = fileNameOf(newPath) || newPath;
+        // 改名可能換掉「種類」：`.bin` 改成 `.txt` 要重新試讀成文字，反過來就不該再試。
+        // 目錄樹檢視器看的是資料夾本身，沒有種類可以重算。
+        if (state.kind !== "directory-tree") {
+          state.kind = viewerKindOfPath(newPath);
+          state.binary = false;
+          if (state.kind === null) {
+            state.text = "";
+            state.encoding = null;
+            state.status = "ready";
+            state.error = null;
+          }
+        }
         await load(paneId);
       }),
     );

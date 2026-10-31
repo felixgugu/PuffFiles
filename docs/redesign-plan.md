@@ -56,6 +56,7 @@
 | 10-09 | DOCX 檢視器 | 用 `docx-preview` 0.4.1（lazy chunk）把 `.docx／.docm` 排成 DOM，位元組同樣走 `stream` 協定由 `fetch` 取回；**頁面固定白紙**、窗格較窄時自動等比縮小；`renderAltChunks: false`（不執行文件裡的程式碼）；**上限 50 MB**（整份解壓與排版都在主執行緒） |
 | 10-15 | 檢視器複製 | 標頭的檢視器膠囊加一顆「複製」：整份內容寫進剪貼簿、不跳確認框。Markdown／純文字（含 HTML 原始碼模式）複製 `ViewerState.text`（＝檔案內容本身），HTML 預覽與 DOCX 複製**排版後的可見文字**（走訪與搜尋共用 `utils/visibleText.ts`，兩者逐字相同）；DOM 來源由內容元件註冊取值函數（`useViewerCopy.ts`）。超過 **50 MB** 停用並說明；不加快速鍵（`Ctrl+C` 維持複製選取的文字） |
 | 10-16 | 扁平化展示 | 檔案清單可以切換成「直接列出這個資料夾（含所有子資料夾）的**檔案**」：只列檔案不列資料夾、不限深度、上限 **5 萬筆**（截斷提示）。名稱欄顯示相對路徑（前綴淡色、先被截斷），搜尋與名稱排序跟著走相對路徑。**不掛目錄監控**（`ReadDirectoryChangesW` 只看得到一層），改成 F5 手動重新整理；**不進入 reparse point**（junction 會自我指向）；`settings.showHidden` 為關時連隱藏資料夾都不進去。每個窗格獨立、記住工作階段；入口只有路徑列右側一顆切換鈕（不加快速鍵）；目錄比對在扁平窗格上停用 |
+| 10-31 | 無副檔名／未知格式的純文字 | 檢視器不再只看副檔名：`fileKind.ts` 歸成 `file` 的一律先當文字試讀（`LICENSE`、`Makefile`、`.gitignore`…），**只有內容是二進位才拒絕**。判定在後端 `looks_binary()`，只看開頭 8 KB（有 NUL 或控制字元超過一成；先排除 BOM／無 BOM 的 UTF-16），是二進位就回 `AppError::NotText`、整份不讀；前端把拒絕畫成與「沒有檢視器」相同的面板（`ViewerState.binary`），不進錯誤狀態、沒有重試鈕 |
 
 **外觀決策的理由**：`transparent: true` 會讓 WebView2 走額外的合成路徑，且大面積
 `backdrop-filter` 在捲動時每一格都要重算。改成不透明視窗 + 分層純色 + 亮邊與陰影，
@@ -86,7 +87,8 @@
   成立的動作；外部工具再依 targets／副檔名／`enabled`／`single`／`autoDetect` 篩選。
 - **檢視器**：Markdown／HTML（靜態預覽）／WebView2 能畫的圖檔／PDF（自訂協定 `stream`
   串流，交給 WebView2 內建 viewer）／DOCX（`docx-preview` 排版，位元組同樣走 `stream`）／
-  純文字與程式碼；搜尋面板、目錄索引、Mermaid 自動渲染、圖片前後導覽；唯讀、外部變更
+  純文字與程式碼（含沒有副檔名與未知副檔名的檔案，內容是二進位才拒絕）；搜尋面板、目錄索引、
+  Mermaid 自動渲染、圖片前後導覽；唯讀、外部變更
   自動重載。圖片、PDF 與文字不設大小上限（可串流或逐批讀取）；DOCX 得整份解壓，上限 50 MB。
   **目錄索引面板由 Markdown 與 DOCX 共用**（DOCX 沒有內建大綱，目錄由使用者選取文字自己
   累積成「書籤目錄」，純文字／程式碼同理；見下方的設計紀錄）。

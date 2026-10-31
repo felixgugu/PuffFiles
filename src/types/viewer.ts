@@ -122,6 +122,13 @@ export interface ViewerState {
   sourcePaneId: PaneId | null;
   /** 內容種類；`null` 代表這個檔案沒有檢視器，窗格只顯示提示。 */
   kind: ViewerKind | null;
+  /**
+   * 內容被判定成二進位而拒絕（`AppError::NotText`）。
+   *
+   * 這種檔案也是 `kind === null`，只是提示要說「這是二進位內容」而不是「沒有檢視器」。
+   * 無副檔名與未知副檔名的檔案都會先試讀成文字，只有這一種情況會被拒絕。
+   */
+  binary: boolean;
   /** 只有 HTML 會用到；開啟時一律從 `preview` 開始。 */
   mode: ViewerMode;
   status: ViewerStatus;
