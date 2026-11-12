@@ -6,6 +6,51 @@
  */
 
 import * as api from "@/services/api";
+import type { ViewerStreamEvent } from "@/types/viewer";
+
+/** 指令回應之後，最多再等這麼久讓 Channel 把剩下的訊息送完（以最後一則訊息起算）。 */
+const STREAM_IDLE_TIMEOUT_MS = 5000;
+
+/**
+ * 讀完整份串流才返回。
+ *
+ * Tauri 的 `invoke` 回應可能比 Channel 訊息先到 —— 大的訊息（圖片的 base64 分塊）
+ * 走另一條非同步通道，指令結束時常常還沒全部送達。只等 `invoke` 就收尾的話，
+ * 圖片會被截掉後段（瀏覽器照樣畫出前半張，看起來就是「下面被切掉」）。
+ * 所以一定要等到 `done` 事件；串流安靜太久才視為中斷。
+ */
+async function readWholeStream(
+  path: string,
+  onEvent: (event: ViewerStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  let done = false;
+  let lastEventAt = Date.now();
+  let wake: (() => void) | null = null;
+
+  await api.readViewerFile(
+    path,
+    (event) => {
+      lastEventAt = Date.now();
+      if (event.type === "done") {
+        done = true;
+      } else {
+        onEvent(event);
+      }
+      wake?.();
+    },
+    signal,
+  );
+
+  while (!done && !signal?.aborted && Date.now() - lastEventAt < STREAM_IDLE_TIMEOUT_MS) {
+    await new Promise<void>((resolve) => {
+      wake = resolve;
+      setTimeout(resolve, 50);
+    });
+    wake = null;
+  }
+  return done;
+}
 
 /** 本機二進位資源讀出來的結果。 */
 export interface ViewerResource {
@@ -28,7 +73,7 @@ export async function loadViewerBlobUrl(
   const chunks: string[] = [];
   let mime: string | null = null;
 
-  await api.readViewerFile(
+  const complete = await readWholeStream(
     path,
     (event) => {
       if (event.type === "start") {
@@ -40,7 +85,7 @@ export async function loadViewerBlobUrl(
     signal,
   );
 
-  if (!mime || chunks.length === 0) {
+  if (!complete || !mime || chunks.length === 0) {
     return null;
   }
 
@@ -57,7 +102,7 @@ export async function loadViewerText(path: string, signal?: AbortSignal): Promis
   const chunks: string[] = [];
   let sawText = false;
 
-  await api.readViewerFile(
+  const complete = await readWholeStream(
     path,
     (event) => {
       if (event.type === "chunk" && event.text !== null) {
@@ -68,5 +113,5 @@ export async function loadViewerText(path: string, signal?: AbortSignal): Promis
     signal,
   );
 
-  return sawText ? chunks.join("") : null;
+  return complete && sawText ? chunks.join("") : null;
 }
