@@ -70,7 +70,7 @@ PuffFiles/
 │  │  │                        # OutlinePanel（目錄索引）、HtmlView、ImageView、PdfView、
 │  │  │                        # DirectoryTreeView（ASCII 目錄樹）、FloatingPanel、ViewerSearchPanel
 │  │  ├─ settings/             # SettingsView、ToolsSettings（整頁設定）
-│  │  ├─ overlays/             # ContextMenu、HistoryPanel
+│  │  ├─ overlays/             # ContextMenu（定位與子選單開關）、MenuPanel（一層選單的內容）、HistoryPanel
 │  │  └─ common/               # AppIcon（含 icons.ts 內嵌圖示集）、PromptDialog、ConfirmDialog 等
 │  └─ utils/                   # 無副作用純函數（path / format / fileKind / markdown / mermaid /
 │                              # spring / viewer / docx / bookmarkAnchor / docxBookmark /
@@ -92,6 +92,7 @@ PuffFiles/
       │  ├─ paths.rs           # 應用資料與日誌位置（資料收在 %LOCALAPPDATA%\PuffFile，日誌跟執行檔）
       │  ├─ programs.rs        # 偵測電腦上已安裝的外部程式（目前只有 7-Zip）
       │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
+      │  ├─ properties.rs      # 檔案／資料夾的「內容」對話框（SHObjectProperties，見 §3.4）
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
       │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
       │  └─ oplog.rs           # 檔案操作紀錄（<資料根>\logs）
@@ -99,7 +100,7 @@ PuffFiles/
          ├─ fs.rs              # list_dir_stream、list_dir_flat_stream／cancel_dir_flat、list_subdirs、
          │                     # 建立資料夾／檔案、外部工具、reveal
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
-         ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、操作紀錄
+         ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、屬性對話框、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
          └─ system.rs          # list_drives、quick_locations、detect_7zip
 ```
@@ -208,8 +209,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 「重新命名」由 `FileListView` 攔截選單 id `rename` 與 F2 就地編輯，不經過 `run()`，見 §3.6。
 外部工具依 `toolMatches()` 過濾：顯示於檔案／資料夾、副檔名篩選，再加上三個開關 ——
 `enabled`（關掉就不出現）、`single`（只在單選時出現）與 `autoDetect`（執行檔空白時
-還不出現，等開機偵測填進來，見下）；樹的節點選單另外由 `FolderTreePanel` 組
-（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
+還不出現，等開機偵測填進來，見下）；通過篩選的再依 `group` 收成子選單（兩項以上才包，
+見 §3.8），選單本身由 `ContextMenu` 畫、`MenuPanel` 負責一層的內容。樹的節點選單另外由
+`FolderTreePanel` 組（虛擬目錄的三項動作、真實資料夾的「移動到虛擬目錄…」）。
 
 「複製到另一窗格／移動到另一窗格」執行前會以 `ui.confirm` 彈窗，訊息列出**來源窗格與
 路徑**、**目標窗格與路徑**以及會作用的項目數量與名稱，按確定才動手 —— 避免左右／上下
@@ -237,6 +239,34 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 資料夾列、清單空白處與「我的資料夾」的真實資料夾節點另外提供「在○（窗格）開啟 ASCII
 樹狀目錄」。它和一般「在○窗格開啟」不同：前者把資料夾開成檔案清單，後者把目錄樹開成
 只讀檢視器。目標沿用焦點窗格的鄰居；未分割時一樣先分割再開啟。
+
+**「屬性」借用 shell 的屬性表，不是自繪表單（2026-11-01）**：選單最後一項與 `Alt+Enter`
+都會叫出**跟檔案總管完全同一個**「內容」對話框（`commands/shell.rs` 的 `show_properties`
+→ `core/properties.rs`）。大小佔用空間、修改／存取時間、唯讀／隱藏／封存、安全性（ACL）、
+版本資訊、數位簽章、共用，以及第三方掛進去的頁籤都在裡面；這些自己畫要畫很久，
+而且永遠追不上系統。
+
+- 走 **`SHObjectProperties(hwnd, SHOP_FILEPATH, 路徑)`**：文件化的 API、吃路徑字串、
+  可以指定 owner，屬性表會 modal 在我們的視窗上。COM 走 STA（`CoInitializeEx`），
+  呼叫放在 `spawn_blocking`（`run_logged`），不佔 async 執行緒。
+- **不要**改用下面這三種寫法（2026-11-01 在 Windows 11 24H2 全部實測失敗，記下來
+  避免重做）：
+  - `IContextMenu` 的 `properties` verb：選單裡確實有「內容」項目，但
+    `GetCommandString` 不提供 canonical verb，`InvokeCommand` 用字串 `"properties"`
+    會跳「這個項目的內容無法使用」（EX 版本）或什麼都不做（ANSI 版本）。
+  - `ShellExecuteEx` ＋ `SEE_MASK_INVOKEIDLIST`：回 `TRUE`，但**什麼都不開**。
+  - `SHMultiFileProperties` ＋ `SHCreateDataObject`：回 `S_OK`，也是**什麼都不開**
+    （這台機器上等同空包彈）。
+- **多選只顯示右鍵那一項的內容**：沒有穩定可用的「合併屬性表」API，所以
+  `usePathMenu` 只傳 `target.path`。不要為了合併去猜 `IContextMenu` 的命令 id ——
+  第三方擴充會改變選單順序，猜錯就是執行別的動作。
+- 使用者改了什麼**不猜**：屬性變更本來就會觸發 `ReadDirectoryChangesW`，清單自己更新。
+- 非 Windows 回 `Unsupported`；`SHObjectProperties` 回 `FALSE` 時把 `GetLastError`
+  包成 `AppError::Io`，前端用通知顯示。
+- 快速鍵 `Alt+Enter`：有選取就用右鍵／焦點那一項，沒有選取就是目前資料夾 —— 與右鍵
+  選單的 `properties` 同一條 `usePathMenu.run()` 路徑，錯誤提示也只有一份。
+  這是**唯一**借用原生 shell UI 的地方；原生右鍵選單（`IContextMenu` 的全部項目）
+  仍然不做（見 `docs/explorer-gap.md`）。
 
 ### 3.5 檢視器（Viewer）
 
@@ -590,9 +620,24 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **篩選**：`targets`（檔案／資料夾）、`extensions`（副檔名），再加上 `enabled`
   （關掉就不出現）、`single`（只在單選時出現）與 `autoDetect`（執行檔還是空白的自動偵測
   工具先不出現）。
-- **7-Zip**：內建 `builtin-7zip-add`（`加入到「$fileStem.zip」`，工作目錄
-  `$parentFolderPath`、`7zG.exe a -tzip`）與 `builtin-7zip-extract`（`解壓縮至「$fileStem」`、
-  `7zG.exe x -o<主檔名>`，只出現在常見壓縮檔副檔名上），兩者 `single: true`、執行檔留空。
+- **群組（2026-11-01）**：`group` 是選填的群組名稱，`utils/tools.ts` 的 `groupTools()`
+  把這次通過篩選的工具依名稱分組（**不分大小寫**、顯示用第一次出現的寫法），群組位置＝
+  第一個成員在 `settings.tools` 裡的位置。**同一個群組有兩項以上**時在右鍵選單收成一個
+  子選單（`MenuItem.children`，圖示 `folderStack`）；只有一項符合時直接攤平 ——
+  包一個項目多開一層只是多一次滑鼠移動。子選單的項目 id 與攤平時完全相同（`tool:<id>`），
+  `run()` 不必分辨它是從哪一層按的。
+- **子選單的實作**：`components/overlays/ContextMenu.vue` 只負責定位與開關，
+  一層面板由 `MenuPanel.vue` 畫（父層與子層共用同一份樣式）。子選單滑過入口列就展開，
+  先落在右側、量到尺寸後才決定要不要翻到左邊與往下夾回畫面內；父選單捲動、視窗縮放、
+  選單內容整個換掉時收起。子選單以 `Teleport` 掛到 `body`（父層的 `fixed` 與進場
+  `scale` 會變成子元素的定位基準，留在裡面座標會算錯）。
+- **7-Zip**：內建三項，共用 `group: "7-Zip"` 與同一份 `ARCHIVE_EXTENSIONS`：
+  `builtin-7zip-add`（`加入到「$fileStem.zip」`，工作目錄 `$parentFolderPath`、
+  `7zG.exe a -tzip`）、`builtin-7zip-extract`（`解壓縮至「$fileStem」`、
+  `7zG.exe x -o<主檔名>`）與 `builtin-7zip-extract-here`（`在這裡解壓縮`、
+  `7zG.exe x -o.`，工作目錄 `$parentFolderPath` —— 直接倒進壓縮檔所在的資料夾，
+  不另外開一層；`-o.` 寫明白，不依賴「沒給 `-o` 就解到目前目錄」的預設行為）。
+  三者 `single: true`、執行檔留空。
   啟動時 `AppShell` 呼叫 `api.detect7zip()`（後端 `core::programs::find_7zip()` 查
   `%ProgramFiles%`／`%ProgramFiles(x86)%`／`%ProgramW6432%` 下的 `7-Zip\7zG.exe`），
   `settings.applyDetected7zip()` **只填空白**的執行檔 —— 使用者自己指到可攜版不會被蓋掉，
@@ -600,6 +645,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   自己的對話框呈現；也刻意不查登錄檔，自訂安裝位置由使用者填路徑。
 - **新增內建工具要讓既有使用者拿到**：`settings` 載入時 `withBuiltins()` 補上
   `DEFAULT_TOOLS` 裡缺少的 id（只補缺的，既有內容含使用者改過的路徑都不動）。
+  群組欄位另外由 `withDefaultGroups()` 補：**只有工具完全沒有 `group` 鍵**時才填
+  `DEFAULT_TOOLS` 的預設值；使用者在編輯頁清空會存成空字串（鍵存在），不會被填回去。
 
 ### 3.9 檔案拖曳移動（2026-10-30）
 

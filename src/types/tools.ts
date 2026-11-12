@@ -23,6 +23,11 @@ export interface ExternalTool {
   newConsole: boolean;
   targets: ToolTarget[];
   /**
+   * 選單群組名稱；同名（不分大小寫）的工具會在右鍵選單裡合成一個子選單。
+   * 留空或未設定＝直接列在選單上（見 `utils/tools.ts` 的 `groupTools()`）。
+   */
+  group?: string;
+  /**
    * 只在這些副檔名上出現（含點、小寫，例如 `.7z`），不分大小寫比對。
    * 空陣列或未設定＝不限；一旦設定就只會出現在檔案上，資料夾不算符合。
    */

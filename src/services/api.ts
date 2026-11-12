@@ -232,6 +232,20 @@ export async function revealPath(path: string): Promise<void> {
   return guarded(() => invoke("reveal_path", { path }));
 }
 
+/**
+ * 開啟檔案／資料夾的「內容」對話框（Windows shell 的 `properties` verb）。
+ *
+ * 多選時後端會合併成一張「N 個項目的屬性」。這個呼叫是 **modal**：它會等到使用者
+ * 關掉視窗才回傳，所以呼叫端不要擋住其他工作，也不要重複呼叫。
+ */
+export async function showProperties(paths: string[]): Promise<void> {
+  if (!isDesktopRuntime()) {
+    console.info("[mock] properties", paths);
+    return;
+  }
+  return guarded(() => invoke("show_properties", { paths }));
+}
+
 /** 執行使用者設定的外部工具（引數已在前端依樣板展開）。 */
 export async function runExternal(
   program: string,

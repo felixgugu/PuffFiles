@@ -199,6 +199,34 @@ pub async fn rename_item(path: String, new_name: String) -> AppResult<bool> {
     .await
 }
 
+/// 開啟檔案／資料夾的「內容」對話框（Windows shell 的 `properties` verb）。
+///
+/// 單選與多選都支援；多選會合併成一張「N 個項目的屬性」。這個呼叫是 **modal** ——
+/// 會停在這裡直到使用者關掉視窗，所以一定要走 `spawn_blocking`（見 `run_logged`），
+/// 不能佔住 async 執行緒。
+#[tauri::command]
+pub async fn show_properties(window: tauri::WebviewWindow, paths: Vec<String>) -> AppResult<()> {
+    let detail = describe_paths(&paths, None);
+    let items = to_paths(paths);
+
+    // 屬性表以主視窗為 owner 才會 modal 在正確的視窗上；拿不到就退回沒有 owner。
+    #[cfg(windows)]
+    let owner = window.hwnd().ok().map(|handle| handle.0 as isize);
+    #[cfg(not(windows))]
+    let owner: Option<isize> = {
+        let _ = &window;
+        None
+    };
+
+    run_logged(
+        "PROPERTIES",
+        detail,
+        move || core::properties::show(&items, owner),
+        |_| String::new(),
+    )
+    .await
+}
+
 /// 讀出最後幾行檔案操作紀錄。
 #[tauri::command]
 pub async fn operation_log(lines: usize) -> AppResult<String> {

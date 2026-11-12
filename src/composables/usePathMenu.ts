@@ -11,7 +11,7 @@ import type { MenuItem } from "@/types/menu";
 import type { ExternalTool, ToolVars } from "@/types/tools";
 import { fileNameOf, fileStemOf, parentOf, samePath } from "@/utils/path";
 import { paneSlotLabel, splitIcon } from "@/utils/layout";
-import { toolMatches } from "@/utils/tools";
+import { toolMatches, groupTools } from "@/utils/tools";
 import { applyVars, buildVars } from "@/utils/toolVars";
 import { viewerKindOfPath } from "@/utils/viewer";
 
@@ -161,16 +161,33 @@ export function usePathMenu() {
    *
    * 標籤吃與引數同一組樣板變數：例如 `加入到「$fileStem.zip」` 在選到 `report.docx`
    * 時會顯示成「加入到「report.zip」」；展開成空字串時退回原文。
+   *
+   * 設了相同「群組」的工具會收進同一個子選單；這次只有一項符合時直接攤平 ——
+   * 只為了包一個項目多開一層，反而多一次滑鼠移動。
    */
   function toolItems(targets: MenuTarget[], target: MenuTarget): MenuItem[] {
     const vars = varsFor(target);
-    return settings.tools
-      .filter((tool) => toolMatches(tool, targets))
-      .map((tool) => ({
-        id: `tool:${tool.id}`,
-        label: applyVars(tool.label, vars) || tool.label,
-        icon: tool.icon,
-      }));
+    const matched = settings.tools.filter((tool) => toolMatches(tool, targets));
+    const entry = (tool: ExternalTool): MenuItem => ({
+      id: `tool:${tool.id}`,
+      label: applyVars(tool.label, vars) || tool.label,
+      icon: tool.icon,
+    });
+
+    return groupTools(matched).flatMap((bucket) => {
+      const entries = bucket.tools.map(entry);
+      if (bucket.group && entries.length > 1) {
+        return [
+          {
+            id: `tool-group:${bucket.group}`,
+            label: bucket.group,
+            icon: "folderStack" as const,
+            children: entries,
+          },
+        ];
+      }
+      return entries;
+    });
   }
 
   /** 只有分割時才提供的「送到另一邊」。 */
@@ -195,6 +212,16 @@ export function usePathMenu() {
 
   function revealItem(label = "在檔案總管中顯示"): MenuItem {
     return { id: "reveal", label, icon: "externalLink" };
+  }
+
+  /**
+   * 「屬性」：借用 shell 的屬性表（不是自己畫的表單）。
+   *
+   * 單選與多選都適用，多選時 Windows 會合併成一張「N 個項目的屬性」 —— 大小佔用空間、
+   * 唯讀／隱藏屬性、安全性、版本資訊、共用，以及第三方掛進去的頁籤都在那裡。
+   */
+  function propertiesItem(): MenuItem {
+    return { id: "properties", label: "屬性", icon: "info", shortcut: "Alt+Enter" };
   }
 
   /** 選單開頭「開啟」那一組的第二項：把目標所在的資料夾開到新分頁。 */
@@ -239,6 +266,7 @@ export function usePathMenu() {
     append(items, toolItems([target], target));
     append(items, copyPathItems());
     append(items, [revealItem()]);
+    append(items, [propertiesItem()]);
     return items;
   }
 
@@ -266,6 +294,7 @@ export function usePathMenu() {
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem()]);
+    append(items, [propertiesItem()]);
     return items;
   }
 
@@ -295,6 +324,7 @@ export function usePathMenu() {
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem()]);
+    append(items, [propertiesItem()]);
     return items;
   }
 
@@ -313,6 +343,7 @@ export function usePathMenu() {
     append(items, transferItems());
     append(items, copyPathItems());
     append(items, [revealItem("在檔案總管中顯示右鍵的項目")]);
+    append(items, [propertiesItem()]);
     return items;
   }
 
@@ -520,6 +551,16 @@ export function usePathMenu() {
         return;
       case "reveal":
         await explorer.revealTarget(target.path);
+        return;
+      case "properties":
+        // modal：等使用者關掉屬性視窗才回來（後端已經在阻塞執行緒上等）。
+        // `SHObjectProperties` 一次只吃一個對象，所以傳右鍵的那一項；
+        // 多選也一樣（沒有穩定的合併屬性表 API，見 core/properties.rs 的檔頭）。
+        try {
+          await api.showProperties([target.path]);
+        } catch (cause) {
+          ui.showNotice(normalizeBackendError(cause).message, undefined, 4200);
+        }
         return;
       default:
         return;

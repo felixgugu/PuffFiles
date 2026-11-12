@@ -23,6 +23,21 @@ const ui = useUiStore();
 const draft = computed(() => editor.draft);
 const isCreate = computed(() => editor.mode === "create");
 
+/** 其他工具已經在用的群組名稱（去重、排序）；給輸入框的建議清單用。 */
+const groupOptions = computed(() => {
+  const names = new Map<string, string>();
+  for (const tool of settings.tools) {
+    if (tool.id === editor.editingId) {
+      continue;
+    }
+    const name = tool.group?.trim();
+    if (name) {
+      names.set(name.toLocaleLowerCase(), name);
+    }
+  }
+  return [...names.values()].sort(new Intl.Collator("zh-Hant", { numeric: true }).compare);
+});
+
 /**
  * 引數欄位保留使用者輸入的原始文字。
  *
@@ -196,6 +211,26 @@ async function copyVariable(name: string) {
         />
         <span v-if="editor.errorFor('label')" class="mt-1 block text-xs text-danger">
           {{ editor.errorFor("label") }}
+        </span>
+      </label>
+
+      <label class="block">
+        <span class="text-sm text-ink-muted">群組（選填）</span>
+        <input
+          :value="draft.group ?? ''"
+          type="text"
+          spellcheck="false"
+          list="tool-group-options"
+          placeholder="例如：7-Zip"
+          class="mt-1 h-8 w-full rounded-md border border-line bg-surface px-2.5 text-base text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+          @input="editor.patch({ group: ($event.target as HTMLInputElement).value })"
+        />
+        <datalist id="tool-group-options">
+          <option v-for="name in groupOptions" :key="name" :value="name" />
+        </datalist>
+        <span class="mt-1 block text-xs leading-relaxed text-ink-faint">
+          同一個群組名稱（不分大小寫）的工具會收進右鍵選單的同一個子選單；這次只有一項符合
+          條件時仍直接列在選單上。留空＝不分組。輸入框會列出其他工具已經在用的群組名稱。
         </span>
       </label>
 

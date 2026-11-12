@@ -20,7 +20,7 @@ const ui = useUiStore();
 
 const query = ref("");
 
-/** 依名稱與執行檔篩選；不分大小寫。 */
+/** 依名稱、群組與執行檔篩選；不分大小寫。 */
 const filtered = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase();
   if (!needle) {
@@ -29,6 +29,7 @@ const filtered = computed(() => {
   return settings.tools.filter(
     (tool) =>
       tool.label.toLocaleLowerCase().includes(needle) ||
+      (tool.group ?? "").toLocaleLowerCase().includes(needle) ||
       tool.executable.toLocaleLowerCase().includes(needle),
   );
 });
@@ -85,7 +86,7 @@ async function resetTools() {
           v-model="query"
           type="text"
           spellcheck="false"
-          placeholder="篩選工具（名稱或執行檔）"
+          placeholder="篩選工具（名稱、群組或執行檔）"
           class="h-8 w-full rounded-md border border-line bg-surface pr-8 pl-8 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
         />
         <button
@@ -123,6 +124,13 @@ async function resetTools() {
           :class="tool.enabled === false ? 'text-ink-faint' : 'text-ink'"
         >
           {{ tool.label }}
+        </span>
+        <span
+          v-if="tool.group"
+          class="shrink-0 rounded bg-surface-muted px-1.5 py-0.5 text-2xs text-ink-faint"
+          :title="`群組：${tool.group}（同名工具會收進同一個子選單）`"
+        >
+          {{ tool.group }}
         </span>
         <span
           v-if="tool.enabled === false"

@@ -17,6 +17,28 @@ export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
 export type ThemeMode = "light" | "dark" | "system";
 export type MotionPreference = "full" | "system" | "reduced";
 
+/** 7-Zip 能解開的常見格式；「解壓縮至…」與「在這裡解壓縮」共用同一份清單。 */
+const ARCHIVE_EXTENSIONS = [
+  ".zip",
+  ".zipx",
+  ".7z",
+  ".rar",
+  ".tar",
+  ".gz",
+  ".tgz",
+  ".bz2",
+  ".tbz",
+  ".xz",
+  ".txz",
+  ".cab",
+  ".iso",
+  ".wim",
+  ".arj",
+  ".lzh",
+  ".z",
+  ".lzma",
+];
+
 /** 內建的外部工具：可以編輯內容，但不能刪除。 */
 export const DEFAULT_TOOLS: ExternalTool[] = [
   {
@@ -64,8 +86,9 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     builtin: true,
   },
   /*
-   * 7-Zip 的兩項動作：執行檔留空，開機偵測到就自動填入（`applyDetected7zip`）。
+   * 7-Zip 的三項動作：執行檔留空，開機偵測到就自動填入（`applyDetected7zip`）。
    * 沒填執行檔時不會出現在右鍵選單上（見 `utils/tools.ts` 的 toolMatches）。
+   * 三者共用同一個群組，選單裡會收成一個「7-Zip」子選單（見 `groupTools()`）。
    */
   {
     id: "builtin-7zip-add",
@@ -77,6 +100,7 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     workingDirectory: "$parentFolderPath",
     newConsole: false,
     targets: ["file", "folder"],
+    group: "7-Zip",
     icon: "archive",
     builtin: true,
     autoDetect: "7zip",
@@ -90,26 +114,26 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     workingDirectory: "$fullFolderPath",
     newConsole: false,
     targets: ["file"],
-    extensions: [
-      ".zip",
-      ".zipx",
-      ".7z",
-      ".rar",
-      ".tar",
-      ".gz",
-      ".tgz",
-      ".bz2",
-      ".tbz",
-      ".xz",
-      ".txz",
-      ".cab",
-      ".iso",
-      ".wim",
-      ".arj",
-      ".lzh",
-      ".z",
-      ".lzma",
-    ],
+    extensions: [...ARCHIVE_EXTENSIONS],
+    group: "7-Zip",
+    icon: "archive",
+    builtin: true,
+    autoDetect: "7zip",
+    single: true,
+  },
+  {
+    // 檔案總管的「解壓縮到這裡」：直接倒進壓縮檔所在的資料夾，不另外開一層。
+    // 工作目錄＝上層資料夾（檔案目標時就是所在資料夾），`-o.` 明確指向它，
+    // 不要依賴 7-Zip 對「沒給 -o 就解到目前目錄」的預設行為。
+    id: "builtin-7zip-extract-here",
+    label: "在這裡解壓縮",
+    executable: "",
+    args: ["x", "$fileName", "-o."],
+    workingDirectory: "$parentFolderPath",
+    newConsole: false,
+    targets: ["file"],
+    extensions: [...ARCHIVE_EXTENSIONS],
+    group: "7-Zip",
     icon: "archive",
     builtin: true,
     autoDetect: "7zip",
@@ -292,6 +316,28 @@ function withBuiltins(tools: ExternalTool[]): ExternalTool[] {
   return missing.length ? [...tools, ...cloneTools(missing)] : tools;
 }
 
+/**
+ * 舊版沒有 `group` 欄位：內建工具補上預設群組（目前只有 7-Zip 的「7-Zip」）。
+ *
+ * 只補**完全沒有這個鍵**的工具。使用者在編輯頁把群組清空時會存成空字串，
+ * 鍵存在就不會再被填回去，否則「我明明清掉了、下次開又跑出來」會讓人以為設定壞了。
+ */
+function withDefaultGroups(tools: ExternalTool[]): ExternalTool[] {
+  let changed = false;
+  const next = tools.map((tool) => {
+    if (tool.group !== undefined) {
+      return tool;
+    }
+    const preset = DEFAULT_TOOLS.find((item) => item.id === tool.id)?.group;
+    if (!preset) {
+      return tool;
+    }
+    changed = true;
+    return { ...tool, group: preset };
+  });
+  return changed ? next : tools;
+}
+
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -312,7 +358,7 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     ...DEFAULTS,
     ...raw,
     columns: columns.length ? columns : DEFAULTS.columns,
-    tools: withBuiltins(tools),
+    tools: withDefaultGroups(withBuiltins(tools)),
     fontFamily,
     fontSize,
     aliasTemplate,
@@ -576,6 +622,8 @@ export const useSettingsStore = defineStore("settings", () => {
       workingDirectory: "$fullFolderPath",
       newConsole: false,
       targets: ["file"],
+      // 留空＝不分組，直接列在右鍵選單上。
+      group: "",
       // 留空＝所有檔案都會出現；填了才依副檔名篩選。
       extensions: [],
       icon: "program",

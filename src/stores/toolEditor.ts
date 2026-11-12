@@ -26,6 +26,7 @@ function snapshot(tool: ExternalTool): string {
     tool.newConsole,
     tool.targets,
     tool.extensions ?? [],
+    tool.group ?? "",
     tool.icon,
     tool.enabled !== false,
     tool.single === true,
@@ -53,6 +54,7 @@ function blankTool(): ExternalTool {
     newConsole: false,
     targets: ["file"],
     extensions: [],
+    group: "",
     icon: "program",
     enabled: true,
   };
@@ -165,6 +167,8 @@ export const useToolEditorStore = defineStore("toolEditor", () => {
       ...tool,
       label: tool.label.trim(),
       executable: tool.executable.trim(),
+      // 一律存成字串：空字串＝不分組（鍵存在，才不會被舊版遷移又填回預設群組）。
+      group: tool.group?.trim() ?? "",
     };
     if (mode.value === "create") {
       const created = settings.addTool(clean);

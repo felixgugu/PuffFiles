@@ -274,7 +274,11 @@ export function useKeyboardShortcuts() {
         break;
       case "Enter":
         event.preventDefault();
-        void syncedNav.open(paneId, explorer.focusedEntry(paneId));
+        if (altKey) {
+          openProperties(paneId);
+        } else {
+          void syncedNav.open(paneId, explorer.focusedEntry(paneId));
+        }
         break;
       case " ":
         event.preventDefault();
@@ -331,6 +335,36 @@ export function useKeyboardShortcuts() {
       default:
         break;
     }
+  }
+
+  /**
+   * Alt+Enter：開啟選取項目的「內容」。
+   *
+   * 對象的取法與檔案總管一致：有選取就是整組選取；只移動焦點而沒有選取時用焦點列；
+   * 兩者都沒有（清單是空的）就看目前這個資料夾。走的是右鍵選單的 `properties`
+   * 同一條路徑，所以多選合併、錯誤提示都只有一份實作。
+   */
+  function openProperties(paneId: PaneId) {
+    const selection = explorer.selectionTargets(paneId);
+    const focused = explorer.focusedEntry(paneId);
+    const folder = explorer.meta(paneId)?.currentPath ?? "";
+    const fallback = focused
+      ? { path: focused.path, isDir: focused.isDir }
+      : folder
+        ? { path: folder, isDir: true }
+        : null;
+    if (!selection.length && !fallback) {
+      return;
+    }
+    const target = selection[0] ?? fallback;
+    if (!target) {
+      return;
+    }
+    void pathMenu.run("properties", {
+      paneId,
+      target,
+      targets: selection.length ? selection : [target],
+    });
   }
 
   /**

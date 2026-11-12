@@ -5,6 +5,7 @@ pub mod flat;
 pub mod oplog;
 pub mod paths;
 pub mod programs;
+pub mod properties;
 pub mod shell;
 pub mod stream;
 pub mod tree;

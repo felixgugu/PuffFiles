@@ -28,6 +28,44 @@ export function formatExtensions(extensions: string[] | undefined): string {
   return (extensions ?? []).join(" ");
 }
 
+/** 一組共用同一個群組名稱的工具；`group` 是空字串代表沒有設定群組。 */
+export interface ToolGroupBucket<T> {
+  group: string;
+  tools: T[];
+}
+
+/**
+ * 依 `group` 把工具分組，供右鍵選單組成子選單。
+ *
+ * - 群組的位置＝該群組**第一個**成員在清單裡的位置，組內維持原本順序；沒群組的工具
+ *   自成一個只有一項的分組，因此呼叫端可以用同一套迴圈處理。
+ * - 名稱比對忽略前後空白與大小寫（`7-Zip`／`7-zip` 視為同一個群組），顯示用第一次
+ *   出現的那種寫法 —— 兩個只差大小寫的群組並存只會讓人以為設定沒生效。
+ */
+export function groupTools<T extends { group?: string }>(tools: T[]): ToolGroupBucket<T>[] {
+  const buckets: ToolGroupBucket<T>[] = [];
+  const byKey = new Map<string, ToolGroupBucket<T>>();
+
+  for (const tool of tools) {
+    const name = tool.group?.trim() ?? "";
+    if (!name) {
+      buckets.push({ group: "", tools: [tool] });
+      continue;
+    }
+    const key = name.toLocaleLowerCase();
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.tools.push(tool);
+      continue;
+    }
+    const bucket: ToolGroupBucket<T> = { group: name, tools: [tool] };
+    byKey.set(key, bucket);
+    buckets.push(bucket);
+  }
+
+  return buckets;
+}
+
 /**
  * 這個工具該不該出現在這組對象的右鍵選單上。
  *

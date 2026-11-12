@@ -48,6 +48,7 @@ pub fn run() {
             commands::shell::move_items,
             commands::shell::delete_items,
             commands::shell::rename_item,
+            commands::shell::show_properties,
             commands::shell::operation_log,
             commands::shell::operation_log_path,
             commands::watch::watch_dir,
