@@ -87,6 +87,7 @@ PuffFiles/
       ├─ error.rs              # AppError（thiserror）+ 自訂 Serialize 為 {kind,message,path}
       ├─ model.rs              # FileEntry / DirListing / DirEvent / ViewerEvent / DriveInfo / QuickLocation
       ├─ core/                 # 不依賴 Tauri 的核心邏輯（可獨立測試）
+      │  ├─ archive.rs         # 壓縮檔列舉：呼叫 7z.exe 並解析 `-slt` 輸出（見 §3.5）
       │  ├─ dir.rs             # 目錄列舉、路徑正規化、display_path
       │  ├─ flat.rs            # 扁平化列舉：遞迴走訪所有子資料夾、只回檔案（見 §3.1）
       │  ├─ paths.rs           # 應用資料與日誌位置（資料收在 %LOCALAPPDATA%\PuffFile，日誌跟執行檔）
@@ -94,11 +95,12 @@ PuffFiles/
       │  ├─ shell.rs           # IFileOperation 檔案操作（複製／搬移／刪除／重新命名）、CF_HDROP 剪貼簿
       │  ├─ properties.rs      # 檔案／資料夾的「內容」對話框（SHObjectProperties，見 §3.4）
       │  ├─ watch.rs           # ReadDirectoryChangesW 目錄監控
-      │  ├─ viewer.rs          # 檢視器：文字編碼偵測、圖片 MIME、分批切塊
+      │  ├─ viewer.rs          # 檢視器：文字編碼偵測、二進位資源 MIME（圖片與字型）、分批切塊
       │  └─ oplog.rs           # 檔案操作紀錄（<資料根>\logs）
       └─ commands/
          ├─ fs.rs              # list_dir_stream、list_dir_flat_stream／cancel_dir_flat、list_subdirs、
          │                     # 建立資料夾／檔案、外部工具、reveal
+         ├─ archive.rs         # list_archive（壓縮檔的唯讀清單，見 §3.5）
          ├─ viewer.rs          # read_viewer_file：把檔案內容分批串流給檢視器
          ├─ shell.rs           # 剪貼簿讀寫、複製／搬移／刪除／重新命名、屬性對話框、操作紀錄
          ├─ watch.rs           # 目錄監控的啟動／停止
@@ -148,6 +150,22 @@ PuffFiles/
   `cancel_dir_flat`，讓後端的走訪提早收工 —— 走訪在阻塞執行緒上，AbortController 到不了。
 - 入口只有路徑列右側的一顆切換鈕（不綁快速鍵、不進右鍵選單）。**目錄比對在扁平窗格上停用**：
   比對用檔名配對，攤平後同名檔案幾乎都在不同資料夾裡（見 §3.7）。
+
+**種類快速篩選（2026-11-14）**：路徑列的搜尋框右邊有一顆漏斗鈕，按下開 popover，用 pill
+多選目前啟用的群組。預設 12 組：`.docx`／`.xlsx`／`.pptx`／`.pdf`／`.md`／`.txt`／`.json`／
+`.yml`／`.exe`／`.png/.jpg`／`.7z/.zip/.rar`／`其它`；`.markdown`／`.yaml`／`.jpeg`／
+`.jfif` 一併算進去。群組是使用者資料（`settings.quickFilters`，設定頁的「快速篩選」分頁）：
+可以顯示／隱藏、上下排序、新增自訂群組（名稱＋副檔名，最多 30 組、每組 12 個）與刪除自訂；
+內建只能停用。**新增內建種類時 `withDefaultGroups()` 只補缺少的**（插在 `其它` 之前），
+舊設定不會漏掉（`.pdf` 就是後來補的）。
+`其它`＝不在目前**啟用**的具名群組裡的檔案（含沒有副檔名）—— 所以停用某一組，那些檔案會
+落進「其它」。狀態是每個窗格自己的 `PaneMeta.typeFilters`（群組 id 字串），**不隨換資料夾
+清空**，直到按「清除篩選」；`recompute()` 的順序是「隱藏項目 → 種類 → 關鍵字 → 排序」，
+所以它與搜尋是 AND、也不重讀資料夾。停用／刪除群組時 `stores/explorer.ts` 的 watcher 會把
+每個窗格的篩選修剪成仍存在且啟用的 id（不留隱形篩選）。**篩選時不列資料夾**（資料夾沒有
+種類）。因為它會跟著窗格跨資料夾存在，清單下方的說明與空清單的文案都要說「目前只顯示 X、
+可以從漏斗鈕清除」，不能讓它看起來像資料夾真的空了。漏斗鈕在**沒有任何啟用群組**時停用，
+tooltip 指向設定頁。
 
 ### 3.2 我的資料夾（含虛擬目錄）
 
@@ -288,7 +306,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   內容上方；不進入 reparse point，也不掛目錄監控，重新整理走 F5／標頭按鈕。支援整份複製、
   捲動與關閉，不提供搜尋或書籤。
 - **支援範圍**：`.md／.markdown`（`utils/markdown.ts` 渲染）、`.html／.htm`（靜態預覽，見下）、
-  WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、`.pdf`（與圖檔同樣走自訂協定，見下），
+  WebView2 能解的圖檔（`VIEWER_IMAGE_EXTENSIONS`）、**聲音與影片**（`VIEWER_AUDIO_EXTENSIONS`／
+  `VIEWER_VIDEO_EXTENSIONS`，見下）、`.pdf`（與圖檔同樣走自訂協定，見下），
   `.docx／.docm`（`docx-preview`，見下），以及 `fileKind.ts` 歸類為 `text`／`code` 的純文字檔。
   **沒有副檔名與未知副檔名的檔案也當純文字試讀**（2026-10-31，`LICENSE`、`Makefile`、
   `Dockerfile`、`.gitignore` 這類檔案本來就是文字）：`viewerKindOf` 把 `fileKind.ts` 的
@@ -300,7 +319,7 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `ViewerState.binary` 設為 `true`、狀態就緒，窗格顯示「這是二進位內容，無法以文字檢視」
   與請用預設程式的說明（沒有重試鈕）。規則套用到**所有**文字類檢視器，所以被改名的
   二進位 `.txt` 也會被擋下來。
-  **沒有檢視器的類型**（`.mp4`／`.exe`／舊版 `.doc`…）不會讀取內容，
+  **沒有檢視器的類型**（`.mkv`／`.avi`／`.exe`／舊版 `.doc`…）不會讀取內容，
   但仍會佔用窗格並顯示「這個檔案類型還沒有檢視器」——`ViewerState.kind` 為 `null`，
   `open()` 不呼叫 `load()`、標頭的重整鈕不出現；它仍是「目前顯示的目標」，供 `Space` 判斷前進。
   `.doc／.rtf／.odt` 這種「看起來像 Word 但不是 DOCX」的格式會多一行說明，講清楚要走預設程式。
@@ -328,8 +347,8 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   結果；目標是元素或 `Range` 都可以，兩者都量得出 `getBoundingClientRect()`），
   掃描線、rAF 節流、捲到底算最後一節、跳轉留白 8px 都共用。開關各一份
   （`settings.markdownTocEnabled`／`settings.viewerBookmarksEnabled`，都預設開啟）；
-  面板的收合與位置尺寸都住在 `ViewerState.tocPanel` —— 一個窗格同時間只會是其中一種檢視器，
-  三種內容共用同一個欄位。
+  面板的收合、釘選與位置尺寸都住在 `ViewerState.tocPanel` —— 一個窗格同時間只會是其中一種
+  檢視器，三種內容共用同一個欄位（泡泡模式只有 Markdown 開啟，見下面「目錄索引（Markdown）」）。
 - **面板配色跟隨底下的內容，不是跟隨佈景主題**（`main.css` 的 `@utility panel-light`）：
   DOCX 的頁面固定白紙、不隨主題反轉，那裡的浮動面板（書籤目錄與搜尋）固定用淺色權杖 ——
   深色主題的深色面板疊在白紙上，面板自己的淺色文字會落在白紙上，平常（idle 不透明度 0.2）
@@ -343,6 +362,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   `panelRects`（鍵是 `<paneId>:<panel>`），要避讓的那一個讀它重算（`avoidId`），
   並用 `PanelBounds.top` 把可用範圍從對方下緣開始 —— 少了 `top`，`clampPanel` 會把面板
   夾回原位，等於沒讓開。**自訂過位置的面板不參與避讓**（那時候位置是使用者決定的）。
+  目錄索引改成圓形泡泡之後，公布的是**展開後**的足跡（`useViewerPanel` 的 `expandedRect`；
+  泡泡只是視覺上的收合）—— 不然搜尋面板會貼在泡泡下緣，目錄一展開就被蓋住，滑鼠移過去
+  的同時還會跟著上下跳。
 - **檢視器內文自成堆疊脈絡**（`isolate`）：文件帶進來的 z-index（`docx-preview` 的
   `section.docx > article` 就有 `z-index: 1`）永遠蓋不到浮動面板上。
 - **檢視器標頭的動作分成四顆膠囊**（2026-10-09）：左邊是檔案圖示與名稱（副資訊是大小與
@@ -379,17 +401,27 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 - **目錄索引（Markdown）**：檢視器標頭的目錄鈕切換右上角的浮動面板（預設開啟）。
   `utils/markdown.ts` 替每個 h1～h6 產生文件內唯一的 id 並回傳 `headings`；面板依層級
   縮排列出標題、捲動內文時同步高亮目前章節，點項目或文件內的 `[文字](#標題)` 都會捲到
-  該行。面板可拖曳、可調整寬高、可收合成只剩標題列，左下角把手往外拖＝放大；
-  底色不透明度（預設 50%）與最小寬度（預設 200px）在設定頁的「瀏覽 → 檢視器」調整
-  （`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，兩種浮動面板共用）。
+  該行。**平常收成一顆 36px 的圓形泡泡**（只有中間的 `toc` 圖示，貼在展開後面版的
+  右上角）：滑鼠移進來、或鍵盤焦點進入（只認 `:focus-visible`）才展開，**移開就立刻
+  收回**（沒有延遲、也沒有縮小或淡出 —— 變化後是泡泡，所以那一輪不套用尺寸過場）；
+  點目錄項目除了跳轉也會立刻收合，`Enter`／空白與 `Esc` 同樣能切換（`Esc` 會
+  `stopPropagation`，先收面板而不是關掉檢視器）。展開後的標題列有一顆**釘選**鈕：釘住就
+  維持展開、不隨滑鼠移開收合，而且固定全不透明。
+  泡泡就是標題列本身（同一個元素），展開時焦點不會掉到 body、Tab 才走得進清單；
+  泡泡狀態下按下只有「打開」一個意思，拖曳與方向鍵移動只在展開時有效。展開後面板可拖曳、
+  可調整寬高，左下角把手往外拖＝放大；底色不透明度（預設 50%）與最小寬度（預設 200px）
+  在設定頁的「瀏覽 → 檢視器」調整（`settings.viewerPanelOpacity`／`viewerPanelMinWidth`，
+  兩種浮動面板共用）。**DOCX／純文字的書籤目錄沒有泡泡模式**，照舊用標題列的箭頭收合。
   **沒有滑鼠移過、鍵盤焦點也不在面板裡時整塊幾乎隱形**（`FloatingPanel.vue` 的
   `--panel-idle-opacity`，預設 0.2，模糊也一起關掉）：面板浮在內文上，平常不該擋住
   閱讀，只留淡淡的輪廓提醒它還在；`hover`／`:focus-within`／拖曳縮放中才回到設定的
-  材質。搜尋面板開啟時會自動聚焦搜尋框，所以一開就是清楚的。
-  **面板的收合、位置與尺寸不持久化、也不跨文件沿用**：住在 `ViewerState.tocPanel`
-  （每個檢視器一份），開啟新文件一律回到預設（展開、`x === null` 維持右上角對齊、
-  預設寬度與自適應高度）。文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板自動隱藏，
-  標頭開關維持可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
+  材質。**圓形模式完全不套用這一條**：泡泡、展開中、以及離開後的那一瞬間都固定
+  全不透明 —— 否則滑鼠一離開就會先淡到 20%、下一格再彈回清楚，看起來很怪。
+  搜尋面板開啟時會自動聚焦搜尋框，所以一開就是清楚的。
+  **面板的收合、釘選、位置與尺寸不持久化、也不跨文件沿用**：住在 `ViewerState.tocPanel`
+  （每個檢視器一份），開啟新文件一律回到預設（泡泡、`x === null` 維持右上角對齊、
+  預設寬度與自適應高度）。文件沒有標題、或窗格窄於「最小寬度＋兩側留白」時面板（連泡泡）
+  自動隱藏，標頭開關維持可見但反灰停用；兩個窗格同時開 Markdown 時各自渲染，DOM 查詢限定在自己的內容根節點。
 - **搜尋（所有文字類檢視器）**：檢視器標頭的搜尋鈕或 `Ctrl+F` 開關右上角的浮動面板，
   面板本身是每個窗格各自的狀態（預設關閉）。搜尋的是**畫面上看得到的文字**：
   Markdown 渲染後的內容、純文字與程式碼（含 HTML 原始碼模式）、HTML 靜態預覽 iframe
@@ -405,10 +437,33 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   開啟新文件回到預設；最小寬度與不透明度與目錄索引共用。
 - **HTML 靜態預覽**：`HtmlView` 以 `iframe[srcdoc]` 呈現，`sandbox` 只給 `allow-same-origin`
   （不給 `allow-scripts`）—— 頁面**不執行 JavaScript**、**不載入 http(s) 遠端資源**；
-  `utils/html.ts` 先移除 `<script>`／`<base>`／meta refresh／`on*`，再由父層進入
-  `contentDocument` 把相對路徑的圖片、外部 CSS 與 CSS 內的 `url()`／`@import` 換成
-  經 IPC 讀取的 blob URL。標頭的切換鈕在「預覽／原始碼」之間切換（`ViewerState.mode`），
-  預設是預覽；有 `<script>` 或略過的資源時在內容上方顯示提示條。
+  `utils/html.ts` 先移除 `<script>`／`<base>`／**所有帶 `http-equiv` 的 meta**（包含頁面
+  自己的 CSP，留著會把父層換上去的 blob: 資源擋掉）／`on*`，再由父層進入 `contentDocument`
+  把相對路徑的圖片、`<use>` 的外部 symbol、外部 CSS 與 CSS 內的 `url()`／`@import`
+  換成經 IPC 讀取的 blob URL；`<template>` 的內容不在 document tree 裡，另外遞迴洗一次。
+  字型（`woff/woff2/ttf/otf`）與圖片一樣走二進位讀取（`core::viewer::resource_mime`）。
+  **讀不到的資源一律算「略過」**（`services/viewerResource.ts` 把後端錯誤收成 `null`）：
+  HTML 提示條會說略過了幾個，預覽不會因為一個缺檔停在「正在準備預覽…」。
+  連結點擊用 duck typing 判斷（跨 realm 的 `instanceof Element` 永遠是 false）：遠端交給
+  系統、相對路徑切到那個檔案，`javascript:` 直接忽略。標頭的切換鈕在「預覽／原始碼」之間
+  切換（`ViewerState.mode`），預設是預覽；有 `<script>` 或略過的資源時在內容上方顯示提示條，
+  提示條右側的「用瀏覽器開啟」就是**完整瀏覽**的入口（靜態模式本來就看不到需要 JS 的部分）。
+- **壓縮檔檢視器（唯讀清單）**：`.zip／.7z／.rar／.tar／…`（`utils/archive.ts` 的
+  `ARCHIVE_EXTENSIONS`，與 7-Zip 外部工具同一份清單）開在檢視器裡，**只列項目、不解壓縮、
+  不落地**。後端 `core::archive` 呼叫已安裝的 `7z.exe`：
+  `l -slt -ba -sccUTF-8 -bd -- <archive>`，逐行解析成 `{path,size,packedSize,modified,
+  encrypted,crc}`；`-sccUTF-8` 讓輸出固定是 UTF-8（`Path` 會讓 PowerShell 顯示成亂碼，
+  但位元組是對的）。`7zG.exe` 同目錄的 `7z.exe` 優先，其次查標準安裝位置；都沒有回
+  `programNotFound`（錯誤列說明，仍可用「用預設程式開啟」）。
+  **資料夾由前端從路徑合成**（壓縮檔常常根本沒有資料夾項目），名稱欄顯示相對路徑
+  （前綴淡色，與扁平化展示同一套）；篩選（不分大小寫、比對完整路徑）與排序（名稱／大小／
+  修改時間）都在前端。清單沿用 `FileListView` 的虛擬滾動參數，標頭的捲動鈕與
+  `Home`／`End`／`PageUp`／`PageDown` 直接可用（`useViewerScroll` 註冊同一個容器）。
+  **上限 20,000 筆**（與 `core::archive::MAX_ENTRIES` 同一個數字）：超過就停止讀取並殺掉
+  7-Zip，底部註明只列前段；整體時限 30 秒（慢速網路磁碟）。
+  **檔頭加密** → `passwordRequired`，內容區顯示密碼輸入（密碼只留在 `ViewerArchiveState`，
+  不寫操作紀錄）；項目本身加密只在該列加鎖頭。**不掛目錄監控**，重新整理走 F5。
+  **不做**：單檔預覽、解壓縮選取項目、拖曳出來、把壓縮檔當資料夾瀏覽。
 - **Mermaid**：` ```mermaid ` 區塊**預設自動渲染成內嵌 SVG**（官方 mermaid 12、lazy 載入），
   每個區塊標題列可「圖表／原始碼」各自切換、複製原始碼、另存 PNG（**存檔後自動在檔案
   總管選取剛存的那個檔** —— 走檢視器標頭同一條 `reveal_path`；使用者取消或瀏覽器預覽
@@ -452,22 +507,35 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   解壓與排版都在主執行緒上，擋不住會凍住整個介面（與 1 MB 不高亮、4 MB 停用搜尋同一套慣例）。
   解析失敗（加密、損壞、不是 ZIP）顯示「這份文件無法解析」；瀏覽器預覽模式沒有 `stream`
   協定，比照 PDF 顯示提示。
-- **圖檔、PDF 與 DOCX 走自訂協定 `stream`（2026-10-09）**：位元組直接餵給 WebView，
+- **圖檔、PDF、DOCX、聲音與影片走自訂協定 `stream`（2026-10-09）**：位元組直接餵給 WebView，
   **不經過 base64／Blob** —— 圖片是 `<img :src="streamUrl">`（`ImageView.vue` 的 `source`
   取 `streamUrl ?? blobUrl`），PDF 交給 WebView2 內建的 viewer（`PdfView.vue`，
-  **不加 sandbox** 才有自己的工具列與右鍵選單），DOCX 由 `fetch` 取回整份位元組。
+  **不加 sandbox** 才有自己的工具列與右鍵選單），DOCX 由 `fetch` 取回整份位元組，
+  聲音與影片交給原生 `<audio>`／`<video>`（`MediaView.vue`，見下一條）。
   後端 `commands/stream.rs`：`open_file_stream(path)` 回 `{ token, size }`（128-bit 不可猜
   亂數，用 std 的 `RandomState` 取 OS 亂數種子）、`close_file_stream(token)` 立即撤銷，
   URL 只帶 token、不含路徑；`core/stream.rs` 是 Range 解析、MIME 與白名單
-  （`is_streamable`：圖片、PDF 與 DOCX）的純邏輯，兩者都可獨立測試。
+  （`is_streamable`：圖片、PDF、DOCX、聲音與影片）的純邏輯，兩者都可獨立測試。
+  **媒體的單次回應上限 8 MB**（`MAX_MEDIA_BODY`）：`Range: bytes=0-` 的結尾是整份，
+  不限制的話一部 1 GB 的影片會直接配置 1 GB；播放器會自己再要下一段。DOCX 由前端
+  `fetch` 整份，不套用這個上限（切成一半就排版失敗）。
   **動機是速度**：圖片原本走「整份讀進 Rust → base64 → 逐批 IPC → JS `atob`＋逐位元組
   迴圈 → Blob」，實測 40 MB 的圖光是 Rust 端編碼就要 477 ms（debug）／42 ms（release）。
   改走協定後由瀏覽器自己取資料、邊讀邊解碼，也少掉 base64 造成的字串記憶體。
   **瀏覽器預覽模式沒有這條協定**：圖片會退回原本的 base64／Blob 假資料（`npm run dev`
-  要看得到圖就靠這條），PDF 則顯示提示。
+  要看得到圖就靠這條），PDF、DOCX、聲音與影片則顯示提示。
   PDF 另外需要 `tauri.conf.json` 的 `additionalBrowserArgs`：wry 預設傳
   `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`，而這個設定是**整串取代**，
   所以要自己補回 `msWebOOUI,msSmartScreenProtection`，只放開 `msPdfOOUI`。
+- **聲音與影片（2026-11-14）**：`MediaView.vue` 用原生播放器（`controls`／`playsinline`／
+  `preload="metadata"`）：影片黑底、`object-contain`，聲音是置中卡片（音樂圖示、檔名、大小）
+  ＋原生 `<audio>`。**不自動播放**（瀏覽器政策與不打擾），按播放才出聲；切分頁或換檔時
+  檢視器會卸載，`onBeforeUnmount` 先 `pause()`，所以**換分頁聲音就停**（背景播放是另一個
+  功能，目前不做）。格式只列 WebView2 真的播得出來的：影片 `mp4`／`m4v`／`webm`，聲音
+  `mp3`／`m4a`／`aac`／`wav`／`flac`／`ogg`／`oga`／`opus`／`weba`；`mkv`／`avi`／`mov`／
+  `wmv`／`flv`／`ts` 維持沒有檢視器。同一個 `.mp4` 裡若是容器不支援的編碼（例如沒有系統
+  擴充的 HEVC），播放器會觸發 `error`，內容區顯示「這個格式 WebView2 播不出來」＋
+  「用預設程式開啟」，不是一片黑。沒有播放清單／上下首、不讀 ID3 標籤或封面、不處理外掛字幕。
 - **書籤目錄（DOCX 與純文字／程式碼，2026-10-09）**：這兩種內容都沒有大綱（`docx-preview`
   不產生目錄，連文件裡的書籤連結都沒有 id；純文字更沒有結構），所以目錄由使用者自己累積：
   在內容裡**選取文字 → 面板標題列的「加入書籤」或 `Ctrl+B` → 那一段進入書籤目錄**，
@@ -539,7 +607,9 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
   Ctrl+B（支援書籤的檢視器把選取的文字加入書籤目錄）與 F6、分頁／版面層級的操作；
   圖片檢視器另外把 ←／→ 當成上一張／下一張（`Alt` 按住時不生效，維持原本什麼都不做）。
   捲動另外綁了 `Home`／`End`（最上面／最下面）與 `PageUp`／`PageDown`（逐頁），
-  與標頭的捲動膠囊同一組動作（一律 `preventDefault`，因為容器本身可能有焦點會再捲一次）。
+  與標頭的捲動膠囊同一組動作（一律 `preventDefault`，因為容器本身可能有焦點會再捲一次）；
+  **只有 `supportsViewerScroll` 的種類才攔** —— 聲音與影片聚焦時 Home／End 是播放器原生的
+  「回到開頭／跳到結尾」，Space 與方向鍵也交給原生控制項。
   `Ctrl+B` 只敲一下 `viewer.requestBookmark(paneId)`：選取範圍只存在 DOM 裡，全域快速鍵
   拿不到，所以由檢視器這一側（`useViewerBookmarks`）接手，與 F2 的 `ui.renameRequest`
   同一條「跨元件請求」的路子。
@@ -709,14 +779,15 @@ Rust `AppError` →（Serialize）`{ kind, message, path }` → `toBackendError(
 | --- | --- | --- |
 | 標題列（Window Chrome） | 視窗最上方整條、可拖曳；內含分頁列、紀錄／設定動作、視窗控制 | `components/chrome/` |
 | 分頁列（Tab Strip） | 標題列內的分頁籤與新增鈕 | `chrome/TabStrip.vue` |
-| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜顯示於總管｜窗格模式（同步瀏覽、目錄比對）｜版面切換（含交換窗格） | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
+| 路徑列（Path Bar） | 標題列下方，**每個分頁一條**、永遠指向焦點窗格：位置標籤｜導覽鈕｜麵包屑｜搜尋｜種類篩選｜顯示於總管｜窗格模式（同步瀏覽、目錄比對）｜版面切換（含交換窗格） | `toolbar/TabToolbar.vue`、`toolbar/PathBreadcrumb.vue` |
 | 工作區（Workspace） | 路徑列與狀態列之間：左邊「資料夾樹面板」＋右邊「窗格區」 | `workspace/WorkspaceView.vue` |
 | 資料夾樹面板（Folder Tree Panel） | 左側「我的資料夾」；頂端是**樹工具列**（加入／移除／別名／排序／定位／收合全部／收合側欄），右緣是寬度把手 | `tree/FolderTreePanel.vue` |
 | 窗格（Pane） | 工作區裡的瀏覽單元：預設是檔案清單，也可以被檢視器暫時佔用；一個分頁有 1～2 個 | `workspace/BrowserPane.vue` |
 | 檔案清單（File List） | 窗格內容：欄位標頭＋虛擬滾動的列 | `files/FileListView.vue` |
 | 檢視器（Viewer） | 窗格內容模式：顯示 Markdown、圖檔或純文字，可關閉回到檔案清單 | `viewer/ViewerPane.vue` |
+| 壓縮檔檢視器（Archive Viewer） | 檢視器內容模式：壓縮檔的**唯讀項目清單**（名稱／大小／壓縮後／修改時間，可篩選與排序），不解壓縮 | `viewer/ArchiveView.vue` |
 | 檢視器標頭（Viewer Header） | 檢視器窗格最上方那一條：檔案圖示與名稱、右側四顆動作膠囊（**捲動**／**檢視器功能**／**檔案動作**／**窗格**），窗格太窄時依序收起捲動與檔案動作 | `viewer/ViewerPane.vue`、`utils/viewerHeader.ts` |
-| 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：標題列「目錄索引」＋h1～h6 清單，可拖曳／縮放／收合 | `viewer/OutlinePanel.vue`（由 `MarkdownView` 使用） |
+| 目錄索引（Table of Contents） | Markdown 檢視器右上角的浮動面板：平常收成圓形泡泡，滑過／聚焦展開成標題列「目錄索引」＋h1～h6 清單（可釘選／拖曳／縮放） | `viewer/OutlinePanel.vue`（由 `MarkdownView` 使用） |
 | 書籤目錄（Bookmarks） | DOCX 與純文字／程式碼檢視器右上角的浮動面板：標題列「書籤目錄」＋加入鈕，清單是使用者加入的書籤，可改名／刪除；**與目錄索引共用同一個面板元件**，差別只在列的內容與標題 | `viewer/BookmarkOutline.vue` |
 | 搜尋（Find in Viewer） | 文字類檢視器右上角的浮動面板：搜尋框＋大小寫／全字／Regex 選項＋命中清單，可拖曳／縮放／收合 | `viewer/ViewerSearchPanel.vue` |
 | 狀態列（Status Bar） | 視窗最下方；分割時一個窗格一行，可點擊切換焦點 | `layout/StatusBar.vue` |

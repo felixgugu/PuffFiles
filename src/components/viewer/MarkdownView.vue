@@ -245,7 +245,10 @@ function decodeFragment(value: string): string {
       :items="tocItems"
       :active-id="activeId"
       :host="host"
+      peek
+      :pinned="state?.tocPanel.pinned === true"
       @jump="jumpTo"
+      @toggle-pin="viewer.togglePanelPinned(paneId)"
     />
     <ViewerSearchPanel
       v-if="searchOpen"

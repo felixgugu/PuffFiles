@@ -306,12 +306,23 @@ async function prepare() {
   const snapshot = sanitized.value;
   skipped.value = snapshot.skipped;
 
-  const styled = await rewriteStyleSheets(snapshot.html, baseDir.value);
-  if (current !== generation) {
-    return;
+  try {
+    const styled = await rewriteStyleSheets(snapshot.html, baseDir.value);
+    if (current !== generation) {
+      return;
+    }
+    skipped.value += styled.skipped;
+    preparedHtml.value = styled.html;
+  } catch {
+    /*
+     * 前置處理失敗（極端文件、瀏覽器解析異常）也不要讓畫面停在「正在準備預覽…」：
+     * 退回只清洗過的文件，至少看得到內容；略過的資源數量照樣由提示條說明。
+     */
+    if (current !== generation) {
+      return;
+    }
+    preparedHtml.value = snapshot.html;
   }
-  skipped.value += styled.skipped;
-  preparedHtml.value = styled.html;
 }
 
 /** 進畫面後才處理圖片：文字先出來，大圖再一塊一塊補上。 */
@@ -320,12 +331,15 @@ async function applyResources(doc: Document, current: number) {
 
   const sources = [...doc.querySelectorAll(`[${DEFERRED_SRC_ATTRIBUTE}]`)];
   const srcsets = [...doc.querySelectorAll(`[${DEFERRED_SRCSET_ATTRIBUTE}]`)];
-  const images = [...doc.querySelectorAll(`image[${DEFERRED_HREF_ATTRIBUTE}]`)];
+  // `<image>` 是被引用的圖檔，`<use>` 是外部 symbol 檔（`sprite.svg#icon`）。
+  const hrefs = [...doc.querySelectorAll(`image[${DEFERRED_HREF_ATTRIBUTE}]`)];
+  const uses = [...doc.querySelectorAll(`use[${DEFERRED_HREF_ATTRIBUTE}]`)];
 
   await Promise.all([
     ...sources.map((element) => rewriteSource(element, directory, current)),
     ...srcsets.map((element) => rewriteSrcset(element, directory, current)),
-    ...images.map((element) => rewriteImageHref(element, directory, current)),
+    ...hrefs.map((element) => rewriteImageHref(element, directory, current)),
+    ...uses.map((element) => rewriteImageHref(element, directory, current)),
   ]);
 }
 
@@ -465,8 +479,13 @@ function forwardKeydown(event: KeyboardEvent) {
 }
 
 function onFrameClick(event: MouseEvent) {
-  const target = event.target instanceof Element ? event.target : null;
-  const anchor = target?.closest("a");
+  /*
+   * `event.target` 屬於 iframe 的 realm，`instanceof Element` 在跨 realm 時永遠是 false
+   * （每個 realm 有自己的建構子），只能用 duck typing。這是先前「點連結會在預覽裡
+   * 自己跳走」的原因。
+   */
+  const target = event.target as Element | null;
+  const anchor = target && typeof target.closest === "function" ? target.closest("a") : null;
   if (!anchor) {
     return;
   }
@@ -479,7 +498,10 @@ function onFrameClick(event: MouseEvent) {
   event.preventDefault();
 
   if (kind === "remote") {
-    void explorer.openPath(reference);
+    // `javascript:`／`vbscript:` 交給系統也沒有東西可開；沙箱本來就不執行，直接忽略。
+    if (!/^(javascript|vbscript):/i.test(reference.trim())) {
+      void explorer.openPath(reference);
+    }
     return;
   }
   if (kind === "local") {
@@ -487,6 +509,14 @@ function onFrameClick(event: MouseEvent) {
     if (path) {
       void openLocalTarget(props.paneId, path);
     }
+  }
+}
+
+/** 提示條上的「用瀏覽器開啟」：靜態模式看不到的東西，交給系統的預設程式。 */
+function openInBrowser() {
+  const path = state.value?.path;
+  if (path) {
+    void explorer.openPath(path);
   }
 }
 
@@ -506,10 +536,14 @@ function onFrameLoad() {
   frameReady.value += 1;
   restoreScroll();
   // 資源改寫完（圖片、外部 CSS）再通知一次：畫面高度穩定後命中位置才準。
-  void applyResources(doc, generation).finally(() => {
-    frameReady.value += 1;
-    restoreScroll();
-  });
+  void applyResources(doc, generation)
+    .catch(() => {
+      // 資源補齊失敗只影響完整度（提示條會說明略過的數量），不該變成未處理的 rejection。
+    })
+    .finally(() => {
+      frameReady.value += 1;
+      restoreScroll();
+    });
 }
 
 watch(
@@ -531,7 +565,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="state" ref="host" class="relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-    <ViewerNotice v-if="notice" :text="notice" />
+    <ViewerNotice
+      v-if="notice"
+      :text="notice"
+      action-label="用瀏覽器開啟"
+      @action="openInBrowser"
+    />
 
     <div
       v-if="preparedHtml === null"

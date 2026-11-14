@@ -3,7 +3,16 @@ import { computed, ref, watch, watchEffect } from "vue";
 import { STORAGE_KEYS, readJson, writeJson } from "@/services/storage";
 import type { ColumnId, SortDirection, SortKey, SplitDirection } from "@/types/fs";
 import type { ExternalTool } from "@/types/tools";
+import { ARCHIVE_EXTENSIONS } from "@/utils/archive";
 import { FONT_SIZE_DEFAULT, clampFontSize, normalizeFontFamily } from "@/utils/font";
+import {
+  createCustomGroup,
+  defaultFileTypeGroups,
+  MAX_QUICK_FILTER_GROUPS,
+  normalizeStoredGroups,
+  withDefaultGroups as withDefaultTypeGroups,
+  type FileTypeGroup,
+} from "@/utils/fileTypes";
 import { DEFAULT_ALIAS_TEMPLATE } from "@/utils/folders";
 import {
   clampPanelMinWidth,
@@ -17,27 +26,13 @@ export { FONT_SIZE_MAX, FONT_SIZE_MIN } from "@/utils/font";
 export type ThemeMode = "light" | "dark" | "system";
 export type MotionPreference = "full" | "system" | "reduced";
 
-/** 7-Zip 能解開的常見格式；「解壓縮至…」與「在這裡解壓縮」共用同一份清單。 */
-const ARCHIVE_EXTENSIONS = [
-  ".zip",
-  ".zipx",
-  ".7z",
-  ".rar",
-  ".tar",
-  ".gz",
-  ".tgz",
-  ".bz2",
-  ".tbz",
-  ".xz",
-  ".txz",
-  ".cab",
-  ".iso",
-  ".wim",
-  ".arj",
-  ".lzh",
-  ".z",
-  ".lzma",
-];
+/**
+ * 7-Zip 能解開的常見格式；「解壓縮至…」與「在這裡解壓縮」共用同一份清單。
+ *
+ * 清單本體在 `utils/archive.ts`（壓縮檔檢視器也用同一份），工具的 `extensions`
+ * 要含點（見 `utils/tools.ts` 的比對方式），所以在這裡補上。
+ */
+const ARCHIVE_FILE_EXTENSIONS = ARCHIVE_EXTENSIONS.map((extension) => `.${extension}`);
 
 /** 內建的外部工具：可以編輯內容，但不能刪除。 */
 export const DEFAULT_TOOLS: ExternalTool[] = [
@@ -114,7 +109,7 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     workingDirectory: "$fullFolderPath",
     newConsole: false,
     targets: ["file"],
-    extensions: [...ARCHIVE_EXTENSIONS],
+    extensions: [...ARCHIVE_FILE_EXTENSIONS],
     group: "7-Zip",
     icon: "archive",
     builtin: true,
@@ -132,7 +127,7 @@ export const DEFAULT_TOOLS: ExternalTool[] = [
     workingDirectory: "$parentFolderPath",
     newConsole: false,
     targets: ["file"],
-    extensions: [...ARCHIVE_EXTENSIONS],
+    extensions: [...ARCHIVE_FILE_EXTENSIONS],
     group: "7-Zip",
     icon: "archive",
     builtin: true,
@@ -208,6 +203,8 @@ interface StoredSettings {
   /** 監控目前資料夾，外部變更自動反映到清單。 */
   autoRefresh: boolean;
   tools: ExternalTool[];
+  /** 種類快速篩選的群組（順序＝漏斗鈕的排列；`其它` 內建）。 */
+  quickFilters: FileTypeGroup[];
   treeWidth: number;
   treeCollapsed: boolean;
   /** 資料夾樹固定在左／上窗格開啟（預設開啟，見 AGENTS.md §3.2）。 */
@@ -261,6 +258,7 @@ const DEFAULTS: StoredSettings = {
   restoreSession: true,
   autoRefresh: true,
   tools: DEFAULT_TOOLS,
+  quickFilters: defaultFileTypeGroups(),
   treeWidth: 260,
   treeCollapsed: false,
   treePrefersLeftPane: true,
@@ -347,6 +345,9 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     ? raw.columns.filter((id): id is ColumnId => COLUMN_IDS.has(id))
     : [];
   const tools = Array.isArray(raw.tools) && raw.tools.length ? cloneTools(raw.tools) : seedTools(raw);
+  // 舊設定沒有這個欄位：`normalizeStoredGroups` 回空陣列，`withDefaultTypeGroups`
+  // 會補齊全部內建（含後來才加的 `.pdf`），所以第一次升級就看到完整清單。
+  const quickFilters = withDefaultTypeGroups(normalizeStoredGroups(raw.quickFilters));
   const fontFamily = typeof raw.fontFamily === "string" ? raw.fontFamily : "";
   const fontSize = typeof raw.fontSize === "number" ? clampFontSize(raw.fontSize) : FONT_SIZE_DEFAULT;
   const aliasTemplate =
@@ -359,6 +360,7 @@ function sanitize(raw: Partial<StoredSettings> & LegacySettings): StoredSettings
     ...raw,
     columns: columns.length ? columns : DEFAULTS.columns,
     tools: withDefaultGroups(withBuiltins(tools)),
+    quickFilters,
     fontFamily,
     fontSize,
     aliasTemplate,
@@ -424,6 +426,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const restoreSession = ref(stored.restoreSession);
   const autoRefresh = ref(stored.autoRefresh);
   const tools = ref<ExternalTool[]>(stored.tools);
+  const quickFilters = ref<FileTypeGroup[]>(stored.quickFilters);
   const treeWidth = ref(stored.treeWidth);
   const treeCollapsed = ref(stored.treeCollapsed);
   const treePrefersLeftPane = ref(stored.treePrefersLeftPane);
@@ -487,7 +490,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // 拖曳欄寬時會高頻變動，寫入延後一點，避免每個 pointermove 都碰 localStorage。
   watch(
-    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, treeWidth, treeCollapsed, treePrefersLeftPane, lastSplit, markdownTocEnabled, viewerBookmarksEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
+    [themeMode, fontFamily, fontSize, aliasTemplate, showHidden, columns, columnWidths, defaultSortKey, defaultSortDirection, motion, restoreSession, autoRefresh, tools, quickFilters, treeWidth, treeCollapsed, treePrefersLeftPane, lastSplit, markdownTocEnabled, viewerBookmarksEnabled, mermaidEnabled, viewerSearchKeepQuery, viewerPanelMinWidth, viewerPanelOpacity, viewerSpaceRightOrBottom, syncBrowsing, compareDirectories],
     () => {
       clearTimeout(persistTimer);
       persistTimer = setTimeout(() => {
@@ -505,6 +508,7 @@ export const useSettingsStore = defineStore("settings", () => {
           restoreSession: restoreSession.value,
           autoRefresh: autoRefresh.value,
           tools: tools.value,
+          quickFilters: quickFilters.value,
           treeWidth: treeWidth.value,
           treeCollapsed: treeCollapsed.value,
           treePrefersLeftPane: treePrefersLeftPane.value,
@@ -610,6 +614,49 @@ export const useSettingsStore = defineStore("settings", () => {
       return;
     }
     lastSplit.value = { path, direction };
+  }
+
+  /** 種類快速篩選：切換一個群組的顯示（內建與自訂都可以停用／啟用）。 */
+  function toggleQuickFilter(id: string) {
+    quickFilters.value = quickFilters.value.map((group) =>
+      group.id === id ? { ...group, enabled: !group.enabled } : group,
+    );
+  }
+
+  /** 調整漏斗鈕裡的順序（只能跟相鄰的換；超出範圍就不動）。 */
+  function moveQuickFilter(id: string, delta: number) {
+    const list = [...quickFilters.value];
+    const index = list.findIndex((group) => group.id === id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= list.length) {
+      return;
+    }
+    const [moved] = list.splice(index, 1);
+    list.splice(target, 0, moved);
+    quickFilters.value = list;
+  }
+
+  /** 新增自訂群組；達到上限或副檔名解析不出來時回 `null`。 */
+  function addQuickFilter(label: string, extensions: string): FileTypeGroup | null {
+    if (quickFilters.value.length >= MAX_QUICK_FILTER_GROUPS) {
+      return null;
+    }
+    const id = `custom-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const group = createCustomGroup(id, label, extensions);
+    if (!group) {
+      return null;
+    }
+    quickFilters.value = [...quickFilters.value, group];
+    return group;
+  }
+
+  /** 刪除自訂群組；內建群組只能停用（不能從清單消失）。 */
+  function removeQuickFilter(id: string) {
+    quickFilters.value = quickFilters.value.filter((group) => group.id !== id || group.builtin);
+  }
+
+  function resetQuickFilters() {
+    quickFilters.value = defaultFileTypeGroups();
   }
 
   /** 建立工具；`initial` 讓編輯器一次寫入整份草稿（id 一律由這裡產生）。 */
@@ -723,6 +770,12 @@ export const useSettingsStore = defineStore("settings", () => {
     removeTool,
     resetTools,
     applyDetected7zip,
+    quickFilters,
+    toggleQuickFilter,
+    moveQuickFilter,
+    addQuickFilter,
+    removeQuickFilter,
+    resetQuickFilters,
   };
 });
 

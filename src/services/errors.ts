@@ -9,6 +9,7 @@ export type AppErrorKind =
   | "alreadyExists"
   | "unsupported"
   | "notText"
+  | "passwordRequired"
   | "io"
   | "unknown";
 
@@ -22,6 +23,7 @@ const TITLES: Record<AppErrorKind, string> = {
   alreadyExists: "名稱重複",
   unsupported: "尚未支援",
   notText: "不是文字檔",
+  passwordRequired: "需要密碼",
   io: "系統錯誤",
   unknown: "發生未預期的錯誤",
 };

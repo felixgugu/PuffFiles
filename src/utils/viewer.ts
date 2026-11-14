@@ -1,6 +1,7 @@
 import type { FileEntry } from "@/types/fs";
 import type { BookmarkKind } from "@/types/bookmarks";
 import type { ViewerKind, ViewerMode } from "@/types/viewer";
+import { isArchiveExtension } from "@/utils/archive";
 import { fileKindOf } from "@/utils/fileKind";
 import { fileNameOf, samePath } from "@/utils/path";
 import { MAX_SEARCH_TEXT } from "@/utils/textSearch";
@@ -24,7 +25,30 @@ export const VIEWER_IMAGE_EXTENSIONS = [
   "avif",
 ] as const;
 
+/**
+ * 聲音與影片：交給自訂協定（`stream`）＋ 原生的 `<audio>`／`<video>`。
+ *
+ * 範圍刻意比 `fileKind.ts` 的「音樂／影片」窄：只列 WebView2（Chromium）真的
+ * 播得出來的容器與編碼，mkv／avi／mov／wmv／flv／ts 這類寧可顯示「沒有檢視器」，
+ * 也不要給一個黑畫面。與 Rust `core::stream::media_mime` 是同一份清單。
+ */
+export const VIEWER_AUDIO_EXTENSIONS = [
+  "mp3",
+  "m4a",
+  "aac",
+  "wav",
+  "flac",
+  "ogg",
+  "oga",
+  "opus",
+  "weba",
+] as const;
+
+export const VIEWER_VIDEO_EXTENSIONS = ["mp4", "m4v", "webm"] as const;
+
 const IMAGE_EXTENSIONS = new Set<string>(VIEWER_IMAGE_EXTENSIONS);
+const AUDIO_EXTENSIONS = new Set<string>(VIEWER_AUDIO_EXTENSIONS);
+const VIDEO_EXTENSIONS = new Set<string>(VIEWER_VIDEO_EXTENSIONS);
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 /** HTML 走靜態預覽（`HtmlView`），不是純文字；`.htm` 在 `fileKind.ts` 也歸成程式碼。 */
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
@@ -64,6 +88,12 @@ export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): Vie
   if (IMAGE_EXTENSIONS.has(extension)) {
     return "image";
   }
+  if (VIDEO_EXTENSIONS.has(extension)) {
+    return "video";
+  }
+  if (AUDIO_EXTENSIONS.has(extension)) {
+    return "audio";
+  }
   if (MARKDOWN_EXTENSIONS.has(extension)) {
     return "markdown";
   }
@@ -75,6 +105,10 @@ export function viewerKindOf(entry: Pick<FileEntry, "isDir" | "extension">): Vie
   }
   if (DOCX_EXTENSIONS.has(extension)) {
     return "docx";
+  }
+  // 壓縮檔：只列內容（唯讀），跟 Word／PDF 一樣是「有檢視器」的類型。
+  if (isArchiveExtension(extension)) {
+    return "archive";
   }
   const kind = fileKindOf(entry);
   return kind === "text" || kind === "code" || kind === "file" ? "text" : null;
@@ -192,6 +226,7 @@ export function supportsViewerScroll(kind: ViewerKind | null): boolean {
     kind === "docx" ||
     kind === "text" ||
     kind === "html" ||
+    kind === "archive" ||
     kind === "directory-tree"
   );
 }

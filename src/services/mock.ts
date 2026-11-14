@@ -6,6 +6,7 @@
  */
 
 import type { DirStreamEvent, DriveInfo, FileEntry, QuickLocation } from "@/types/fs";
+import type { ArchiveEntry, ArchiveListing } from "@/types/archive";
 import type { DirectoryTreeResult, ViewerStreamEvent } from "@/types/viewer";
 import { BackendError } from "@/services/errors";
 import { extensionOf, fileNameOf, joinPath, parentOf } from "@/utils/path";
@@ -384,6 +385,51 @@ export async function mockReadViewerFile(
     onEvent({ type: "chunk", text: text.slice(index, index + 32 * 1024), base64: null });
   }
   onEvent({ type: "done" });
+}
+
+/** 瀏覽器預覽模式的假壓縮檔清單（含資料夾路徑、一個加密項目、足夠多的列可以試捲動）。 */
+export async function mockListArchive(path: string): Promise<ArchiveListing> {
+  await delay(120);
+
+  const rows: Array<[string, number, number, string | null, boolean]> = [
+    ["docs/readme.md", 1820, 612, "2026-10-13 18:02:12", false],
+    ["docs/changelog.txt", 940, 380, "2026-10-12 09:15:00", false],
+    ["src/main.ts", 2440, 820, "2026-10-14 11:03:45", false],
+    ["src/viewer/ArchiveView.vue", 9120, 2410, "2026-10-14 11:40:10", false],
+    ["assets/logo.svg", 3840, 1200, "2026-10-10 08:20:31", false],
+    ["assets/icons/sprite.svg", 15230, 4980, "2026-10-10 08:22:05", false],
+    ["private/notes.txt", 620, 590, "2026-10-14 17:55:00", true],
+  ];
+  for (let index = 1; index <= 120; index += 1) {
+    const suffix = String(index).padStart(3, "0");
+    rows.push([
+      `assets/icons/icon-${suffix}.svg`,
+      420 + index * 3,
+      180 + index,
+      "2026-10-10 08:30:00",
+      false,
+    ]);
+  }
+
+  const entries: ArchiveEntry[] = rows.map(([entryPath, size, packedSize, modified, encrypted]) => ({
+    path: entryPath,
+    size,
+    packedSize,
+    modified,
+    encrypted,
+    crc: null,
+  }));
+
+  return {
+    path,
+    name: fileNameOf(path) || path,
+    size: 184_320,
+    entries,
+    totalSize: entries.reduce((sum, entry) => sum + entry.size, 0),
+    totalPackedSize: entries.reduce((sum, entry) => sum + entry.packedSize, 0),
+    truncated: false,
+    encrypted: entries.some((entry) => entry.encrypted),
+  };
 }
 
 function mockMarkdown(name: string): string {

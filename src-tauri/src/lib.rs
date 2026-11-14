@@ -32,6 +32,7 @@ pub fn run() {
             commands::fs::cancel_dir_flat,
             commands::fs::list_subdirs,
             commands::fs::read_directory_tree,
+            commands::archive::list_archive,
             commands::fs::create_folder,
             commands::fs::create_file,
             commands::fs::save_binary_file,

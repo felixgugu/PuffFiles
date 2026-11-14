@@ -16,6 +16,7 @@ import type {
 } from "@/types/fs";
 import type { WatchEvent } from "@/services/api";
 import { kindLabel } from "@/utils/fileKind";
+import { createTypeMatcher } from "@/utils/fileTypes";
 import { compareFlatOrder, flatLabelOf } from "@/utils/flatView";
 import { fileNameOf, normalizeKey, parentOf, samePath, toUnixPath } from "@/utils/path";
 
@@ -44,6 +45,14 @@ export interface PaneMeta {
   status: ExplorerStatus;
   error: AppErrorView | null;
   query: string;
+  /**
+   * 種類快速篩選（搜尋框右邊的漏斗鈕）。
+   *
+   * 存的是 `settings.quickFilters` 裡的群組 id（含自訂群組）。與 `query` 一樣是
+   * 每個窗格自己的狀態，但**不隨換資料夾清空**：它是一個「只看這幾種」的顯示模式，
+   * 直到使用者按清除。資料夾沒有種類，篩選時不列。
+   */
+  typeFilters: string[];
   sortKey: SortKey;
   sortDirection: SortDirection;
   selected: string[];
@@ -135,6 +144,7 @@ export const useExplorerStore = defineStore("explorer", () => {
       status: "idle",
       error: null,
       query: "",
+      typeFilters: [],
       sortKey: settings.defaultSortKey,
       sortDirection: settings.defaultSortDirection,
       selected: [],
@@ -360,6 +370,10 @@ export const useExplorerStore = defineStore("explorer", () => {
 
     const source = entriesByPane.get(id)!.value;
     const keyword = pane.query.trim().toLocaleLowerCase();
+    // 種類篩選：先把副檔名集合建好，逐項比對時不再掃群組。
+    const typeMatcher = pane.typeFilters.length
+      ? createTypeMatcher(settings.quickFilters, pane.typeFilters)
+      : null;
     const backendSorted = pane.sortKey === "name" && pane.sortDirection === "asc" && !keyword;
     // 扁平化時後端送來的順序就是它的預設順序（`compareFlatOrder` 重現同一個順序）。
     const flatRoot = pane.flat && pane.currentPath ? pane.currentPath : null;
@@ -367,6 +381,9 @@ export const useExplorerStore = defineStore("explorer", () => {
 
     for (const item of source) {
       if (!settings.showHidden && item.isHidden) {
+        continue;
+      }
+      if (typeMatcher && !typeMatcher(item)) {
         continue;
       }
       if (keyword && !searchText(item, flatRoot).includes(keyword)) {
@@ -401,6 +418,28 @@ export const useExplorerStore = defineStore("explorer", () => {
         }
       }
     },
+  );
+
+  /*
+   * 種類群組的設定變了（停用、刪除、改副檔名）：把每個窗格正在用的篩選修剪成
+   * 還存在且啟用的 id，再重算一次 —— 否則會留下「看不到、卻還在過濾」的隱形篩選。
+   */
+  watch(
+    () => settings.quickFilters,
+    () => {
+      const usable = new Set(
+        settings.quickFilters.filter((group) => group.enabled).map((group) => group.id),
+      );
+      for (const id of Object.keys(panes)) {
+        const pane = panes[id];
+        if (!pane.typeFilters.length) {
+          continue;
+        }
+        pane.typeFilters = pane.typeFilters.filter((value) => usable.has(value));
+        recompute(id);
+      }
+    },
+    { deep: true },
   );
 
   /** 離開目前資料夾前，保存下一頁／上一頁需要還原的位置。 */
@@ -964,6 +1003,33 @@ export const useExplorerStore = defineStore("explorer", () => {
   }
 
   /**
+   * 種類快速篩選：切換一個群組（多選；順序不影響結果）。
+   *
+   * 與 `query` 不同，這個狀態**不隨換資料夾清空** —— 使用者要的是「只看這幾種」，
+   * 直到自己按清除。
+   */
+  function toggleTypeFilter(id: PaneId, groupId: string) {
+    const pane = panes[id];
+    if (!pane) {
+      return;
+    }
+    pane.typeFilters = pane.typeFilters.includes(groupId)
+      ? pane.typeFilters.filter((value) => value !== groupId)
+      : [...pane.typeFilters, groupId];
+    recompute(id);
+  }
+
+  /** 清除這個窗格的種類篩選（清單立刻回到全部檔案）。 */
+  function clearTypeFilters(id: PaneId) {
+    const pane = panes[id];
+    if (!pane || pane.typeFilters.length === 0) {
+      return;
+    }
+    pane.typeFilters = [];
+    recompute(id);
+  }
+
+  /**
    * 切換扁平化展示。
    *
    * 兩邊的清單內容完全不同（一層 vs. 整棵子樹），所以直接重讀這條路徑 —— 重新讀取也會
@@ -1020,6 +1086,8 @@ export const useExplorerStore = defineStore("explorer", () => {
     resetColumnWidth,
     resetAllColumnWidths,
     setQuery,
+    toggleTypeFilter,
+    clearTypeFilters,
     setFlat,
   };
 });

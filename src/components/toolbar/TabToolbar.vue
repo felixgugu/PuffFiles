@@ -3,6 +3,7 @@ import { computed } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import SearchField from "@/components/common/SearchField.vue";
 import PathBreadcrumb from "./PathBreadcrumb.vue";
+import TypeFilterMenu from "./TypeFilterMenu.vue";
 import { useRefreshView } from "@/composables/useRefreshView";
 import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import { useExplorerStore } from "@/stores/explorer";
@@ -209,6 +210,18 @@ function onSearch(value: string) {
   }
   explorer.setQuery(paneId.value, value);
 }
+
+/** 種類快速篩選：與搜尋一樣，檢視器佔用窗格時先回到清單。 */
+function toggleTypeFilter(groupId: string) {
+  if (viewer.isOpen(paneId.value)) {
+    viewer.close(paneId.value);
+  }
+  explorer.toggleTypeFilter(paneId.value, groupId);
+}
+
+function clearTypeFilters() {
+  explorer.clearTypeFilters(paneId.value);
+}
 </script>
 
 <template>
@@ -253,6 +266,14 @@ function onSearch(value: string) {
       :placeholder="pane.flat ? '搜尋（含子資料夾）' : '搜尋目前資料夾'"
       class="w-52"
       @update:model-value="onSearch"
+    />
+
+    <!-- 種類快速篩選：漏斗鈕＋popover（多選；跨資料夾保留，直到清除）。 -->
+    <TypeFilterMenu
+      :key="paneId"
+      :selected="pane.typeFilters"
+      @toggle="toggleTypeFilter"
+      @clear="clearTypeFilters"
     />
 
     <div class="flex shrink-0 items-center gap-0.5">

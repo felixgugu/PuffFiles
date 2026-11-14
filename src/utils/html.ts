@@ -41,40 +41,77 @@ export interface SanitizedHtml {
   skipped: number;
 }
 
+/** 清洗過程要累計的數字。 */
+interface CleanState {
+  /** 拿掉的外部／未支援資源數量（提示條用）。 */
+  skipped: number;
+  /** 拿掉的 `<script>` 數量（主文件與 `<template>` 內都算）。 */
+  scripts: number;
+}
+
 /**
  * 把原始 HTML 洗成「沒有行為、只留靜態內容」的文件。
  *
- * 移除 `<script>`、`<base>`、`<meta>`、`on*` 事件屬性，以及所有非樣式表的
- * `<link>`；`<iframe>`／`<video>` 這類元素拿掉來源屬性（元素本身留著，標籤還在）。
- * 遠端資源一律拿掉，本機資源搬到 `data-pufffile-*` 等父層接手 —— 兩者都必須在
- * 文件進到 `iframe` 之前完成，否則遠端資源會在解析時就被瀏覽器抓下來。
+ * 移除 `<script>`、`<base>`、會影響解析的 `<meta>`（charset 與所有 `http-equiv`，
+ * 包含頁面自己的 CSP —— 留著會把我們換上去的 blob: 資源擋掉）、`on*` 事件屬性，
+ * 以及所有非樣式表的 `<link>`；`<iframe>`／`<video>` 這類元素拿掉來源屬性
+ * （元素本身留著，標籤還在）。遠端資源一律拿掉，本機資源搬到 `data-pufffile-*`
+ * 等父層接手 —— 兩者都必須在文件進到 `iframe` 之前完成，否則遠端資源會在解析時
+ * 就被瀏覽器抓下來。
+ *
  * `sandbox` 已經保證不執行腳本，這裡是第二層：讓 DOM 本身就是靜態的。
+ * `<template>` 的內容不在 document tree 裡（`querySelectorAll` 走不到），另外遞迴洗一次。
  */
 export function sanitizeHtml(source: string): SanitizedHtml {
   const doc = new DOMParser().parseFromString(source, "text/html");
-  const hasScript = doc.querySelector("script") !== null;
-  let skipped = 0;
+  const state: CleanState = { skipped: 0, scripts: 0 };
 
-  doc.querySelectorAll("script, base").forEach((node) => node.remove());
+  cleanTree(doc, state);
+  doc.querySelectorAll("template").forEach((template) => cleanTemplate(template, state));
 
-  // charset／http-equiv 是給位元組解析用的；文件的編碼早就由後端處理完了，
-  // 留著反而可能讓瀏覽器用錯編碼讀我們已經解碼好的字串。
-  doc.querySelectorAll("meta").forEach((meta) => {
-    const httpEquiv = (meta.getAttribute("http-equiv") ?? "").toLowerCase();
-    if (meta.hasAttribute("charset") || httpEquiv === "content-type" || httpEquiv === "refresh") {
+  if (doc.querySelector(`.${IMAGE_PLACEHOLDER_CLASS}`)) {
+    ensurePlaceholderStyle(doc);
+  }
+
+  return {
+    html: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`,
+    hasScript: state.scripts > 0,
+    skipped: state.skipped,
+  };
+}
+
+/** `<template>` 的內容是獨立的 DocumentFragment，要自己走一次（可以再嵌 template）。 */
+function cleanTemplate(template: HTMLTemplateElement, state: CleanState) {
+  cleanTree(template.content, state);
+  template.content.querySelectorAll("template").forEach((nested) => cleanTemplate(nested, state));
+}
+
+/** 清洗一棵子樹（`Document`、`DocumentFragment` 或元素都行）。 */
+function cleanTree(root: ParentNode, state: CleanState): void {
+  root.querySelectorAll("script, base").forEach((node) => {
+    if (node.tagName.toLowerCase() === "script") {
+      state.scripts++;
+    }
+    node.remove();
+  });
+
+  // charset／http-equiv 都是給位元組解析或瀏覽器行為用的：文件的編碼早就由後端處理完，
+  // refresh 會自己跳頁，CSP 會擋掉父層換上去的 blob: 資源 —— 一律拿掉。
+  root.querySelectorAll("meta").forEach((meta) => {
+    if (meta.hasAttribute("charset") || meta.hasAttribute("http-equiv")) {
       meta.remove();
     }
   });
 
-  doc.querySelectorAll("link").forEach((link) => {
+  root.querySelectorAll("link").forEach((link) => {
     const rel = (link.getAttribute("rel") ?? "").toLowerCase();
     if (rel !== "stylesheet" || !link.hasAttribute("href")) {
       link.remove();
-      skipped++;
+      state.skipped++;
     }
   });
 
-  doc.querySelectorAll(UNSUPPORTED_MEDIA_SELECTOR).forEach((element) => {
+  root.querySelectorAll(UNSUPPORTED_MEDIA_SELECTOR).forEach((element) => {
     let removed = false;
     for (const attribute of MEDIA_SOURCE_ATTRIBUTES) {
       if (element.hasAttribute(attribute)) {
@@ -83,41 +120,31 @@ export function sanitizeHtml(source: string): SanitizedHtml {
       }
     }
     if (removed) {
-      skipped++;
+      state.skipped++;
     }
   });
 
-  for (const element of doc.querySelectorAll("img[src], source[src], input[src]")) {
+  root.querySelectorAll("img[src], source[src], input[src]").forEach((element) => {
     const kind = deferReference(element, "src", DEFERRED_SRC_ATTRIBUTE);
     if (kind === "remote") {
-      skipped++;
+      state.skipped++;
       replaceMissingImage(element);
     } else if (kind === "anchor") {
       // `src=""` 等於指向文件自己，同樣是破圖；換成佔位文字但不重複計數。
       replaceMissingImage(element);
     }
-  }
-
-  for (const element of doc.querySelectorAll("[srcset]")) {
-    deferSrcset(element);
-  }
-
-  // 行內 SVG 的 <image>：`href` 與舊的 `xlink:href` 都可能連外。
-  doc.querySelectorAll("image").forEach((element) => {
-    const reference = element.getAttribute("href") ?? element.getAttribute("xlink:href") ?? "";
-    element.removeAttribute("href");
-    element.removeAttribute("xlink:href");
-    const kind = referenceKind(reference);
-    if (kind === "local") {
-      element.setAttribute(DEFERRED_HREF_ATTRIBUTE, reference);
-    } else if (kind === "inline") {
-      element.setAttribute("href", reference);
-    } else if (kind === "remote") {
-      skipped++;
-    }
   });
 
-  doc.querySelectorAll("*").forEach((element) => {
+  root.querySelectorAll("[srcset]").forEach((element) => {
+    deferSrcset(element);
+  });
+
+  // 行內 SVG：`<image>` 是被引用的圖檔，`<use>` 是外部 symbol 檔（`sprite.svg#icon`）。
+  // `<use>` 的 `#id` 是正常的同文件參考，要原樣留著。
+  root.querySelectorAll("image").forEach((element) => deferSvgHref(element, false, state));
+  root.querySelectorAll("use").forEach((element) => deferSvgHref(element, true, state));
+
+  root.querySelectorAll("*").forEach((element) => {
     for (const attribute of [...element.attributes]) {
       const name = attribute.name.toLowerCase();
       if (name.startsWith("on") || name === "background") {
@@ -125,12 +152,24 @@ export function sanitizeHtml(source: string): SanitizedHtml {
       }
     }
   });
+}
 
-  if (doc.querySelector(`.${IMAGE_PLACEHOLDER_CLASS}`)) {
-    ensurePlaceholderStyle(doc);
+/**
+ * SVG 的 `href`／`xlink:href`：本機檔搬到 `data-pufffile-href` 等父層讀成 blob URL，
+ * `data:` 與（`keepAnchor` 時）`#id` 原樣保留，遠端拿掉並計數。
+ */
+function deferSvgHref(element: Element, keepAnchor: boolean, state: CleanState): void {
+  const reference = element.getAttribute("href") ?? element.getAttribute("xlink:href") ?? "";
+  element.removeAttribute("href");
+  element.removeAttribute("xlink:href");
+  const kind = referenceKind(reference);
+  if (kind === "local") {
+    element.setAttribute(DEFERRED_HREF_ATTRIBUTE, reference);
+  } else if (kind === "inline" || (keepAnchor && kind === "anchor")) {
+    element.setAttribute("href", reference);
+  } else if (kind === "remote") {
+    state.skipped++;
   }
-
-  return { html: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`, hasScript, skipped };
 }
 
 /**

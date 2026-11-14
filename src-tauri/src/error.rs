@@ -37,6 +37,10 @@ pub enum AppError {
     #[error("這是二進位內容，無法以文字檢視：{path}")]
     NotText { path: String },
 
+    /// 壓縮檔的檔頭加密，需要密碼才能列出內容。
+    #[error("這個壓縮檔需要密碼：{path}")]
+    PasswordRequired { path: String },
+
     #[error("找不到外部程式：{program}")]
     ProgramNotFound { program: String },
 
@@ -86,6 +90,7 @@ impl Serialize for AppError {
             Self::InvalidName { .. } => ("invalidName", None),
             Self::Unsupported { .. } => ("unsupported", None),
             Self::NotText { path } => ("notText", Some(path.as_str())),
+            Self::PasswordRequired { path } => ("passwordRequired", Some(path.as_str())),
             Self::ProgramNotFound { .. } => ("programNotFound", None),
             Self::Io { .. } => ("io", None),
         };

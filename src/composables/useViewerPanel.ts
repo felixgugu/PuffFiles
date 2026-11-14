@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch, type ComputedRef, type
 import { useDragGesture } from "@/composables/useDragGesture";
 import { useSettingsStore } from "@/stores/settings";
 import {
+  bubbleRectFrom,
   clampPanel,
   clampPanelMinWidth,
   PANEL_MARGIN,
@@ -18,6 +19,13 @@ interface ViewerPanelOptions {
   /** 標題列以外的內容自然高度（清單捲動高度）。 */
   contentHeight: Ref<number>;
   collapsed: ComputedRef<boolean>;
+  /**
+   * 目前是不是收成圓形泡泡（目錄索引的「滑過展開」模式）。
+   *
+   * 有給這個選項時，面板的收合外觀由呼叫端決定 —— `collapsed` 只管內容要不要畫，
+   * 實際佔的方框是 36×36 的圓形，貼在展開後面版的右上角。
+   */
+  bubble?: ComputedRef<boolean>;
   /** 開始時的記憶值（來自 settings）。 */
   initialLayout: PanelLayout;
   /** 拖曳／縮放結束時把新的位置與尺寸寫回。 */
@@ -103,11 +111,30 @@ export function useViewerPanel(options: ViewerPanelOptions) {
   }));
 
   /** `null`＝這個窗格太窄，不該顯示面板。 */
-  const rect = computed(() => clampPanel(layout.value, bounds.value));
+  const expandedRect = computed(() => clampPanel(layout.value, bounds.value));
 
-  // 把自己的實際位置與高度公開給其他面板（避讓用）。
+  /**
+   * 面板實際佔的方框：圓形模式收合時只佔 36×36，其餘就是展開後的矩形。
+   *
+   * 圓形是從展開矩形算出來的（右上角對齊），所以滑鼠把面板叫出來時一定還在
+   * 面板裡 —— 不會一展開就離開、立刻又收合。
+   */
+  const rect = computed(() => {
+    const expanded = expandedRect.value;
+    if (!expanded) {
+      return null;
+    }
+    return options.bubble?.value ? bubbleRectFrom(expanded) : expanded;
+  });
+
+  /**
+   * 把自己的位置與高度公開給其他面板（避讓用）。
+   *
+   * 公布的是**展開後**的矩形：圓形泡泡只是視覺上的收合，展開的足跡要一直留著，
+   * 另一個面板才不會在滑鼠移過去時被蓋住、或跟著上下跳。
+   */
   watch(
-    rect,
+    expandedRect,
     (box) => {
       if (!box) {
         delete panelRects[id];
@@ -119,7 +146,7 @@ export function useViewerPanel(options: ViewerPanelOptions) {
   );
 
   // 拖曳或縮放會改變 `posX`／尺寸：`rect` 不一定每次都變（例如只是換了 x），補一次。
-  watch([() => posX.value, rect], () => {
+  watch([() => posX.value, expandedRect], () => {
     const entry = panelRects[id];
     if (entry) {
       entry.moved = posX.value !== null;
@@ -131,11 +158,13 @@ export function useViewerPanel(options: ViewerPanelOptions) {
     if (!box) {
       return undefined;
     }
+    // 圓形泡泡的方框本身就是泡泡大小；其餘面板「收合」只留標題列。
+    const bubbleNow = options.bubble?.value === true;
     return {
       left: `${box.x + PANEL_MARGIN}px`,
       top: `${box.y + PANEL_MARGIN}px`,
       width: `${box.width}px`,
-      height: `${collapsed.value ? PANEL_TITLEBAR_HEIGHT : box.height}px`,
+      height: `${!bubbleNow && collapsed.value ? PANEL_TITLEBAR_HEIGHT : box.height}px`,
     };
   });
 

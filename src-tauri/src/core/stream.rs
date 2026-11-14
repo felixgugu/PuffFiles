@@ -84,12 +84,42 @@ pub fn parse_range(header: Option<&str>, total: u64) -> RangeOutcome {
     RangeOutcome::Partial(ByteRange { start, end })
 }
 
+/// 聲音與影片的 MIME（WebView2／Chromium 真的能播的容器與編碼）。
+///
+/// 範圍刻意比 `fileKind.ts` 的「音樂／影片」窄：mkv／avi／mov／wmv／flv／ts 這類
+/// 這裡不放行 —— 寧可顯示「沒有檢視器」，也不要給使用者一個黑畫面。
+/// 與前端 `VIEWER_AUDIO_EXTENSIONS`／`VIEWER_VIDEO_EXTENSIONS` 是同一份清單。
+pub fn media_mime(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "weba" => "audio/webm",
+        _ => return None,
+    })
+}
+
+/// 這個檔案是不是聲音／影片；`commands::stream` 用它決定要不要限制單次回應的大小。
+pub fn is_media(path: &Path) -> bool {
+    media_mime(path).is_some()
+}
+
 /// 依副檔名給 `Content-Type`。
 ///
-/// 圖片沿用檢視器的 MIME 對照表（`core::viewer::image_mime`，單一來源），其餘只有 PDF
-/// 與 DOCX 會走這條協定 —— `Content-Type` 錯了瀏覽器就不會把內容當圖片解碼。
+/// 圖片沿用檢視器的 MIME 對照表（`core::viewer::image_mime`，單一來源），
+/// 聲音與影片走 [`media_mime`]，其餘只有 PDF 與 DOCX 會走這條協定 ——
+/// `Content-Type` 錯了瀏覽器就不會把內容當圖片解碼（媒體也一樣）。
 pub fn mime_for(path: &Path) -> &'static str {
     if let Some(mime) = crate::core::viewer::image_mime(path) {
+        return mime;
+    }
+    if let Some(mime) = media_mime(path) {
         return mime;
     }
     let extension = path
@@ -104,12 +134,12 @@ pub fn mime_for(path: &Path) -> &'static str {
     }
 }
 
-/// 這條協定願意服務的檔案：WebView 畫得出來的圖檔、PDF 與 DOCX。
+/// 這條協定願意服務的檔案：WebView2 畫得出來的圖檔、PDF、DOCX，以及聲音與影片。
 ///
 /// 範圍刻意與前端 `viewerKindOf` 支援的種類一致 —— 檢視器不會去要別的東西，這裡跟著
 /// 收窄，協定就不會變成「任意檔案讀取」的入口。
 pub fn is_streamable(path: &Path) -> bool {
-    if crate::core::viewer::image_mime(path).is_some() {
+    if crate::core::viewer::image_mime(path).is_some() || media_mime(path).is_some() {
         return true;
     }
     path.extension()
@@ -196,18 +226,40 @@ mod tests {
     }
 
     #[test]
-    fn only_images_pdf_and_docx_are_streamable() {
+    fn streams_only_files_the_viewer_supports() {
         for allowed in [
             "a.png", "a.JPG", "a.webp", "a.avif", "a.svg", "a.pdf", "a.docx", "a.DOCM",
+            "a.mp4", "a.webm", "a.mp3", "a.flac", "a.m4a", "a.opus",
         ] {
             assert!(is_streamable(Path::new(allowed)), "{allowed} 應該可以串流");
         }
-        // 檢視器不支援的圖片格式、舊版 Word 與其他檔案都不該開放。
+        // 檢視器不支援的圖片格式、舊版 Word、WebView2 播不了的容器與其他檔案都不該開放。
         for denied in [
             "a.txt", "a.md", "a.exe", "a.psd", "a.heic", "a", "a.pdf.exe", "a.doc", "a.rtf",
-            "a.odt", "a.docx.exe",
+            "a.odt", "a.docx.exe", "a.mkv", "a.avi", "a.mov", "a.wmv", "a.flv", "a.mpg", "a.ts",
         ] {
             assert!(!is_streamable(Path::new(denied)), "{denied} 不該可以串流");
         }
+    }
+
+    #[test]
+    fn media_mime_covers_only_playable_formats() {
+        assert_eq!(media_mime(Path::new("a.MP4")), Some("video/mp4"));
+        assert_eq!(media_mime(Path::new("a.m4v")), Some("video/mp4"));
+        assert_eq!(media_mime(Path::new("a.webm")), Some("video/webm"));
+        assert_eq!(media_mime(Path::new("a.mp3")), Some("audio/mpeg"));
+        assert_eq!(media_mime(Path::new("a.m4a")), Some("audio/mp4"));
+        assert_eq!(media_mime(Path::new("a.aac")), Some("audio/aac"));
+        assert_eq!(media_mime(Path::new("a.wav")), Some("audio/wav"));
+        assert_eq!(media_mime(Path::new("a.flac")), Some("audio/flac"));
+        assert_eq!(media_mime(Path::new("a.ogg")), Some("audio/ogg"));
+        assert_eq!(media_mime(Path::new("a.opus")), Some("audio/ogg"));
+        assert_eq!(media_mime(Path::new("a.weba")), Some("audio/webm"));
+        assert_eq!(mime_for(Path::new("a.mp4")), "video/mp4");
+        assert_eq!(media_mime(Path::new("a.mkv")), None);
+        assert_eq!(media_mime(Path::new("a.avi")), None);
+        assert_eq!(media_mime(Path::new("a")), None);
+        assert!(is_media(Path::new("a.mp3")));
+        assert!(!is_media(Path::new("a.pdf")));
     }
 }

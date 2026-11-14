@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings";
 import type { PaneId } from "@/types/fs";
 import type {
   DirectoryTreeStyle,
+  ViewerArchiveState,
   ViewerMode,
   ViewerPanelState,
   ViewerSearchState,
@@ -54,7 +55,7 @@ const DEFAULT_SEARCH: ViewerSearchState = {
 
 /** 浮動面板的初始值：展開、貼右上角（`x === null`）、給定寬度、高度自適應。 */
 function defaultPanel(width: number): ViewerPanelState {
-  return { collapsed: false, layout: { x: null, y: 0, width, height: null } };
+  return { collapsed: false, pinned: false, layout: { x: null, y: 0, width, height: null } };
 }
 
 function defaultTree(): ViewerTreeState {
@@ -68,6 +69,19 @@ function defaultTree(): ViewerTreeState {
     files: 0,
     truncated: false,
     skipped: 0,
+  };
+}
+
+/** 壓縮檔檢視器的初始狀態：還沒列任何東西、沒有密碼。 */
+function defaultArchive(): ViewerArchiveState {
+  return {
+    entries: [],
+    totalSize: 0,
+    totalPackedSize: 0,
+    truncated: false,
+    encrypted: false,
+    needsPassword: false,
+    password: null,
   };
 }
 
@@ -224,22 +238,31 @@ export const useViewerStore = defineStore("viewer", () => {
    * 而不是跳出一個按了也不會成功的「重試」。
    */
   function failRead(paneId: PaneId, cause: unknown) {
+    if (normalizeBackendError(cause).kind === "notText") {
+      markBinary(paneId);
+      return;
+    }
     const state = views[paneId];
     if (!state) {
       return;
     }
-    if (normalizeBackendError(cause).kind === "notText") {
-      state.kind = null;
-      state.binary = true;
-      state.text = "";
-      state.encoding = null;
-      state.bytes = null;
-      state.status = "ready";
-      state.error = null;
-      return;
-    }
     state.status = "error";
     state.error = normalizeBackendError(cause);
+  }
+
+  /** 內容是二進位（後端拒絕，或後端把它當二進位串流回來）：改顯示說明面板。 */
+  function markBinary(paneId: PaneId) {
+    const state = views[paneId];
+    if (!state) {
+      return;
+    }
+    state.kind = null;
+    state.binary = true;
+    state.text = "";
+    state.encoding = null;
+    state.bytes = null;
+    state.status = "ready";
+    state.error = null;
   }
 
   /** 目錄樹內容與檔案不同：沒有檔案串流，也不掛檔案層級的自動重載。 */
@@ -289,6 +312,80 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
+  /**
+   * 壓縮檔：呼叫 7-Zip 列出內容（唯讀，不解壓縮）。
+   *
+   * 檔頭加密時後端回 `passwordRequired`：這裡只把 `needsPassword` 打開，
+   * 內容區顯示密碼輸入；使用者送出後再走一次（見 `unlockArchive`）。
+   * 與目錄樹一樣**不掛目錄監控**：壓縮檔不太會邊看邊被改，重新整理交給 F5。
+   */
+  async function loadArchive(paneId: PaneId): Promise<void> {
+    const state = views[paneId];
+    const archive = state?.archive;
+    if (!state || !archive) {
+      return;
+    }
+
+    clearTimer(paneId);
+    controllers.get(paneId)?.abort();
+    const controller = new AbortController();
+    controllers.set(paneId, controller);
+    const version = (versions.get(paneId) ?? 0) + 1;
+    versions.set(paneId, version);
+    const current = () => versions.get(paneId) === version && !controller.signal.aborted;
+
+    state.status = "loading";
+    state.error = null;
+
+    const settings = useSettingsStore();
+    // 設定頁的 7-Zip 工具可能指到 `7zG.exe`；後端會找同目錄的命令列版。
+    const sevenZip =
+      settings.tools.find((tool) => tool.id === "builtin-7zip-add")?.executable ?? null;
+
+    try {
+      const listing = await api.listArchive(state.path, sevenZip, archive.password);
+      if (!current()) {
+        return;
+      }
+      archive.entries = listing.entries;
+      archive.totalSize = listing.totalSize;
+      archive.totalPackedSize = listing.totalPackedSize;
+      archive.truncated = listing.truncated;
+      archive.encrypted = listing.encrypted;
+      archive.needsPassword = false;
+      state.name = listing.name || state.name;
+      state.size = listing.size;
+      state.status = "ready";
+    } catch (cause) {
+      if (!current()) {
+        return;
+      }
+      const view = normalizeBackendError(cause);
+      if (view.kind === "passwordRequired") {
+        archive.entries = [];
+        archive.totalSize = 0;
+        archive.totalPackedSize = 0;
+        archive.needsPassword = true;
+        // 試過的密碼不留著：使用者重新輸入，才不會一直拿錯的密碼重試。
+        archive.password = null;
+        state.status = "ready";
+        return;
+      }
+      state.status = "error";
+      state.error = view;
+    }
+  }
+
+  /** 使用者輸入密碼後重新列一次；密碼只存在這個窗格的狀態裡，不寫任何紀錄。 */
+  function unlockArchive(paneId: PaneId, password: string): Promise<void> {
+    const archive = views[paneId]?.archive;
+    if (!archive) {
+      return Promise.resolve();
+    }
+    archive.password = password;
+    return loadArchive(paneId);
+  }
+
   async function load(paneId: PaneId, attempt = 0): Promise<void> {
     const state = views[paneId];
     // 沒有檢視器的類型（kind 為 null）只顯示提示，沒有內容可讀。
@@ -297,6 +394,10 @@ export const useViewerStore = defineStore("viewer", () => {
     }
     if (state.kind === "directory-tree") {
       await loadTree(paneId);
+      return;
+    }
+    if (state.kind === "archive") {
+      await loadArchive(paneId);
       return;
     }
 
@@ -315,9 +416,15 @@ export const useViewerStore = defineStore("viewer", () => {
     state.encoding = null;
     state.bytes = null;
     releaseBlob(state);
-    // 二進位內容（圖片／PDF／DOCX）走自訂協定：不經過 base64 與 Blob。
+    // 二進位內容（圖片／PDF／DOCX／聲音／影片）走自訂協定：不經過 base64 與 Blob。
     releaseStream(state);
-    if (state.kind === "image" || state.kind === "pdf" || state.kind === "docx") {
+    if (
+      state.kind === "image" ||
+      state.kind === "pdf" ||
+      state.kind === "docx" ||
+      state.kind === "audio" ||
+      state.kind === "video"
+    ) {
       const handled = await loadStream(paneId, current);
       if (handled) {
         if (state.kind === "docx") {
@@ -327,13 +434,17 @@ export const useViewerStore = defineStore("viewer", () => {
         }
         return;
       }
-      // 這個環境沒有串流協定：圖片退回下面的 base64 假資料；PDF 與 DOCX 沒有假資料。
+      // 這個環境沒有串流協定：圖片退回下面的 base64 假資料；其餘沒有假資料。
       if (state.kind !== "image") {
         fail(
           paneId,
           state.kind === "pdf"
             ? "這個預覽模式沒有 PDF 檢視器，請用預設程式開啟"
-            : "這個預覽模式沒有 DOCX 檢視器，請用預設程式開啟",
+            : state.kind === "docx"
+              ? "這個預覽模式沒有 DOCX 檢視器，請用預設程式開啟"
+              : state.kind === "audio"
+                ? "這個預覽模式沒有聲音播放器，請用預設程式開啟"
+                : "這個預覽模式沒有影片播放器，請用預設程式開啟",
         );
         return;
       }
@@ -342,6 +453,8 @@ export const useViewerStore = defineStore("viewer", () => {
     const chunks: string[] = [];
     let mime: string | null = null;
     let started = false;
+    /** 後端把這個檔案當二進位送（例如字型）：這條路是文字檢視器，改用二進位說明面板。 */
+    let binaryChunk = false;
     let lastEventAt = Date.now();
 
     try {
@@ -362,10 +475,22 @@ export const useViewerStore = defineStore("viewer", () => {
               mime = event.mime;
               break;
             case "chunk":
-              chunks.push(event.text ?? event.base64 ?? "");
+              // 圖片在沒有串流協定的環境（瀏覽器預覽）仍靠 base64 片段組成 Blob；
+              // 其他種類收到 base64 就代表後端把檔案當二進位（例如字型）—— 這條是文字檢視器。
+              if (event.base64 === null) {
+                chunks.push(event.text ?? "");
+              } else if (state.kind === "image") {
+                chunks.push(event.base64);
+              } else {
+                binaryChunk = true;
+              }
               break;
             case "done":
-              finish(paneId, chunks, mime);
+              if (binaryChunk) {
+                markBinary(paneId);
+              } else {
+                finish(paneId, chunks, mime);
+              }
               break;
           }
         },
@@ -384,6 +509,12 @@ export const useViewerStore = defineStore("viewer", () => {
       }
 
       if (!current() || state.status !== "loading") {
+        return;
+      }
+
+      // 後端改送二進位（例如字型）：沒有任何文字片段可以顯示，直接走二進位說明面板。
+      if (binaryChunk) {
+        markBinary(paneId);
         return;
       }
 
@@ -548,6 +679,7 @@ export const useViewerStore = defineStore("viewer", () => {
       tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
       searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
       tree: null,
+      archive: kind === "archive" ? defaultArchive() : null,
     };
     // 沒有檢視器的類型只顯示提示，不去讀檔；它仍然是「目前顯示的目標」，
     // 這樣在檔案清單按 Space 才能繼續往下前進。
@@ -587,6 +719,7 @@ export const useViewerStore = defineStore("viewer", () => {
       tocPanel: defaultPanel(PANEL_DEFAULT_WIDTH),
       searchPanel: defaultPanel(SEARCH_PANEL_DEFAULT_WIDTH),
       tree: defaultTree(),
+      archive: null,
     };
     await load(paneId);
   }
@@ -687,6 +820,18 @@ export const useViewerStore = defineStore("viewer", () => {
     }
   }
 
+  /**
+   * 目錄索引的釘選：釘住後就算滑鼠移開也維持展開（只有 Markdown 的圓形模式有這顆鈕）。
+   *
+   * 與收合狀態一樣屬於這一份文件，`open()` 建立新狀態時就回到預設。
+   */
+  function togglePanelPinned(paneId: PaneId) {
+    const state = views[paneId];
+    if (state) {
+      state.tocPanel.pinned = !state.tocPanel.pinned;
+    }
+  }
+
   function reload(paneId: PaneId): Promise<void> {
     return load(paneId);
   }
@@ -750,6 +895,7 @@ export const useViewerStore = defineStore("viewer", () => {
     requestBookmark,
     open,
     openDirectoryTree,
+    unlockArchive,
     setTreeIncludeFiles,
     setTreeIncludeHidden,
     setTreeStyle,
@@ -762,6 +908,7 @@ export const useViewerStore = defineStore("viewer", () => {
     setScrollTop,
     setScrollEdges,
     togglePanelCollapsed,
+    togglePanelPinned,
     fail,
     retarget,
     close,

@@ -1,5 +1,6 @@
 import type { IconName } from "@/components/common/icons";
 import type { FileEntry } from "@/types/fs";
+import { ARCHIVE_EXTENSIONS } from "@/utils/archive";
 
 export type FileKindId =
   | "folder"
@@ -18,8 +19,8 @@ const EXTENSIONS: Record<FileKindId, readonly string[]> = {
   folder: [],
   image: ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "avif", "heic", "tif", "tiff", "psd"],
   video: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts"],
-  audio: ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "opus", "aiff"],
-  archive: ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "cab", "zst"],
+  audio: ["mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "opus", "aiff", "oga", "weba"],
+  archive: [...ARCHIVE_EXTENSIONS],
   code: [
     "ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "rs", "py", "java", "c", "cc", "cpp", "h", "hpp",
     "cs", "go", "rb", "php", "swift", "kt", "html", "htm", "css", "scss", "json", "yaml", "yml", "toml",

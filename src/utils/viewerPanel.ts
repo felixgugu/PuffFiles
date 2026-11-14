@@ -27,6 +27,15 @@ export const PANEL_MIN_HEIGHT = 96;
 export const PANEL_TITLEBAR_HEIGHT = 32;
 /** 一列目錄項的估計高度，用來算自適應高度。 */
 export const PANEL_ROW_HEIGHT = 26;
+/**
+ * 目錄索引收合成圓形泡泡時的直徑。
+ *
+ * 泡泡本身就是標題列（同一個元素），所以它同時是「展開」的唯一入口 ——
+ * 這是它不套用面板 idle 半透明的原因。
+ */
+export const PANEL_BUBBLE_SIZE = 36;
+/** 清單的上下內距（對應 `OutlinePanel` 的 `p-1`）。 */
+const PANEL_LIST_PADDING = 8;
 
 export interface PanelLayout {
   /** 左上角 x（px）；`null`＝尚未移動，維持右上角對齊。 */
@@ -72,6 +81,16 @@ export function panelFits(areaWidth: number, minWidth: number): boolean {
 }
 
 /**
+ * 還沒量到清單（收合成圓形時清單是卸載的）時，用列數估算內容高度。
+ *
+ * 面板要避讓另一個浮動面板，靠的是「展開後會佔多少」；用 0 去算會讓搜尋面板
+ * 貼在泡泡下面，目錄一展開就被蓋住。估得準不準只影響那一小段留白。
+ */
+export function estimatePanelContent(rows: number): number {
+  return rows > 0 ? rows * PANEL_ROW_HEIGHT + PANEL_LIST_PADDING : 0;
+}
+
+/**
  * 把面板位置與大小夾進可視範圍。
  *
  * 回傳 `null` 代表這個窗格太窄，這一輪不該顯示面板。
@@ -101,4 +120,20 @@ export function clampPanel(layout: PanelLayout, bounds: PanelBounds): PanelRect 
   const y = Math.min(Math.max(top, Math.round(layout.y)), maxY);
 
   return { x, y, width, height };
+}
+
+/**
+ * 目錄索引收合成圓形時的位置：貼在**展開後面版**的右上角。
+ *
+ * 用展開後的矩形來算（而不是另外夾一次泡泡自己的邊界），兩者的上緣與右緣就完全
+ * 重合 —— 滑鼠把面板叫出來時一定還在面板裡，不會「一展開就離開、立刻又收合」；
+ * 面板被拖到別的位置、或窗格縮到面板被夾回畫面內時也一樣成立。
+ */
+export function bubbleRectFrom(expanded: PanelRect): PanelRect {
+  return {
+    x: Math.max(0, expanded.x + expanded.width - PANEL_BUBBLE_SIZE),
+    y: expanded.y,
+    width: PANEL_BUBBLE_SIZE,
+    height: PANEL_BUBBLE_SIZE,
+  };
 }

@@ -10,14 +10,15 @@ use tauri::ipc::Channel;
 
 /// 讀取單一檔案給檢視器使用。
 ///
-/// 由副檔名決定讀法：後端認得的圖片格式走二進位（base64 分塊），其餘一律當文字讀
-/// 並偵測編碼。前端只會對支援的檔案呼叫這個命令。
+/// 由副檔名決定讀法：後端認得的二進位資源（圖片與網頁字型，見
+/// `core::viewer::resource_mime`）走 base64 分塊，其餘一律當文字讀並偵測編碼。
+/// 前端只會對支援的檔案呼叫這個命令；HTML 預覽另外會用它讀外部 CSS 與字型。
 #[tauri::command]
 pub async fn read_viewer_file(path: String, on_event: Channel<ViewerEvent>) -> AppResult<()> {
     let target = PathBuf::from(&path);
 
-    if core::viewer::image_mime(&target).is_some() {
-        let file = run_blocking(move || core::viewer::read_image(Path::new(&path))).await?;
+    if core::viewer::resource_mime(&target).is_some() {
+        let file = run_blocking(move || core::viewer::read_binary(Path::new(&path))).await?;
         send(
             &on_event,
             ViewerEvent::Start {

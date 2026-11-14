@@ -31,9 +31,9 @@ pub struct TextFile {
     pub text: String,
 }
 
-/// 讀出來的圖片檔。
+/// 讀出來的二進位資源（圖片，以及 HTML 預覽引用到的網頁字型）。
 #[derive(Debug)]
-pub struct ImageFile {
+pub struct BinaryFile {
     pub path: String,
     pub name: String,
     pub size: u64,
@@ -139,13 +139,34 @@ fn is_control(byte: u8) -> bool {
     matches!(byte, 0x00..=0x08 | 0x0E..=0x1F | 0x7F)
 }
 
-/// 讀取圖片檔。
-pub fn read_image(path: &Path) -> AppResult<ImageFile> {
+/// 後端願意當二進位串流的副檔名：圖片之外只多網頁字型。
+///
+/// HTML 預覽會把外部 CSS 與 CSS 裡的 `url()` 換成 blob URL，`@font-face` 指到的
+/// `.woff2` 也走同一條路。字型是二進位檔，用文字那條讀會被 [`looks_binary`] 拒絕，
+/// 所以在這裡給它們 MIME；沒有列進來的副檔名維持原本「一律當文字讀」的行為。
+///
+/// 前端 `loadViewerBlobUrl` 只把後端給的 MIME 原樣塞進 `Blob`，所以字型不必再處理。
+pub fn resource_mime(path: &Path) -> Option<&'static str> {
+    if let Some(mime) = image_mime(path) {
+        return Some(mime);
+    }
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => return None,
+    })
+}
+
+/// 讀取二進位資源（圖片與網頁字型）。
+pub fn read_binary(path: &Path) -> AppResult<BinaryFile> {
     let resolved = normalize(path)?;
-    let Some(mime) = image_mime(&resolved) else {
+    let Some(mime) = resource_mime(&resolved) else {
         return Err(AppError::Unsupported {
             feature: format!(
-                "這種圖片格式（{}）",
+                "這種二進位格式（{}）",
                 resolved
                     .extension()
                     .map(|value| value.to_string_lossy().into_owned())
@@ -163,7 +184,7 @@ pub fn read_image(path: &Path) -> AppResult<ImageFile> {
 
     let bytes = fs::read(&resolved).map_err(|error| AppError::from_io(error, &resolved))?;
 
-    Ok(ImageFile {
+    Ok(BinaryFile {
         path: display_path(&resolved),
         name: file_name(&resolved),
         size: meta.len(),
@@ -503,6 +524,19 @@ mod tests {
     }
 
     #[test]
+    fn resource_mime_adds_web_fonts_only() {
+        // 圖片沿用同一份對照表。
+        assert_eq!(resource_mime(Path::new("a.png")), Some("image/png"));
+        assert_eq!(resource_mime(Path::new("a.woff2")), Some("font/woff2"));
+        assert_eq!(resource_mime(Path::new("a.WOFF")), Some("font/woff"));
+        assert_eq!(resource_mime(Path::new("a.ttf")), Some("font/ttf"));
+        assert_eq!(resource_mime(Path::new("a.otf")), Some("font/otf"));
+        // 其他二進位仍然當文字讀（`read_text` 會用 `looks_binary` 擋下來）。
+        assert_eq!(resource_mime(Path::new("a.mp4")), None);
+        assert_eq!(resource_mime(Path::new("a.wasm")), None);
+    }
+
+    #[test]
     fn reads_a_text_file_and_reports_errors() {
         let root = scratch("read");
         let file = root.join("note.md");
@@ -527,7 +561,7 @@ mod tests {
         let file = root.join("photo.psd");
         fs::write(&file, b"not an image").expect("write");
         assert!(matches!(
-            read_image(&file),
+            read_binary(&file),
             Err(AppError::Unsupported { .. })
         ));
     }

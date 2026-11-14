@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import type { IconName } from "@/components/common/icons";
+import QuickFiltersSettings from "./QuickFiltersSettings.vue";
 import ShortcutList from "./ShortcutList.vue";
 import ToolsSettings from "./ToolsSettings.vue";
 import * as api from "@/services/api";
@@ -21,11 +22,12 @@ import {
 } from "@/utils/viewerPanel";
 import { APP_VERSION } from "@/version";
 
-type SectionId = "general" | "browse" | "tools" | "log" | "about";
+type SectionId = "general" | "browse" | "quickfilters" | "tools" | "log" | "about";
 
 const SECTIONS: { id: SectionId; label: string; icon: IconName }[] = [
   { id: "general", label: "一般", icon: "settings" },
   { id: "browse", label: "瀏覽", icon: "folderOpen" },
+  { id: "quickfilters", label: "快速篩選", icon: "filter" },
   { id: "tools", label: "外部工具", icon: "terminal" },
   { id: "log", label: "紀錄", icon: "history" },
   { id: "about", label: "關於", icon: "info" },
@@ -456,6 +458,9 @@ async function selectSection(id: SectionId) {
 
           <!-- 外部工具 -->
           <ToolsSettings v-else-if="section === 'tools'" />
+
+          <!-- 快速篩選 -->
+          <QuickFiltersSettings v-else-if="section === 'quickfilters'" />
 
           <!-- 紀錄：撐滿可用高度（高度交給 flex 算，不必自己減一整串固定高度） -->
           <div v-else-if="section === 'log'" class="flex min-h-0 flex-1 flex-col gap-3">

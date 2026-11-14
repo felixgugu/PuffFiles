@@ -14,7 +14,7 @@ import { useSyncedNavigation } from "@/composables/useSyncedNavigation";
 import type { PaneId } from "@/types/fs";
 import { secondPaneId } from "@/utils/layout";
 import { samePath } from "@/utils/path";
-import { supportsViewerBookmarks } from "@/utils/viewer";
+import { supportsViewerBookmarks, supportsViewerScroll } from "@/utils/viewer";
 
 /**
  * 全域快速鍵。
@@ -142,10 +142,9 @@ export function useKeyboardShortcuts() {
         }
         return;
       } else if (
-        key === "Home" ||
-        key === "End" ||
-        key === "PageUp" ||
-        key === "PageDown"
+        (key === "Home" || key === "End" || key === "PageUp" || key === "PageDown") &&
+        // 只有真的能捲動的檢視器才攔：影片聚焦時 Home／End 是原生的「回到開頭／跳到結尾」。
+        supportsViewerScroll(viewer.of(paneId)?.kind ?? null)
       ) {
         // 標頭的捲動鈕同一組動作；`preventDefault` 是因為容器本身可能有焦點
         //（例如跳過書籤之後），不擋下來會捲兩次。

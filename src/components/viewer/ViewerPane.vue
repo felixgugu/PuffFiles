@@ -3,11 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
 import AppIcon from "@/components/common/AppIcon.vue";
 import ErrorBanner from "@/components/common/ErrorBanner.vue";
 import type { IconName } from "@/components/common/icons";
+import ArchiveView from "./ArchiveView.vue";
 import DirectoryTreeView from "./DirectoryTreeView.vue";
 import DocxView from "./DocxView.vue";
 import HtmlView from "./HtmlView.vue";
 import ImageView from "./ImageView.vue";
 import MarkdownView from "./MarkdownView.vue";
+import MediaView from "./MediaView.vue";
 import PdfView from "./PdfView.vue";
 import TextView from "./TextView.vue";
 import { useMarkdownOutline } from "@/composables/useMarkdownOutline";
@@ -407,6 +409,20 @@ const detail = computed(() => {
   if (!current) {
     return "";
   }
+  if (current.kind === "archive" && current.archive) {
+    const archive = current.archive;
+    if (archive.needsPassword) {
+      return "需要密碼";
+    }
+    const parts = [`${archive.entries.length} 個項目`];
+    if (archive.entries.length) {
+      parts.push(formatBytes(archive.totalSize));
+    }
+    if (archive.truncated) {
+      parts.push("已截斷");
+    }
+    return parts.join(" · ");
+  }
   if (current.kind === "directory-tree" && current.tree) {
     const tree = current.tree;
     const parts = [`${tree.directories} 個資料夾`];
@@ -535,6 +551,8 @@ function reveal() {
     <ImageView v-else-if="state.kind === 'image'" :pane-id="paneId" />
     <PdfView v-else-if="state.kind === 'pdf'" :pane-id="paneId" />
     <DocxView v-else-if="state.kind === 'docx'" :pane-id="paneId" />
+    <MediaView v-else-if="state.kind === 'audio' || state.kind === 'video'" :pane-id="paneId" />
+    <ArchiveView v-else-if="state.kind === 'archive'" :pane-id="paneId" />
     <DirectoryTreeView
       v-else-if="state.kind === 'directory-tree'"
       :pane-id="paneId"

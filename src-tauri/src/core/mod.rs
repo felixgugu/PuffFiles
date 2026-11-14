@@ -1,5 +1,6 @@
 //! 不依賴 Tauri IPC 的核心邏輯，可獨立測試。
 
+pub mod archive;
 pub mod dir;
 pub mod flat;
 pub mod oplog;

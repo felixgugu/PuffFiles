@@ -22,6 +22,18 @@ pub fn find_7zip() -> Option<PathBuf> {
     None
 }
 
+/// 找出 7-Zip 的**命令列版**（`7z.exe`）。
+///
+/// 壓縮檔檢視器要的不是 GUI 版：`7zG.exe` 沒有可以導到 stdout 的列舉輸出。
+/// 設定頁記下的路徑可能是 `7zG.exe`，所以呼叫端會先試同目錄的 `7z.exe`，
+/// 這裡只負責標準安裝位置。
+pub fn find_7zip_console() -> Option<PathBuf> {
+    program_files_dirs()
+        .into_iter()
+        .map(|base| base.join("7-Zip").join("7z.exe"))
+        .find(|candidate| candidate.is_file())
+}
+
 /// Program Files 系列目錄：去重、而且只留真的存在的。非 Windows 上自然會是空的。
 fn program_files_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();

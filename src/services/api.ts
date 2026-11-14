@@ -13,6 +13,7 @@ import {
   MOCK_QUICK_LOCATIONS,
   mockClearClipboard,
   mockCreateEntry,
+  mockListArchive,
   mockListDirectory,
   mockListDirectoryFlat,
   mockListSubdirs,
@@ -29,6 +30,7 @@ import type {
   QuickLocation,
 } from "@/types/fs";
 import type { DirectoryTreeResult, ViewerStreamEvent } from "@/types/viewer";
+import type { ArchiveListing } from "@/types/archive";
 
 export function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -212,6 +214,29 @@ export async function detect7zip(): Promise<string | null> {
     return null;
   }
   return guarded(() => invoke<string | null>("detect_7zip"));
+}
+
+/**
+ * 列出一份壓縮檔的內容（唯讀）。
+ *
+ * `sevenZip` 是設定頁裡 7-Zip 工具的路徑（後端會找同目錄的 `7z.exe`）；
+ * `password` 只給檔頭加密的壓縮檔用，不會寫進任何紀錄。
+ */
+export async function listArchive(
+  path: string,
+  sevenZip?: string | null,
+  password?: string | null,
+): Promise<ArchiveListing> {
+  if (!isDesktopRuntime()) {
+    return mockListArchive(path);
+  }
+  return guarded(() =>
+    invoke<ArchiveListing>("list_archive", {
+      path,
+      sevenZip: sevenZip ?? null,
+      password: password ?? null,
+    }),
+  );
 }
 
 /** 以系統預設程式開啟。 */

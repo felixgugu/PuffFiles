@@ -21,6 +21,7 @@ import { useUiStore } from "@/stores/ui";
 import type { MenuRequest } from "@/composables/usePathMenu";
 import type { ColumnId, FileEntry, PaneId, SortKey } from "@/types/fs";
 import { cellText } from "@/utils/fileCells";
+import { fileTypeSummary } from "@/utils/fileTypes";
 import { FLAT_VIEW_LIMIT, flatLabelOf } from "@/utils/flatView";
 import { formatCount } from "@/utils/format";
 import { normalizeKey, samePath } from "@/utils/path";
@@ -199,12 +200,21 @@ const totalHeight = computed(() => rows.value.length * rowHeight.value);
 
 const isEmpty = computed(() => pane.value.status !== "loading" && rows.value.length === 0);
 
+/** 目前選取的種類要怎麼唸（`.docx、其它`）；沒有篩選時是空字串。 */
+const typeSummary = computed(() =>
+  fileTypeSummary(pane.value.typeFilters, settings.quickFilters),
+);
+
 const emptyTitle = computed(() => {
   if (!pane.value.currentPath) {
     return "還沒有開啟資料夾";
   }
   if (pane.value.query.trim()) {
     return "沒有符合的項目";
+  }
+  // 種類篩選會跨資料夾保留，這裡要說清楚是「篩選」而不是資料夾真的空了。
+  if (pane.value.typeFilters.length) {
+    return "沒有符合種類的項目";
   }
   return pane.value.flat ? "這個資料夾（含子資料夾）沒有檔案" : "這個資料夾是空的";
 });
@@ -219,6 +229,9 @@ const emptyDescription = computed(() => {
       ? `找不到相對路徑包含「${keyword}」的檔案（含所有子資料夾）。`
       : `找不到包含「${keyword}」的檔案或資料夾。`;
   }
+  if (pane.value.typeFilters.length) {
+    return `目前只顯示 ${typeSummary.value}；按路徑列的漏斗鈕可以清除種類篩選。`;
+  }
   return pane.value.flat
     ? "子資料夾裡也沒有找到任何檔案。"
     : "可以在這裡建立新的資料夾。";
@@ -227,27 +240,36 @@ const emptyDescription = computed(() => {
 /**
  * 清單下方那一條說明：一次只說一件事，依「現在最需要知道什麼」排優先序。
  *
- * 扁平化展示是例外狀態，所以它的說明都集中在這裡：載入中（走訪整棵樹可能要好幾秒）、
- * 被 5 萬筆上限截斷、有讀不到的資料夾、以及「這個模式不會自動更新」。
+ * 種類篩選會跨資料夾保留，所以它一定排在最前面 —— 少了這一行，使用者很容易
+ * 以為新資料夾裡什麼都沒有。扁平化展示的說明（載入中、截斷、略過、不自動更新）
+ * 接在後面，兩者用小圓點隔開。
  */
 const statusNote = computed(() => {
   const current = pane.value;
+  const filterNote = current.typeFilters.length
+    ? `只顯示：${typeSummary.value}（按路徑列的漏斗鈕可清除）`
+    : "";
+
+  let detail: string | null = null;
   if (!current.flat) {
-    return current.truncated
+    detail = current.truncated
       ? `項目過多，僅顯示前 ${formatCount(rows.value.length)} 筆。`
       : null;
+  } else if (current.status === "loading") {
+    detail = `正在掃描子資料夾…（已找到 ${formatCount(current.total)} 筆）`;
+  } else if (current.truncated) {
+    detail = `檔案超過 ${formatCount(FLAT_VIEW_LIMIT)} 筆，僅列出前 ${formatCount(FLAT_VIEW_LIMIT)} 筆。`;
+  } else if (current.skipped > 0) {
+    detail = `已略過 ${formatCount(current.skipped)} 個無法讀取的資料夾。`;
+  } else if (settings.autoRefresh) {
+    // 自動重新整理本來會讓清單自己跟上變化，這裡刻意沒有；講出來免得使用者以為壞了。
+    detail = "扁平化展示不會自動更新，按 F5 重新讀取。";
   }
-  if (current.status === "loading") {
-    return `正在掃描子資料夾…（已找到 ${formatCount(current.total)} 筆）`;
+
+  if (filterNote && detail) {
+    return `${filterNote} · ${detail}`;
   }
-  if (current.truncated) {
-    return `檔案超過 ${formatCount(FLAT_VIEW_LIMIT)} 筆，僅列出前 ${formatCount(FLAT_VIEW_LIMIT)} 筆。`;
-  }
-  if (current.skipped > 0) {
-    return `已略過 ${formatCount(current.skipped)} 個無法讀取的資料夾。`;
-  }
-  // 自動重新整理本來會讓清單自己跟上變化，這裡刻意沒有；講出來免得使用者以為壞了。
-  return settings.autoRefresh ? "扁平化展示不會自動更新，按 F5 重新讀取。" : null;
+  return filterNote || detail;
 });
 
 function onScroll() {

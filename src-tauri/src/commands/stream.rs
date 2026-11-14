@@ -95,7 +95,7 @@ pub fn open_file_stream(
     if !stream::is_streamable(&resolved) {
         return Err(AppError::Unsupported {
             feature: format!(
-                "串流「{}」（目前只支援圖片、PDF 與 DOCX）",
+                "串流「{}」（目前只支援圖片、PDF、DOCX、聲音與影片）",
                 resolved
                     .file_name()
                     .map(|value| value.to_string_lossy().into_owned())
@@ -184,6 +184,12 @@ fn respond_for_file(path: &Path, range: Option<&str>, head_only: bool) -> Respon
         RangeOutcome::Partial(range) => (range.start, range.end, StatusCode::PARTIAL_CONTENT),
         RangeOutcome::Whole => (0, total.saturating_sub(1), StatusCode::OK),
     };
+    // 媒體：`Range: bytes=0-` 的結尾是整份，不能一次讀進記憶體。
+    let end = if status == StatusCode::PARTIAL_CONTENT {
+        clamp_media_end(path, start, end)
+    } else {
+        end
+    };
     let length = if total == 0 { 0 } else { end - start + 1 };
 
     let mut response = build(status, path).header(header::CONTENT_LENGTH, length.to_string());
@@ -198,6 +204,24 @@ fn respond_for_file(path: &Path, range: Option<&str>, head_only: bool) -> Respon
     match read_range(path, start, length) {
         Ok(bytes) => response.body(bytes.into()).unwrap_or_else(|_| empty(status)),
         Err(_) => plain(StatusCode::INTERNAL_SERVER_ERROR, "讀取檔案失敗"),
+    }
+}
+
+/// 聲音／影片單次回應的上限（bytes）。
+///
+/// 播放器會用 Range 再要下一段，不必一次把整部影片讀進記憶體：`Range: bytes=0-`
+/// 解析出來的結尾就是整份，一部 1 GB 的影片會直接配置 1 GB。
+const MAX_MEDIA_BODY: u64 = 8 * 1024 * 1024;
+
+/// 媒體的區段結尾上限；其他種類（DOCX 由前端 `fetch` 整份）維持原樣。
+fn clamp_media_end(path: &Path, start: u64, end: u64) -> u64 {
+    if !stream::is_media(path) {
+        return end;
+    }
+    if end.saturating_sub(start) + 1 > MAX_MEDIA_BODY {
+        start + MAX_MEDIA_BODY - 1
+    } else {
+        end
     }
 }
 
@@ -282,6 +306,21 @@ mod tests {
         assert!(response.headers().get(header::CONTENT_RANGE).is_none());
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn caps_media_ranges_but_not_other_files() {
+        let huge_end = 64 * 1024 * 1024;
+        // 媒體：一次最多 8 MB，播放器自己再要下一段。
+        assert_eq!(clamp_media_end(Path::new("a.mp4"), 0, huge_end), MAX_MEDIA_BODY - 1);
+        assert_eq!(
+            clamp_media_end(Path::new("a.mp3"), 1000, huge_end),
+            1000 + MAX_MEDIA_BODY - 1
+        );
+        assert_eq!(clamp_media_end(Path::new("a.webm"), 0, 100), 100);
+        // 其他種類不受影響：DOCX 由前端 fetch 整份，切成一半會排版失敗。
+        assert_eq!(clamp_media_end(Path::new("a.docx"), 0, huge_end), huge_end);
+        assert_eq!(clamp_media_end(Path::new("a.pdf"), 0, huge_end), huge_end);
     }
 
     #[test]

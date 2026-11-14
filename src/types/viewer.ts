@@ -1,4 +1,5 @@
 import type { AppErrorView } from "@/services/errors";
+import type { ArchiveEntry } from "@/types/archive";
 import type { PaneId } from "@/types/fs";
 import type { PanelLayout } from "@/utils/viewerPanel";
 
@@ -25,6 +26,9 @@ export type ViewerKind =
   | "text"
   | "pdf"
   | "docx"
+  | "audio"
+  | "video"
+  | "archive"
   | "directory-tree";
 
 /** 目錄樹枝的字元樣式。 */
@@ -53,6 +57,23 @@ export interface ViewerTreeState {
   files: number;
   truncated: boolean;
   skipped: number;
+}
+
+/**
+ * 壓縮檔檢視器的清單與狀態；只有 `kind === "archive"` 時才有值。
+ *
+ * 唯讀：只列項目，不解壓縮。密碼只留在記憶體（換檔就消失），不寫任何紀錄。
+ */
+export interface ViewerArchiveState {
+  entries: ArchiveEntry[];
+  totalSize: number;
+  totalPackedSize: number;
+  truncated: boolean;
+  encrypted: boolean;
+  /** 檔頭加密：列不出來，內容區顯示密碼輸入。 */
+  needsPassword: boolean;
+  /** 這次輸入的密碼（可能未驗證成功）。 */
+  password: string | null;
 }
 
 /**
@@ -105,6 +126,13 @@ export interface ViewerSearchState {
  */
 export interface ViewerPanelState {
   collapsed: boolean;
+  /**
+   * 釘選：維持展開、不隨滑鼠移開收合。
+   *
+   * 只有目錄索引的圓形模式（Markdown）有這顆按鈕；與收合狀態一樣只屬於
+   * 這一份文件（換檔就回預設）。
+   */
+  pinned: boolean;
   layout: PanelLayout;
 }
 
@@ -179,4 +207,6 @@ export interface ViewerState {
   searchPanel: ViewerPanelState;
   /** 目錄樹狀檢視器的選項與結果；其他檢視器為 `null`。 */
   tree: ViewerTreeState | null;
+  /** 壓縮檔清單；只有壓縮檔檢視器有值，其餘為 `null`。 */
+  archive: ViewerArchiveState | null;
 }

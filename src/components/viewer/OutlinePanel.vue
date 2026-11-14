@@ -5,7 +5,11 @@ import FloatingPanel from "./FloatingPanel.vue";
 import { useViewerStore } from "@/stores/viewer";
 import type { PaneId } from "@/types/fs";
 import type { OutlineItem } from "@/types/viewer";
-import { PANEL_DEFAULT_WIDTH, type PanelLayout } from "@/utils/viewerPanel";
+import {
+  estimatePanelContent,
+  PANEL_DEFAULT_WIDTH,
+  type PanelLayout,
+} from "@/utils/viewerPanel";
 
 /**
  * 檢視器右上角的目錄索引面板。
@@ -14,6 +18,9 @@ import { PANEL_DEFAULT_WIDTH, type PanelLayout } from "@/utils/viewerPanel";
  * 面板只負責畫清單 —— 位置、大小、收合、拖曳手勢在 `FloatingPanel`／`useViewerPanel`；
  * 標題錨點與捲動同步在 `useMarkdownScrollSpy`／`useScrollSpy`（由各自的檢視器持有）；
  * 這裡只量清單高度、畫出 `activeId`、把點擊與列上的動作往上送。
+ *
+ * `peek` 是 Markdown 專用的顯示模式：面板平常收成一顆圓形泡泡，滑過或聚焦才展開，
+ * 點目錄項目立刻收回去，標題列的釘選鈕可以固定展開（DOCX 的書籤目錄沒有這一套）。
  *
  * 面板的收合與位置尺寸住在 viewer 狀態（每個檢視器一份、不持久化），
  * 換一份文件就回到預設值。
@@ -32,23 +39,42 @@ const props = defineProps<{
   editable?: boolean;
   /** 面板配色跟隨底下的內容：`true` 用淺色（DOCX 的白紙），其餘跟隨主題。 */
   light?: boolean;
+  /** 圓形泡泡模式（見上方說明）。 */
+  peek?: boolean;
+  /** 釘選：維持展開（只有 `peek` 模式有這顆按鈕）。 */
+  pinned?: boolean;
 }>();
 
 const emit = defineEmits<{
   jump: [id: string];
   rename: [id: string];
   remove: [id: string];
+  togglePin: [];
 }>();
 
 const viewer = useViewerStore();
 const state = computed(() => viewer.of(props.paneId));
 
 const FALLBACK: PanelLayout = { x: null, y: 0, width: PANEL_DEFAULT_WIDTH, height: null };
-const collapsed = computed(() => state.value?.tocPanel.collapsed ?? false);
+/** 泡泡模式的收合外觀由 `FloatingPanel` 決定，這裡不套用面板自己的 `collapsed`。 */
+const collapsed = computed(() => (props.peek ? false : (state.value?.tocPanel.collapsed ?? false)));
 const initialLayout = computed(() => state.value?.tocPanel.layout ?? FALLBACK);
 
+const panel = useTemplateRef<{ collapsePeek: () => void }>("panel");
 const listEl = useTemplateRef<HTMLElement>("list");
 const listHeight = ref(0);
+
+/**
+ * 清單卸載時（收成泡泡）用列數估算內容高度：面板要拿「展開後會佔多少」去避讓
+ * 另一個浮動面板，估成 0 會讓搜尋面板貼在泡泡下緣、目錄一展開就被蓋住。
+ */
+const contentHeight = computed(() => listHeight.value || estimatePanelContent(props.items.length));
+
+const dragLabel = computed(() =>
+  props.peek
+    ? `${props.title}，移上來或聚焦即展開；可拖曳移動，方向鍵移動，Enter 收合或展開`
+    : `${props.title}，可拖曳移動；方向鍵移動，Enter 收合或展開`,
+);
 
 function measureList() {
   listHeight.value = listEl.value?.scrollHeight ?? 0;
@@ -75,57 +101,76 @@ function itemTitle(item: OutlineItem): string {
 }
 
 /** 目前項目若捲出目錄可視範圍，把它帶回清單內（只動這個清單的 scrollTop）。 */
+function scrollActiveIntoView() {
+  const id = props.activeId;
+  const list = listEl.value;
+  if (!id || !list) {
+    return;
+  }
+  const item = Array.from(list.querySelectorAll<HTMLElement>("[data-toc-id]")).find(
+    (element) => element.dataset.tocId === id,
+  );
+  if (!item) {
+    return;
+  }
+  // 用矩形差值而不是 offsetTop：面板本身是定位元素，offsetParent 不是清單。
+  const listRect = list.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  if (itemRect.top < listRect.top) {
+    list.scrollTop += itemRect.top - listRect.top;
+  } else if (itemRect.bottom > listRect.bottom) {
+    list.scrollTop += itemRect.bottom - listRect.bottom;
+  }
+}
+
+watch(() => props.activeId, scrollActiveIntoView);
+
+/*
+ * 圓形泡泡會把清單整塊卸載，重新展開時清單是新的元素（scrollTop 回到 0）：
+ * 掛上來的這一刻要把目前章節帶回可視範圍，否則每次展開都停在文件最前面。
+ */
 watch(
-  () => props.activeId,
-  (id) => {
-    const list = listEl.value;
-    if (!id || !list) {
-      return;
-    }
-    const item = Array.from(list.querySelectorAll<HTMLElement>("[data-toc-id]")).find(
-      (element) => element.dataset.tocId === id,
-    );
-    if (!item) {
-      return;
-    }
-    // 用矩形差值而不是 offsetTop：面板本身是定位元素，offsetParent 不是清單。
-    const listRect = list.getBoundingClientRect();
-    const itemRect = item.getBoundingClientRect();
-    if (itemRect.top < listRect.top) {
-      list.scrollTop += itemRect.top - listRect.top;
-    } else if (itemRect.bottom > listRect.bottom) {
-      list.scrollTop += itemRect.bottom - listRect.bottom;
+  listEl,
+  () => {
+    if (listEl.value) {
+      scrollActiveIntoView();
     }
   },
+  { flush: "post" },
 );
+
+/** 點項目：跳過去，並把泡泡收起來（釘選時由 `FloatingPanel` 自行忽略）。 */
+function onJump(id: string) {
+  emit("jump", id);
+  panel.value?.collapsePeek();
+}
 </script>
 
 <template>
   <FloatingPanel
+    ref="panel"
     :pane-id="paneId"
     panel="toc"
     :title="title"
     icon="toc"
-    :drag-label="`${title}，可拖曳移動；方向鍵移動，Enter 收合或展開`"
+    :drag-label="dragLabel"
     :resize-label="`調整${title}大小；方向鍵調整寬高`"
     :host="host"
     :light="light"
     :collapsed="collapsed"
+    :peek="peek"
+    :pinned="pinned"
     :initial-layout="initialLayout"
-    :content-height="listHeight"
+    :content-height="contentHeight"
     @persist="viewer.setPanelLayout(paneId, 'toc', $event)"
     @toggle-collapse="viewer.togglePanelCollapsed(paneId, 'toc')"
+    @toggle-pin="emit('togglePin')"
   >
     <template #actions>
       <slot name="actions" />
     </template>
 
-    <nav
-      v-if="!collapsed"
-      ref="list"
-      class="scroll-area min-h-0 flex-1 overflow-y-auto p-1"
-      :aria-label="title"
-    >
+    <nav ref="list" class="scroll-area min-h-0 flex-1 overflow-y-auto p-1" :aria-label="title">
       <div
         v-for="item in items"
         :key="item.id"
@@ -146,7 +191,7 @@ watch(
           :style="{ paddingLeft: `${8 + (item.level - 1) * 12}px` }"
           :title="itemTitle(item)"
           :aria-current="item.id === activeId ? 'location' : undefined"
-          @click="emit('jump', item.id)"
+          @click="onJump(item.id)"
         >
           <span class="flex items-center gap-1">
             <AppIcon v-if="item.stale" name="alert" :size="12" class="shrink-0" />

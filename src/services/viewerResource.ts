@@ -28,19 +28,30 @@ async function readWholeStream(
   let lastEventAt = Date.now();
   let wake: (() => void) | null = null;
 
-  await api.readViewerFile(
-    path,
-    (event) => {
-      lastEventAt = Date.now();
-      if (event.type === "done") {
-        done = true;
-      } else {
-        onEvent(event);
-      }
-      wake?.();
-    },
-    signal,
-  );
+  try {
+    await api.readViewerFile(
+      path,
+      (event) => {
+        lastEventAt = Date.now();
+        if (event.type === "done") {
+          done = true;
+        } else {
+          onEvent(event);
+        }
+        wake?.();
+      },
+      signal,
+    );
+  } catch {
+    /*
+     * 讀不到就當「這個資源不能用」：檔案不存在、權限不足、或是後端判定為二進位
+     * （例如 HTML 引用了 `.mp4`）。呼叫端本來就有「略過這個資源」的處理 ——
+     * HTML 預覽會把數量寫進提示條，Markdown 會換成「無法顯示圖片」的佔位文字，
+     * 所以不是無聲吞掉。這裡**不能**讓它往上拋：`prepare()` 的 Promise 一旦 reject，
+     * 整份 HTML 預覽就永遠停在「正在準備預覽…」。
+     */
+    return false;
+  }
 
   while (!done && !signal?.aborted && Date.now() - lastEventAt < STREAM_IDLE_TIMEOUT_MS) {
     await new Promise<void>((resolve) => {
